@@ -3,6 +3,7 @@ import type { Config } from "./config";
 import { registerTenantBot } from "./bot/tenant";
 import { createRedisConnection, createQueue } from "./infra/queue";
 import { prisma } from "./infra/persistence";
+import { logError } from "./infra/logging";
 import {
   createDeliveryService,
   createInMemoryUploadService,
@@ -35,8 +36,7 @@ const formatTelegramError = (error: unknown) => {
 export const createBot = (config: Config) => {
   const bot = new Bot(config.botToken);
   bot.catch((error) => {
-    const message = error instanceof Error ? error.message : String(error ?? "unknown error");
-    console.error("[bot]", message, formatTelegramError(error));
+    logError({ component: "bot", op: "grammy_catch", ...formatTelegramError(error) }, error);
   });
   const uploadStore = createUploadBatchStore();
   const queue: UploadQueue =
