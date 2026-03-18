@@ -7,13 +7,17 @@ import { createTenantSocial } from "../bot/tenant/social";
 import { createUploadBatchStore } from "../services/use-cases";
 import { extractStartPayloadFromText, toMetaKey } from "../bot/tenant/ui-utils";
 import {
+  footMoreCallbackRe,
+  historyMoreCallbackRe,
   historyScopeCallbackRe,
   historySetFilterCollectionCallbackRe,
   tagOpenCallbackRe
 } from "../bot/tenant/callbacks/social";
+import { rankMoreCallbackRe } from "../bot/tenant/callbacks/home";
 import { buildWorkerHeartbeatLines, parseHeartbeatAgoMin } from "../services/use-cases/worker-heartbeat";
 import { registerDeliveryModuleTests } from "./use-cases/delivery-modules";
 import { createWorkerRoutes } from "../worker/routes";
+import { buildAssetActionLine } from "../bot/tenant/index";
 
 type TestCase = { name: string; run: () => Promise<void> | void };
 
@@ -254,6 +258,56 @@ test("callbacks: history:scope 回调能正确解析列表视图", () => {
   const match = data.match(historyScopeCallbackRe);
   assert.ok(match);
   assert.equal(match?.[1], "community");
+});
+
+test("callbacks: history:more 回调能正确解析动作与页码", () => {
+  const data = "history:more:3";
+  const match = data.match(historyMoreCallbackRe);
+  assert.ok(match);
+  assert.equal(match?.[1], "more");
+  assert.equal(match?.[2], "3");
+});
+
+test("callbacks: foot:more 回调能正确解析参数", () => {
+  const data = "foot:more:like:2:30d";
+  const match = data.match(footMoreCallbackRe);
+  assert.ok(match);
+  assert.equal(match?.[1], "more");
+  assert.equal(match?.[2], "like");
+  assert.equal(match?.[3], "2");
+  assert.equal(match?.[4], "30d");
+});
+
+test("callbacks: rank:more 回调能正确解析参数", () => {
+  const data = "rank:more:week:visit";
+  const match = data.match(rankMoreCallbackRe);
+  assert.ok(match);
+  assert.equal(match?.[1], "more");
+  assert.equal(match?.[2], "week");
+  assert.equal(match?.[3], "visit");
+});
+
+test("index: 普通用户操作行仅显示点击查看", () => {
+  const line = buildAssetActionLine({
+    username: "bot_name",
+    shareCode: "abc123",
+    assetId: "asset_1",
+    canManage: false
+  });
+  assert.equal(line, '操作：<a href="https://t.me/bot_name?start=abc123">点击查看</a>');
+});
+
+test("index: 管理员操作行并排显示管理与点击查看", () => {
+  const line = buildAssetActionLine({
+    username: "bot_name",
+    shareCode: "abc123",
+    assetId: "asset_1",
+    canManage: true
+  });
+  assert.equal(
+    line,
+    '操作：<a href="https://t.me/bot_name?start=m_asset_1">管理</a> ｜ <a href="https://t.me/bot_name?start=abc123">点击查看</a>'
+  );
 });
 
 test("callbacks: tag:open 回调能正确解析 tagId 与页码", () => {

@@ -92,9 +92,10 @@ export type TenantCallbackDeps = {
       tab: "open" | "like" | "comment" | "reply",
       range: "7d" | "30d" | "all",
       page: number,
-      mode: "reply" | "edit"
+      mode: "reply" | "edit",
+      showMoreActions?: boolean
     ) => Promise<void>;
-    renderHistory: (ctx: Context, page: number, scope?: "community" | "mine") => Promise<void>;
+    renderHistory: (ctx: Context, page: number, scope?: "community" | "mine", showMoreActions?: boolean) => Promise<void>;
     renderSearch: (ctx: Context, query: string, page: number, mode: "reply" | "edit") => Promise<void>;
     renderTagIndex: (ctx: Context, mode: "reply" | "edit") => Promise<void>;
     renderTagAssets: (ctx: Context, tagId: string, page: number, mode: "reply" | "edit") => Promise<void>;
@@ -103,7 +104,7 @@ export type TenantCallbackDeps = {
     renderMy: (ctx: Context) => Promise<void>;
     renderFollow: (ctx: Context) => Promise<void>;
     renderNotifySettings: (ctx: Context) => Promise<void>;
-    renderSettings: (ctx: Context) => Promise<void>;
+    renderSettings: (ctx: Context, showMoreActions?: boolean) => Promise<void>;
     renderWelcomeSettings: (ctx: Context) => Promise<void>;
     renderAdSettings: (ctx: Context) => Promise<void>;
     renderProtectSettings: (ctx: Context) => Promise<void>;
@@ -116,6 +117,11 @@ export type TenantCallbackDeps = {
     renderBroadcastButtons: (ctx: Context) => Promise<void>;
     renderStartHome: (ctx: Context) => Promise<void>;
     renderStats: (ctx: Context) => Promise<void>;
-    renderRanking: (ctx: Context, range: "today" | "week" | "month", metric: "open" | "visit" | "like" | "comment") => Promise<void>;
+    renderRanking: (
+      ctx: Context,
+      range: "today" | "week" | "month",
+      metric: "open" | "visit" | "like" | "comment",
+      showMoreActions?: boolean
+    ) => Promise<void>;
   };
 };

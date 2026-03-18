@@ -140,23 +140,13 @@ export const buildMyKeyboard = () => {
     .text("🏠 首页", "home:back");
 };
 
-export const buildSettingsKeyboard = (options: { canManageAdmins: boolean; adminIds: string[]; canManageCollections: boolean }) => {
+export const buildSettingsKeyboard = (
+  options: { canManageAdmins: boolean; adminIds: string[]; canManageCollections: boolean },
+  showMoreActions = false
+) => {
   const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:show").text("🏠 首页", "home:back");
-  keyboard.row().text("📈 运营数据", "help:settings");
-  keyboard.row().text("📚 列表", "help:list").text("📊 统计", "home:stats").text("🏆 排行", "home:rank");
-  keyboard.row().text("🧭 浏览设置", "help:settings");
-  keyboard.row().text("🔎 搜索开放", "settings:search_mode").text("🏆 排行开放", "settings:rank_public");
-  keyboard.row().text("🙈 隐藏发布者", "settings:hide_publisher").text("🔒 内容保护", "settings:protect");
-  keyboard.row().text("🗂 内容配置", "help:settings");
-  keyboard
-    .row()
-    .text("📁 分类", "settings:collections")
-    .text("🤖 自动归类", "settings:auto_categorize")
-    .text("👋 欢迎词", "settings:welcome")
-    .text("📣 配置广告", "settings:ads");
-  keyboard.row().text("📢 推送", "settings:broadcast");
-  keyboard.row().text("🏗 运行与通知", "help:settings");
-  keyboard.row().text("🗄 存储群", "settings:vault").text("🔕 通知", "notify:show");
+  keyboard.row().text("🔎 搜索开放", "settings:search_mode").text("🙈 隐藏发布者", "settings:hide_publisher");
+  keyboard.row().text("📁 分类", "settings:collections").text("📢 推送", "settings:broadcast");
   const sortedAdminIds = [...options.adminIds].sort((a, b) => {
     try {
       const left = BigInt(a);
@@ -170,11 +160,30 @@ export const buildSettingsKeyboard = (options: { canManageAdmins: boolean; admin
     }
   });
   if (options.canManageAdmins) {
-    keyboard.row().text("👥 管理员", "help:settings");
-    keyboard.row().text("👥 管理员列表", "settings:admin:list:1");
-    keyboard.row().text("➕ 添加管理员", "settings:admin:add");
+    keyboard.row().text("👥 管理员列表", "settings:admin:list:1").text("➕ 添加管理员", "settings:admin:add");
   }
-  keyboard.row().text("🔄 刷新", "help:settings");
+  if (showMoreActions) {
+    keyboard
+      .row()
+      .text("🏆 排行开放", "settings:rank_public")
+      .text("🔒 内容保护", "settings:protect")
+      .row()
+      .text("🤖 自动归类", "settings:auto_categorize")
+      .text("👋 欢迎词", "settings:welcome")
+      .text("📣 配置广告", "settings:ads")
+      .row()
+      .text("🗄 存储群", "settings:vault")
+      .text("🔕 通知", "notify:show")
+      .row()
+      .text("📚 列表", "help:list")
+      .text("📊 统计", "home:stats")
+      .text("🏆 排行", "home:rank")
+      .row()
+      .text("🔄 刷新", "help:settings")
+      .text("⬆️ 收起", "settings:less");
+  } else {
+    keyboard.row().text("🔄 刷新", "help:settings").text("⋯ 更多", "settings:more");
+  }
   return keyboard;
 };
 
@@ -326,11 +335,8 @@ export const buildRankingKeyboard = (options: {
   range: "today" | "week" | "month";
   metric: "open" | "visit" | "like" | "comment";
   isTenant: boolean;
-}) => {
-  const keyboard = new InlineKeyboard().text("🏠 首页", "home:back").text("📚 列表", "help:list");
-  if (options.isTenant) {
-    keyboard.text("📊 统计", "home:stats");
-  }
+}, showMoreActions = false) => {
+  const keyboard = new InlineKeyboard();
   keyboard
     .row()
     .text(options.metric === "open" ? "浏览 ✅" : "浏览", "rank:metric:open")
@@ -344,8 +350,16 @@ export const buildRankingKeyboard = (options: {
     .text(options.range === "today" ? "今日 ✅" : "今日", "rank:range:today")
     .text(options.range === "week" ? "本周 ✅" : "本周", "rank:range:week")
     .text(options.range === "month" ? "本月 ✅" : "本月", "rank:range:month");
-  if (!options.isTenant) {
-    keyboard.row().text("👣 足迹", "user:history");
+  if (showMoreActions) {
+    keyboard
+      .row()
+      .text("🏠 首页", "home:back")
+      .text("📚 列表", "help:list")
+      .text(options.isTenant ? "📊 统计" : "👣 足迹", options.isTenant ? "home:stats" : "user:history")
+      .row()
+      .text("⬆️ 收起", `rank:less:${options.range}:${options.metric}`);
+  } else {
+    keyboard.row().text("⋯ 更多", `rank:more:${options.range}:${options.metric}`);
   }
   return keyboard;
 };
@@ -506,7 +520,8 @@ export const buildHistoryKeyboard = (
   totalPages: number,
   filterLabel: string,
   date: Date,
-  scope: "community" | "mine"
+  scope: "community" | "mine",
+  showMoreActions = false
 ) => {
   const current = page < 1 ? 1 : page;
   const maxPage = totalPages < 1 ? 1 : totalPages;
@@ -521,7 +536,7 @@ export const buildHistoryKeyboard = (
   const dateStart = startOfLocalDay(date);
   const prevDayAction = "history:day:prev";
   const nextDayAction = dateStart.getTime() < todayStart.getTime() ? "history:day:next" : "history:noop";
-  return new InlineKeyboard()
+  const keyboard = new InlineKeyboard()
     .text(scope === "community" ? "🌐 社区 ✅" : "🌐 社区", scope === "community" ? "history:noop" : "history:scope:community")
     .text(scope === "mine" ? "👤 我的 ✅" : "👤 我的", scope === "mine" ? "history:noop" : "history:scope:mine")
     .row()
@@ -532,15 +547,23 @@ export const buildHistoryKeyboard = (
     .text("📅 今天", "history:day:today")
     .text("🔄 刷新", `history:refresh:${current}`)
     .row()
-    .text("📁 筛选", "history:filter")
-    .text(filterLabel, "history:noop")
-    .row()
     .text("⬅️ 上一页", prevAction)
     .text(`${current}/${maxPage}`, "history:noop")
-    .text("下一页 ➡️", nextAction)
-    .row()
-    .text("🏆 排行", "home:rank")
-    .text("🏠 首页", "home:back");
+    .text("下一页 ➡️", nextAction);
+  if (showMoreActions) {
+    keyboard
+      .row()
+      .text("📁 筛选", "history:filter")
+      .text(filterLabel, "history:noop")
+      .row()
+      .text("🏆 排行", "home:rank")
+      .text("🏠 首页", "home:back")
+      .row()
+      .text("⬆️ 收起", `history:less:${current}`);
+  } else {
+    keyboard.row().text("⋯ 更多", `history:more:${current}`);
+  }
+  return keyboard;
 };
 
 export const buildUserHistoryKeyboard = (page: number, totalPages: number) => {
@@ -565,7 +588,7 @@ export const buildFootprintKeyboard = (options: {
   range: "7d" | "30d" | "all";
   page: number;
   totalPages: number;
-}) => {
+}, showMoreActions = false) => {
   const current = options.page < 1 ? 1 : options.page;
   const maxPage = options.totalPages < 1 ? 1 : options.totalPages;
   const prev = current > 1 ? current - 1 : 1;
@@ -573,7 +596,6 @@ export const buildFootprintKeyboard = (options: {
   const range = options.range;
   const prevAction = current > 1 ? `foot:page:${options.tab}:${prev}:${range}` : "foot:noop";
   const nextAction = current < maxPage ? `foot:page:${options.tab}:${next}:${range}` : "foot:noop";
-  const rangeLabel = range === "7d" ? "⏱ 近7天" : range === "30d" ? "⏱ 近30天" : "⏱ 全部";
   const keyboard = new InlineKeyboard()
     .text(options.tab === "open" ? "最近浏览 ✅" : "最近浏览", "foot:tab:open")
     .text(options.tab === "like" ? "点赞 ✅" : "点赞", "foot:tab:like")
@@ -582,14 +604,21 @@ export const buildFootprintKeyboard = (options: {
     .text(options.tab === "reply" ? "回复 ✅" : "回复", "foot:tab:reply");
   keyboard
     .row()
-    .text("🔄 刷新", `foot:refresh:${options.tab}:${current}:${range}`)
-    .text(rangeLabel, `foot:range:${options.tab}:${range}`)
-    .text("🏠 首页", "home:back");
-  keyboard
-    .row()
     .text("⬅️ 上一页", prevAction)
     .text(`${current}/${maxPage}`, "foot:noop")
     .text("下一页 ➡️", nextAction);
+  if (showMoreActions) {
+    const rangeLabel = range === "7d" ? "⏱ 近7天" : range === "30d" ? "⏱ 近30天" : "⏱ 全部";
+    keyboard
+      .row()
+      .text("🔄 刷新", `foot:refresh:${options.tab}:${current}:${range}`)
+      .text(rangeLabel, `foot:range:${options.tab}:${range}`)
+      .text("🏠 首页", "home:back")
+      .row()
+      .text("⬆️ 收起", `foot:less:${options.tab}:${current}:${range}`);
+  } else {
+    keyboard.row().text("⋯ 更多", `foot:more:${options.tab}:${current}:${range}`);
+  }
   return keyboard;
 };
 

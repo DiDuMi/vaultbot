@@ -76,7 +76,8 @@ export const createTenantRenderers = (deps: {
   const renderRanking = async (
     ctx: Context,
     range: "today" | "week" | "month" = "month",
-    metric: "open" | "visit" | "like" | "comment" = "open"
+    metric: "open" | "visit" | "like" | "comment" = "open",
+    showMoreActions = false
   ) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
@@ -117,7 +118,7 @@ export const createTenantRenderers = (deps: {
             : metric === "comment"
               ? "🏆 暂无评论数据。"
               : "🏆 暂无浏览数据。";
-      await upsertHtml(ctx, emptyText, buildRankingKeyboard({ range, metric, isTenant }));
+      await upsertHtml(ctx, emptyText, buildRankingKeyboard({ range, metric, isTenant }, showMoreActions));
       return;
     }
     const username = ctx.me?.username;
@@ -148,7 +149,7 @@ export const createTenantRenderers = (deps: {
         })
       )
     ).join("\n\n");
-    await upsertHtml(ctx, `🏆 排行（${rangeTitle} · ${metricTitle}）\n\n${content}`, buildRankingKeyboard({ range, metric, isTenant }));
+    await upsertHtml(ctx, `🏆 排行｜${rangeTitle}·${metricTitle}\n\n${content}`, buildRankingKeyboard({ range, metric, isTenant }, showMoreActions));
   };
 
   const renderHelp = async (ctx: Context) => {
@@ -329,7 +330,7 @@ export const createTenantRenderers = (deps: {
     await upsertHtml(ctx, text, buildNotifyKeyboard(settings));
   };
 
-  const renderSettings = async (ctx: Context) => {
+  const renderSettings = async (ctx: Context, showMoreActions = false) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
       await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法打开设置。", buildHelpKeyboard());
@@ -390,7 +391,7 @@ export const createTenantRenderers = (deps: {
     ]
       .filter(Boolean)
       .join("\n");
-    await upsertHtml(ctx, text, buildSettingsKeyboard({ canManageAdmins, adminIds, canManageCollections }));
+    await upsertHtml(ctx, text, buildSettingsKeyboard({ canManageAdmins, adminIds, canManageCollections }, showMoreActions));
   };
 
   const renderVaultSettings = async (ctx: Context) => {

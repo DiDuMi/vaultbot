@@ -35,6 +35,16 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
     await renderSettings(ctx);
   });
 
+  bot.callbackQuery("settings:more", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await renderSettings(ctx, true);
+  });
+
+  bot.callbackQuery("settings:less", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await renderSettings(ctx, false);
+  });
+
   bot.callbackQuery("settings:collections", async (ctx) => {
     const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
     if (ctx.from && chatId) {

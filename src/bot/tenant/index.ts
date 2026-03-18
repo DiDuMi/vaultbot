@@ -74,6 +74,28 @@ const formatReceivedHint = (count: number) => {
   return `${base}+`;
 };
 
+const ASSET_ACTION_LABEL = "操作";
+const ASSET_ACTION_SEPARATOR = " ｜ ";
+
+export const buildAssetActionLine = (options: {
+  username?: string;
+  shareCode?: string | null;
+  assetId: string;
+  canManage: boolean;
+}) => {
+  const manageCode = `m_${options.assetId}`;
+  const manageLink = options.canManage && options.username ? `https://t.me/${options.username}?start=${manageCode}` : undefined;
+  const openLink =
+    options.shareCode && options.username ? `https://t.me/${options.username}?start=${encodeURIComponent(options.shareCode)}` : undefined;
+  const line = [
+    manageLink ? `<a href="${escapeHtml(manageLink)}">管理</a>` : "",
+    openLink ? `<a href="${escapeHtml(openLink)}">点击查看</a>` : ""
+  ]
+    .filter(Boolean)
+    .join(ASSET_ACTION_SEPARATOR);
+  return line ? `${ASSET_ACTION_LABEL}：${line}` : "";
+};
+
 const toUploadMessage = (message: Message, kind: UploadMessage["kind"]): UploadMessage => {
   const fileId =
     kind === "photo"
@@ -814,7 +836,8 @@ export const registerTenantBot = (
     tab: "open" | "like" | "comment" | "reply",
     range: "7d" | "30d" | "all",
     page: number,
-    mode: "reply" | "edit"
+    mode: "reply" | "edit",
+    showMoreActions = false
   ) => {
     if (!ctx.from) {
       return;
@@ -881,8 +904,8 @@ export const registerTenantBot = (
               : "📭 暂无回复。";
       await upsertHtml(
         ctx,
-        `<b>👣 足迹</b>\n\n<b>${tabTitle}</b>（${rangeTitle}）\n\n${message}`,
-        buildFootprintKeyboard({ tab, range, page: 1, totalPages: 1 })
+        `<b>👣 足迹｜${tabTitle}（${rangeTitle}）</b>\n\n${message}`,
+        buildFootprintKeyboard({ tab, range, page: 1, totalPages: 1 }, showMoreActions)
       );
       return;
     }
@@ -898,7 +921,7 @@ export const registerTenantBot = (
           const titleLine = `<b>${order}. ${titleText}</b>`;
           const openLine = openLink ? `打开：<a href="${escapeHtml(openLink)}">点击查看</a>` : "";
           const at = (item as { at: Date }).at;
-          const timeLabel = tab === "open" ? "浏览时间" : tab === "like" ? "点赞时间" : tab === "comment" ? "评论时间" : "回复时间";
+          const timeLabel = tab === "open" ? "浏览" : tab === "like" ? "点赞" : tab === "comment" ? "评论" : "回复";
           const timeLine = `${timeLabel}：<b>${escapeHtml(formatLocalDateTime(at))}</b>`;
           return [
             titleLine,
@@ -912,8 +935,8 @@ export const registerTenantBot = (
     ).join("\n\n");
     await upsertHtml(
       ctx,
-      [`<b>👣 足迹</b>`, "", `<b>${tabTitle}</b>（${rangeTitle}，每页 10 条）`, "", content].join("\n"),
-      buildFootprintKeyboard({ tab, range, page: currentPage, totalPages })
+      [`<b>👣 足迹｜${tabTitle}（${rangeTitle}，每页 10 条）</b>`, "", content].join("\n"),
+      buildFootprintKeyboard({ tab, range, page: currentPage, totalPages }, showMoreActions)
     );
   };
 
@@ -921,7 +944,7 @@ export const registerTenantBot = (
     await renderFootprint(ctx, "open", "30d", 1, "reply");
   });
 
-  const renderHistory = async (ctx: Context, page: number, scope?: "community" | "mine") => {
+  const renderHistory = async (ctx: Context, page: number, scope?: "community" | "mine", showMoreActions = false) => {
     const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
     if (!ctx.from || !chatId) {
       return;
@@ -981,18 +1004,21 @@ export const registerTenantBot = (
     const viewerUserId = ctx.from ? String(ctx.from.id) : null;
     const hidePublisherEnabled = await deliveryService.getTenantHidePublisherEnabled().catch(() => false);
     const isTenantViewer = viewerUserId ? await deliveryService.isTenantUser(viewerUserId).catch(() => false) : false;
+    const canManageViewer = isTenantViewer && viewerUserId ? await deliveryService.canManageAdmins(viewerUserId).catch(() => false) : false;
     const content = (
       await Promise.all(
         data.items.map(async (item, index) => {
         const order = (currentPage - 1) * historyPageSize + index + 1;
-        const manageCode = `m_${item.assetId}`;
-        const manageLink = username ? `https://t.me/${username}?start=${manageCode}` : undefined;
         const titleText = escapeHtml(stripHtmlTags(item.title));
-        const titleLine = manageLink
-          ? `<b><a href="${escapeHtml(manageLink)}">${order}. ${titleText}</a></b>`
-          : `<b>${order}. ${titleText}</b>`;
+        const titleLine = `<b>${order}. ${titleText}</b>`;
         const desc = item.description ? sanitizeTelegramHtml(item.description) : "";
         const descLine = desc ? `<blockquote expandable>${desc}</blockquote>` : "";
+        const actionLine = buildAssetActionLine({
+          username,
+          shareCode: item.shareCode,
+          assetId: item.assetId,
+          canManage: canManageViewer
+        });
         const publisherLine =
           !item.publisherUserId
             ? ""
@@ -1002,8 +1028,7 @@ export const registerTenantBot = (
         return [
           titleLine,
           publisherLine,
-          manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : "",
-          item.shareCode ? `打开哈希：<code>${escapeHtml(item.shareCode)}</code>` : "",
+          actionLine,
           `条数：<b>${item.count}</b>`,
           descLine
         ]
@@ -1015,7 +1040,7 @@ export const registerTenantBot = (
     const scopeLabel = selectedScope === "mine" ? "我的发布" : "社区发布";
     const title = `📚 列表（${escapeHtml(formatLocalDate(selectedDate))}｜${scopeLabel}，每页 10 条）`;
     const message = data.total === 0 ? `${title}\n\n📭 当天暂无发布。` : `${title}\n\n${content}`;
-    await upsertHtml(ctx, message, buildHistoryKeyboard(currentPage, totalPages, filterLabel, selectedDate, selectedScope));
+    await upsertHtml(ctx, message, buildHistoryKeyboard(currentPage, totalPages, filterLabel, selectedDate, selectedScope, showMoreActions));
   };
 
   const buildSearchKeyboard = (currentPage: number, totalPages: number) => {
@@ -1049,6 +1074,7 @@ export const registerTenantBot = (
       return;
     }
     const isTenant = await deliveryService.isTenantUser(userId).catch(() => false);
+    const canManageViewer = isTenant ? await deliveryService.canManageAdmins(userId).catch(() => false) : false;
     if (!isTenant) {
       if (searchMode !== "PUBLIC") {
         await replyHtml(ctx, "🔒 租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
@@ -1091,14 +1117,13 @@ export const registerTenantBot = (
         const order = (currentPage - 1) * pageSize + index + 1;
         const safeTitle = sanitizeTelegramHtml(item.title);
         const titleLine = safeTitle ? `<b>${order}. ${safeTitle}</b>` : `<b>${order}.</b>`;
-        const shareCode = item.shareCode?.trim() ?? "";
-        const openLine =
-          shareCode && username
-            ? `点击查看：<a href="https://t.me/${escapeHtml(username)}?start=${escapeHtml(shareCode)}">${escapeHtml(shareCode)}</a>`
-            : shareCode
-              ? `点击查看：<code>${escapeHtml(shareCode)}</code>`
-              : "";
-        return [titleLine, openLine].filter(Boolean).join("\n");
+        const actionLine = buildAssetActionLine({
+          username,
+          shareCode: item.shareCode,
+          assetId: item.assetId,
+          canManage: canManageViewer
+        });
+        return [titleLine, actionLine].filter(Boolean).join("\n");
       })
       .filter(Boolean)
       .join("\n\n");
@@ -1153,6 +1178,7 @@ export const registerTenantBot = (
       return;
     }
     const isTenant = await deliveryService.isTenantUser(userId).catch(() => false);
+    const canManageViewer = isTenant ? await deliveryService.canManageAdmins(userId).catch(() => false) : false;
     if (!isTenant) {
       if (searchMode !== "PUBLIC") {
         await replyHtml(ctx, "🔒 租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
@@ -1192,6 +1218,7 @@ export const registerTenantBot = (
       return;
     }
     const isTenant = await deliveryService.isTenantUser(userId).catch(() => false);
+    const canManageViewer = isTenant ? await deliveryService.canManageAdmins(userId).catch(() => false) : false;
     if (!isTenant) {
       if (searchMode !== "PUBLIC") {
         await replyHtml(ctx, "🔒 租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
@@ -1228,12 +1255,13 @@ export const registerTenantBot = (
       .map((item) => {
         const safeTitle = sanitizeTelegramHtml(item.title);
         const titleLine = safeTitle ? `<b>${safeTitle}</b>` : "";
-        const shareCode = item.shareCode?.trim() ?? "";
-        const openLine =
-          shareCode && username
-            ? `点击查看：<a href="https://t.me/${escapeHtml(username)}?start=${escapeHtml(shareCode)}">${escapeHtml(shareCode)}</a>`
-            : "";
-        return [titleLine, openLine].filter(Boolean).join("\n");
+        const actionLine = buildAssetActionLine({
+          username,
+          shareCode: item.shareCode,
+          assetId: item.assetId,
+          canManage: canManageViewer
+        });
+        return [titleLine, actionLine].filter(Boolean).join("\n");
       })
       .filter(Boolean)
       .join("\n\n");
@@ -1568,7 +1596,9 @@ export const registerTenantBot = (
       if (mode === "searchInput" && !isTopLevelCommand && !text.startsWith("/") && text.trim().length >= 1) {
         const query = text.trim();
         searchStates.set(key, { query });
-        setSessionMode(key, "idle");
+        if (query.length >= 2) {
+          setSessionMode(key, "idle");
+        }
         await renderSearch(ctx, query, 1, "reply");
         return;
       }
@@ -1628,7 +1658,7 @@ export const registerTenantBot = (
       if (ctx.from && ctx.chat) {
         const key = toMetaKey(ctx.from.id, ctx.chat.id);
         searchStates.set(key, { query });
-        setSessionMode(key, "idle");
+        setSessionMode(key, query.length >= 2 ? "idle" : "searchInput");
       }
       await renderSearch(ctx, query, 1, "reply");
       return;

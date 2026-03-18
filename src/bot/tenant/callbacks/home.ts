@@ -2,6 +2,8 @@ import type { Bot } from "grammy";
 import { toMetaKey } from "../ui-utils";
 import type { TenantCallbackDeps } from "./types";
 
+export const rankMoreCallbackRe = /^rank:(more|less):(today|week|month):(open|visit|like|comment)$/;
+
 export const registerHomeCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
   const { renderStartHome, renderStats, renderRanking } = deps.renderers;
 
@@ -39,5 +41,13 @@ export const registerRankingCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
     const range = chatId && ctx.from ? rankingViewStates.get(toMetaKey(ctx.from.id, chatId))?.range ?? "month" : "month";
     await renderRanking(ctx, range, metric);
+  });
+
+  bot.callbackQuery(rankMoreCallbackRe, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const action = ctx.match?.[1] ?? "more";
+    const range = (ctx.match?.[2] ?? "month") as "today" | "week" | "month";
+    const metric = (ctx.match?.[3] ?? "open") as "open" | "visit" | "like" | "comment";
+    await renderRanking(ctx, range, metric, action === "more");
   });
 };

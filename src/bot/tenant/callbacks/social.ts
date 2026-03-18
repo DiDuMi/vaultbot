@@ -6,6 +6,8 @@ import type { TenantCallbackDeps } from "./types";
 export const commentListCallbackRe = /^comment:list:([^:]+):(\d+)(?::(\d+))?$/;
 export const historySetFilterCollectionCallbackRe = /^history:setfilter:collection:([^:]+)$/;
 export const historyScopeCallbackRe = /^history:scope:(community|mine)$/;
+export const historyMoreCallbackRe = /^history:(more|less):(\d+)$/;
+export const footMoreCallbackRe = /^foot:(more|less):(open|like|comment|reply):(\d+):(7d|30d|all)$/;
 export const tagOpenCallbackRe = /^tag:open:([^:]+):(\d+)$/;
 export const tagPageCallbackRe = /^tag:page:([^:]+):(\d+)$/;
 export const tagRefreshCallbackRe = /^tag:refresh:([^:]+):(\d+)$/;
@@ -170,7 +172,17 @@ export const registerFootprintCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
     const current = (ctx.match?.[2] ?? "30d") as "7d" | "30d" | "all";
     const next = current === "7d" ? "30d" : current === "30d" ? "all" : "7d";
     await ctx.answerCallbackQuery();
-    await renderFootprint(ctx, tab, next, 1, "edit");
+    await renderFootprint(ctx, tab, next, 1, "edit", true);
+  });
+
+  bot.callbackQuery(footMoreCallbackRe, async (ctx) => {
+    const action = ctx.match?.[1] ?? "more";
+    const tab = (ctx.match?.[2] ?? "open") as "open" | "like" | "comment" | "reply";
+    const page = Number(ctx.match?.[3] ?? "1");
+    const range = (ctx.match?.[4] ?? "30d") as "7d" | "30d" | "all";
+    await ctx.answerCallbackQuery();
+    const showMoreActions = action === "more";
+    await renderFootprint(ctx, tab, range, Number.isFinite(page) ? page : 1, "edit", showMoreActions);
   });
 
   bot.callbackQuery(/^uh:page:(\d+)$/, async (ctx) => {
@@ -221,6 +233,18 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     }
     await ctx.answerCallbackQuery();
     await renderHistory(ctx, Number.isFinite(page) ? page : 1);
+  });
+
+  bot.callbackQuery(historyMoreCallbackRe, async (ctx) => {
+    const action = ctx.match?.[1] ?? "more";
+    const page = Number(ctx.match?.[2] ?? "1");
+    if (!deliveryService) {
+      await ctx.answerCallbackQuery({ text: "当前未启用数据库", show_alert: true });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const showMoreActions = action === "more";
+    await renderHistory(ctx, Number.isFinite(page) ? page : 1, undefined, showMoreActions);
   });
 
   bot.callbackQuery("history:day:prev", async (ctx) => {
