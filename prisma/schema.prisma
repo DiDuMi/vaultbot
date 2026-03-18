@@ -1,0 +1,413 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantSearchMode {
+  OFF
+  ENTITLED_ONLY
+  PUBLIC
+}
+
+enum Visibility {
+  PUBLIC
+  PROTECTED
+  RESTRICTED
+}
+
+enum TenantMemberRole {
+  OWNER
+  ADMIN
+  EDITOR
+  SUPPORT
+  ANALYST
+}
+
+enum VaultGroupStatus {
+  ACTIVE
+  DEGRADED
+  BANNED
+}
+
+enum VaultBindingRole {
+  PRIMARY
+  BACKUP
+  COLD
+}
+
+enum ReplicaStatus {
+  ACTIVE
+  BAD
+  EVICTED
+}
+
+enum EventType {
+  IMPRESSION
+  OPEN
+  SEARCH
+  LIKE
+  UNLIKE
+  FAVORITE
+  UNFAVORITE
+  PUSH_CLICK
+  SUPPORT_MESSAGE
+}
+
+enum UploadBatchStatus {
+  COMMITTED
+  CANCELED
+}
+
+enum UploadItemStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum BroadcastStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+model Tenant {
+  id          String             @id @default(cuid())
+  code        String             @unique
+  name        String
+  description String?
+  searchMode  TenantSearchMode   @default(ENTITLED_ONLY)
+  visibility  Visibility         @default(PROTECTED)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  members     TenantMember[]
+  users       TenantUser[]
+  vaultGroups VaultGroup[]
+  bindings    TenantVaultBinding[]
+  topics      TenantTopic[]
+  assets      Asset[]
+  collections Collection[]
+  tags        Tag[]
+  rules       PermissionRule[]
+  events      Event[]
+  uploadBatches UploadBatch[]
+  assetComments AssetComment[]
+  assetCommentLikes AssetCommentLike[]
+  assetLikes AssetLike[]
+  preferences UserPreference[]
+  settings    TenantSetting[]
+  broadcasts  Broadcast[]
+}
+
+model TenantMember {
+  id        String           @id @default(cuid())
+  tenantId  String
+  tgUserId  String
+  role      TenantMemberRole
+  createdAt DateTime         @default(now())
+  tenant    Tenant           @relation(fields: [tenantId], references: [id])
+  @@unique([tenantId, tgUserId])
+}
+
+model TenantUser {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tgUserId     String
+  username     String?
+  firstName    String?
+  lastName     String?
+  languageCode String?
+  isBot        Boolean  @default(false)
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  @@unique([tenantId, tgUserId])
+  @@index([tenantId, tgUserId])
+  @@index([tenantId, username])
+}
+
+model VaultGroup {
+  id        String           @id @default(cuid())
+  tenantId  String
+  chatId    BigInt
+  status    VaultGroupStatus @default(ACTIVE)
+  createdAt DateTime         @default(now())
+  tenant    Tenant           @relation(fields: [tenantId], references: [id])
+  bindings  TenantVaultBinding[]
+  topics    TenantTopic[]
+  replicas  AssetReplica[]
+  @@unique([tenantId, chatId])
+}
+
+model TenantVaultBinding {
+  id          String           @id @default(cuid())
+  tenantId    String
+  vaultGroupId String
+  role        VaultBindingRole
+  createdAt   DateTime         @default(now())
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  vaultGroup  VaultGroup       @relation(fields: [vaultGroupId], references: [id])
+  @@unique([tenantId, vaultGroupId, role])
+}
+
+model TenantTopic {
+  id          String   @id @default(cuid())
+  tenantId    String
+  vaultGroupId String
+  collectionId String   @default("none")
+  messageThreadId BigInt?
+  indexMessageId BigInt?
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  vaultGroup  VaultGroup @relation(fields: [vaultGroupId], references: [id])
+  @@unique([tenantId, vaultGroupId, collectionId, version])
+}
+
+model Asset {
+  id          String     @id @default(cuid())
+  tenantId    String
+  collectionId String?
+  title       String
+  description String?
+  shareCode   String?    @unique
+  visibility  Visibility @default(PROTECTED)
+  searchable  Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  collection  Collection? @relation(fields: [collectionId], references: [id])
+  replicas    AssetReplica[]
+  tags        AssetTag[]
+  rules       PermissionRule[]
+  events      Event[]
+  uploadBatches UploadBatch[]
+  comments    AssetComment[]
+  likes       AssetLike[]
+  @@index([tenantId, collectionId])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  assets    AssetTag[]
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model AssetTag {
+  id        String   @id @default(cuid())
+  tenantId  String
+  assetId   String
+  tagId     String
+  createdAt DateTime @default(now())
+  asset     Asset    @relation(fields: [assetId], references: [id])
+  tag       Tag      @relation(fields: [tagId], references: [id])
+  @@unique([assetId, tagId])
+  @@index([tenantId, tagId, createdAt])
+  @@index([tenantId, assetId, createdAt])
+}
+
+model AssetReplica {
+  id            String        @id @default(cuid())
+  assetId       String
+  uploadItemId  String?
+  vaultGroupId  String
+  messageId     BigInt
+  messageThreadId BigInt?
+  fileUniqueId  String?
+  size          Int?
+  hash          String?
+  status        ReplicaStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+  asset         Asset         @relation(fields: [assetId], references: [id])
+  uploadItem    UploadItem?   @relation(fields: [uploadItemId], references: [id])
+  vaultGroup    VaultGroup    @relation(fields: [vaultGroupId], references: [id])
+  @@unique([assetId, uploadItemId, vaultGroupId])
+  @@unique([vaultGroupId, messageId])
+  @@index([assetId, vaultGroupId])
+}
+
+model Collection {
+  id          String     @id @default(cuid())
+  tenantId    String
+  title       String
+  searchable  Boolean    @default(true)
+  visibility  Visibility @default(PROTECTED)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  assets      Asset[]
+  rules       PermissionRule[]
+}
+
+model PermissionRule {
+  id           String   @id @default(cuid())
+  tenantId     String
+  collectionId String?
+  assetId      String?
+  allowRoles   String[]
+  allowTags    String[]
+  allowUserIds String[]
+  denyUserIds  String[]
+  createdAt    DateTime @default(now())
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  collection   Collection? @relation(fields: [collectionId], references: [id])
+  asset        Asset?       @relation(fields: [assetId], references: [id])
+}
+
+model Event {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  assetId   String?
+  type      EventType
+  payload   Json?
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  asset     Asset?   @relation(fields: [assetId], references: [id])
+  @@index([tenantId, userId, type])
+}
+
+model UploadBatch {
+  id        String            @id @default(cuid())
+  tenantId  String
+  assetId   String
+  userId    String
+  chatId    String
+  status    UploadBatchStatus
+  createdAt DateTime          @default(now())
+  items     UploadItem[]
+  tenant    Tenant            @relation(fields: [tenantId], references: [id])
+  asset     Asset             @relation(fields: [assetId], references: [id])
+  @@index([tenantId, assetId])
+}
+
+model UploadItem {
+  id        String      @id @default(cuid())
+  batchId   String
+  messageId String
+  chatId    String
+  kind      String
+  mediaGroupId String?
+  fileId   String?
+  status    UploadItemStatus @default(PENDING)
+  lastError String?
+  createdAt DateTime    @default(now())
+  batch     UploadBatch @relation(fields: [batchId], references: [id])
+  replicas  AssetReplica[]
+  @@index([batchId])
+}
+
+model UserPreference {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tgUserId  String
+  key       String
+  value     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  @@unique([tenantId, tgUserId, key])
+  @@index([tenantId, tgUserId])
+}
+
+model TenantSetting {
+  id        String   @id @default(cuid())
+  tenantId  String
+  key       String
+  value     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+model Broadcast {
+  id            String          @id @default(cuid())
+  tenantId      String
+  creatorUserId String
+  creatorChatId String
+  status        BroadcastStatus @default(DRAFT)
+  contentHtml   String
+  mediaKind     String?
+  mediaFileId   String?
+  buttons       Json?
+  nextRunAt     DateTime?
+  repeatEveryMs Int?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  tenant        Tenant          @relation(fields: [tenantId], references: [id])
+  runs          BroadcastRun[]
+  @@index([tenantId, status, nextRunAt])
+}
+
+model BroadcastRun {
+  id           String    @id @default(cuid())
+  broadcastId  String
+  targetCount  Int
+  successCount Int
+  failedCount  Int
+  blockedCount Int
+  errorsSample Json?
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  broadcast    Broadcast @relation(fields: [broadcastId], references: [id])
+  @@index([broadcastId, startedAt])
+}
+
+model AssetComment {
+  id        String   @id @default(cuid())
+  tenantId  String
+  assetId   String
+  authorUserId String
+  authorName String?
+  content   String
+  replyToCommentId String?
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  asset     Asset    @relation(fields: [assetId], references: [id])
+  replyTo   AssetComment? @relation("AssetCommentReplies", fields: [replyToCommentId], references: [id])
+  replies   AssetComment[] @relation("AssetCommentReplies")
+  likes     AssetCommentLike[]
+  @@index([tenantId, assetId, createdAt])
+  @@index([tenantId, authorUserId, createdAt])
+}
+
+model AssetCommentLike {
+  id        String   @id @default(cuid())
+  tenantId  String
+  commentId String
+  userId    String
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  comment   AssetComment @relation(fields: [commentId], references: [id])
+  @@unique([tenantId, commentId, userId])
+  @@index([tenantId, commentId, createdAt])
+  @@index([tenantId, userId, createdAt])
+}
+
+model AssetLike {
+  id        String   @id @default(cuid())
+  tenantId  String
+  assetId   String
+  userId    String
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  asset     Asset    @relation(fields: [assetId], references: [id])
+  @@unique([tenantId, assetId, userId])
+  @@index([tenantId, assetId, createdAt])
+  @@index([tenantId, userId, createdAt])
+}

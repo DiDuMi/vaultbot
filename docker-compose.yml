@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vaultbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vaultbot}
+      POSTGRES_DB: ${POSTGRES_DB:-vaultbot}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+
+  app:
+    build: .
+    image: vaultbot:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3002
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vaultbot}:${POSTGRES_PASSWORD:-vaultbot}@postgres:5432/${POSTGRES_DB:-vaultbot}
+      REDIS_URL: ${REDIS_URL_INTERNAL:-redis://redis:6379}
+    ports:
+      - "3002:3002"
+
+  worker:
+    image: vaultbot:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vaultbot}:${POSTGRES_PASSWORD:-vaultbot}@postgres:5432/${POSTGRES_DB:-vaultbot}
+      REDIS_URL: ${REDIS_URL_INTERNAL:-redis://redis:6379}
+    command: ["node", "dist/worker/index.js"]
+
+volumes:
+  pgdata:
+  redisdata:

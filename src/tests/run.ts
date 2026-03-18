@@ -1,0 +1,358 @@
+import assert from "node:assert/strict";
+import { createTenantAdminInput } from "../bot/tenant/admin-input";
+import { createBatchActions } from "../bot/tenant/batch-actions";
+import { createOpenHandler } from "../bot/tenant/open";
+import { commentListCallbackRe } from "../bot/tenant/callbacks/social";
+import { createTenantSocial } from "../bot/tenant/social";
+import { createUploadBatchStore } from "../services/use-cases";
+import { extractStartPayloadFromText, toMetaKey } from "../bot/tenant/ui-utils";
+import {
+  historyScopeCallbackRe,
+  historySetFilterCollectionCallbackRe,
+  tagOpenCallbackRe
+} from "../bot/tenant/callbacks/social";
+import { buildWorkerHeartbeatLines, parseHeartbeatAgoMin } from "../services/use-cases/worker-heartbeat";
+import { registerDeliveryModuleTests } from "./use-cases/delivery-modules";
+import { createWorkerRoutes } from "../worker/routes";
+
+type TestCase = { name: string; run: () => Promise<void> | void };
+
+const tests: TestCase[] = [];
+const test = (name: string, run: TestCase["run"]) => tests.push({ name, run });
+
+const createStore = <T>() => {
+  const map = new Map<string, T>();
+  return {
+    map,
+    store: {
+      get: (key: string) => map.get(key),
+      set: (key: string, value: T) => {
+        map.set(key, value);
+      },
+      has: (key: string) => map.has(key),
+      delete: (key: string) => map.delete(key)
+    } as any
+  };
+};
+
+const createMockCtx = (overrides?: Partial<Record<string, unknown>>) => {
+  const calls: Array<{ method: "reply" | "editMessageText"; args: unknown[] }> = [];
+  const ctx = {
+    from: { id: 1, username: "u", first_name: "U" },
+    chat: { id: 2 },
+    me: { username: "bot" },
+    reply: async (...args: unknown[]) => {
+      calls.push({ method: "reply", args });
+      return { message_id: 1 };
+    },
+    editMessageText: async (...args: unknown[]) => {
+      calls.push({ method: "editMessageText", args });
+      return true;
+    },
+    callbackQuery: undefined,
+    message: undefined,
+    ...overrides
+  };
+  return { ctx: ctx as any, calls };
+};
+
+test("admin-input: broadcastInput 无数据库时会退出并提示", async () => {
+  const modes = new Map<string, "idle" | "broadcastInput">();
+  const setSessionModeCalls: Array<{ key: string; mode: string }> = [];
+  const { store: broadcastInputStates } = createStore<{ mode: "broadcastContent"; draftId: string }>();
+  const { store: settingsInputStates } = createStore<any>();
+  const { ctx, calls } = createMockCtx();
+  const key = toMetaKey(ctx.from.id, ctx.chat.id);
+  modes.set(key, "broadcastInput");
+  broadcastInputStates.set(key, { mode: "broadcastContent", draftId: "d1" });
+
+  const admin = createTenantAdminInput({
+    deliveryService: null,
+    mainKeyboard: {},
+    isActive: () => false,
+    getSessionMode: (k) => (modes.get(k) ?? "idle") as never,
+    setSessionMode: (k, mode) => {
+      modes.set(k, mode as never);
+      setSessionModeCalls.push({ key: k, mode });
+    },
+    broadcastInputStates,
+    settingsInputStates,
+    parseLocalDateTime: () => null,
+    renderBroadcast: async () => undefined,
+    renderBroadcastButtons: async () => undefined,
+    renderWelcomeSettings: async () => undefined,
+    renderAdSettings: async () => undefined,
+    renderAutoCategorizeSettings: async () => undefined,
+    renderVaultSettings: async () => undefined
+  });
+
+  const handled = await admin.handleBroadcastText(ctx, "hello");
+  assert.equal(handled, true);
+  assert.equal(modes.get(key), "idle");
+  assert.ok(setSessionModeCalls.some((item) => item.key === key && item.mode === "idle"));
+  assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("未启用数据库")));
+});
+
+test("admin-input: broadcastScheduleAt 时间格式错误会提示", async () => {
+  const modes = new Map<string, "idle" | "broadcastInput">();
+  const { store: broadcastInputStates } = createStore<
+    | { mode: "broadcastScheduleAt"; draftId: string }
+    | { mode: "broadcastRepeatEvery"; draftId: string }
+    | { mode: "broadcastContent"; draftId: string }
+    | { mode: "broadcastButtonText"; draftId: string }
+    | { mode: "broadcastButtonUrl"; draftId: string; text: string }
+  >();
+  const { store: settingsInputStates } = createStore<any>();
+  const { ctx, calls } = createMockCtx();
+  const key = toMetaKey(ctx.from.id, ctx.chat.id);
+  modes.set(key, "broadcastInput");
+  broadcastInputStates.set(key, { mode: "broadcastScheduleAt", draftId: "d1" });
+
+  const deliveryService = {
+    canManageAdmins: async () => true,
+    scheduleBroadcast: async () => ({ message: "ok" })
+  } as never;
+
+  const admin = createTenantAdminInput({
+    deliveryService,
+    mainKeyboard: {},
+    isActive: () => false,
+    getSessionMode: (k) => (modes.get(k) ?? "idle") as never,
+    setSessionMode: (k, mode) => modes.set(k, mode as never),
+    broadcastInputStates,
+    settingsInputStates,
+    parseLocalDateTime: () => null,
+    renderBroadcast: async () => undefined,
+    renderBroadcastButtons: async () => undefined,
+    renderWelcomeSettings: async () => undefined,
+    renderAdSettings: async () => undefined,
+    renderAutoCategorizeSettings: async () => undefined,
+    renderVaultSettings: async () => undefined
+  });
+
+  const handled = await admin.handleBroadcastText(ctx, "bad");
+  assert.equal(handled, true);
+  assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("时间格式错误")));
+});
+
+test("admin-input: welcome 清除会写入 null", async () => {
+  const modes = new Map<string, "idle" | "settingsInput">();
+  const { store: broadcastInputStates } = createStore<any>();
+  const { store: settingsInputStates } = createStore<any>();
+  const { ctx } = createMockCtx();
+  const key = toMetaKey(ctx.from.id, ctx.chat.id);
+  modes.set(key, "settingsInput");
+  settingsInputStates.set(key, { mode: "welcome" });
+
+  const welcomeCalls: Array<unknown[]> = [];
+  const deliveryService = {
+    canManageAdmins: async () => true,
+    setTenantStartWelcomeHtml: async (...args: unknown[]) => {
+      welcomeCalls.push(args);
+      return { message: "ok" };
+    }
+  } as never;
+
+  let renderCalled = false;
+  const admin = createTenantAdminInput({
+    deliveryService,
+    mainKeyboard: {},
+    isActive: () => false,
+    getSessionMode: (k) => (modes.get(k) ?? "idle") as never,
+    setSessionMode: (k, mode) => modes.set(k, mode as never),
+    broadcastInputStates,
+    settingsInputStates,
+    parseLocalDateTime: () => null,
+    renderBroadcast: async () => undefined,
+    renderBroadcastButtons: async () => undefined,
+    renderWelcomeSettings: async () => {
+      renderCalled = true;
+    },
+    renderAdSettings: async () => undefined,
+    renderAutoCategorizeSettings: async () => undefined,
+    renderVaultSettings: async () => undefined
+  });
+
+  const handled = await admin.handleSettingsText(ctx, "清除");
+  assert.equal(handled, true);
+  assert.ok(welcomeCalls.length === 1);
+  assert.equal(welcomeCalls[0]?.[1], null);
+  assert.equal(renderCalled, true);
+});
+
+test("social: 评论输入中发送保留词会提示并不退出", async () => {
+  const modes = new Map<string, "idle" | "commentInput">();
+  const { store: commentInputStates } = createStore<{ assetId: string; replyToCommentId: string | null; replyToLabel: string | null }>();
+  const { ctx, calls } = createMockCtx();
+  const key = toMetaKey(ctx.from.id, ctx.chat.id);
+  modes.set(key, "commentInput");
+  commentInputStates.set(key, { assetId: "a1", replyToCommentId: null, replyToLabel: null });
+
+  const social = createTenantSocial({
+    deliveryService: null,
+    mainKeyboard: {},
+    ensureSessionMode: (k) => (modes.get(k) ?? "idle") as never,
+    setSessionMode: (k, mode) => modes.set(k, mode as never),
+    commentInputStates,
+    formatLocalDateTime: () => "x"
+  });
+
+  const handled = await social.handleCommentInputText(ctx, "分享");
+  assert.equal(handled, true);
+  assert.equal(modes.get(key), "commentInput");
+  assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("正在评论")));
+});
+
+test("social: 无数据库时发表评论会退出并提示", async () => {
+  const modes = new Map<string, "idle" | "commentInput">();
+  const { store: commentInputStates } = createStore<{ assetId: string; replyToCommentId: string | null; replyToLabel: string | null }>();
+  const { ctx, calls } = createMockCtx();
+  const key = toMetaKey(ctx.from.id, ctx.chat.id);
+  modes.set(key, "commentInput");
+  commentInputStates.set(key, { assetId: "a1", replyToCommentId: null, replyToLabel: null });
+
+  const social = createTenantSocial({
+    deliveryService: null,
+    mainKeyboard: {},
+    ensureSessionMode: (k) => (modes.get(k) ?? "idle") as never,
+    setSessionMode: (k, mode) => modes.set(k, mode as never),
+    commentInputStates,
+    formatLocalDateTime: () => "x"
+  });
+
+  const handled = await social.handleCommentInputText(ctx, "hello");
+  assert.equal(handled, true);
+  assert.equal(modes.get(key), "idle");
+  assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("无法发表评论")));
+});
+
+test("ui-utils: extractStartPayloadFromText 能解析 t.me start 链接", () => {
+  assert.equal(extractStartPayloadFromText("https://t.me/ChuYunbot?start=hZ9hyXAf"), "hZ9hyXAf");
+  assert.equal(extractStartPayloadFromText("t.me/ChuYunbot?start=p_hZ9hyXAf_2"), "p_hZ9hyXAf_2");
+  assert.equal(extractStartPayloadFromText("tg://resolve?domain=ChuYunbot&start=hZ9hyXAf"), "hZ9hyXAf");
+  assert.equal(extractStartPayloadFromText("https://example.com/?start=hZ9hyXAf"), null);
+});
+
+test("callbacks: comment:list 回调能正确解析 assetId 与页码", () => {
+  const data = "comment:list:cmnfoiur202f2rnsr73z4icfw:1:3";
+  const match = data.match(commentListCallbackRe);
+  assert.ok(match);
+  assert.equal(match?.[1], "cmnfoiur202f2rnsr73z4icfw");
+  assert.equal(match?.[2], "1");
+  assert.equal(match?.[3], "3");
+});
+
+test("callbacks: history:setfilter:collection 回调不吞分隔符", () => {
+  const data = "history:setfilter:collection:cmnfoiur202f2rnsr73z4icfw";
+  const match = data.match(historySetFilterCollectionCallbackRe);
+  assert.ok(match);
+  assert.equal(match?.[1], "cmnfoiur202f2rnsr73z4icfw");
+});
+
+test("callbacks: history:scope 回调能正确解析列表视图", () => {
+  const data = "history:scope:community";
+  const match = data.match(historyScopeCallbackRe);
+  assert.ok(match);
+  assert.equal(match?.[1], "community");
+});
+
+test("callbacks: tag:open 回调能正确解析 tagId 与页码", () => {
+  const data = "tag:open:tag_123:12";
+  const match = data.match(tagOpenCallbackRe);
+  assert.ok(match);
+  assert.equal(match?.[1], "tag_123");
+  assert.equal(match?.[2], "12");
+});
+
+test("worker-heartbeat: parseHeartbeatAgoMin 能正确计算分钟", () => {
+  const nowMs = 1_000_000;
+  assert.equal(parseHeartbeatAgoMin(String(nowMs - 2 * 60_000), nowMs), 2);
+  assert.equal(parseHeartbeatAgoMin("invalid", nowMs), null);
+});
+
+test("worker-heartbeat: buildWorkerHeartbeatLines 能区分进程与副本任务心跳", () => {
+  const nowMs = 2_000_000;
+  const lines = buildWorkerHeartbeatLines({
+    processRaw: String(nowMs - 60_000),
+    replicationRaw: null,
+    nowMs
+  });
+  assert.equal(lines.processAgoMin, 1);
+  assert.equal(lines.replicationAgoMin, null);
+  assert.ok(lines.processLine.includes("1 分钟前"));
+  assert.ok(lines.replicationLine.includes("暂无"));
+});
+
+test("integration: 上传流程会提交批次并返回资产ID", async () => {
+  const store = createUploadBatchStore();
+  store.addMessage(1, 2, { messageId: 101, chatId: 2, kind: "photo", fileId: "f1" });
+  store.addMessage(1, 2, { messageId: 102, chatId: 2, kind: "video", fileId: "f2" });
+  const commits: Array<{ count: number }> = [];
+  const actions = createBatchActions(store, {
+    commitBatch: async (batch) => {
+      commits.push({ count: batch.messages.length });
+      return { batchId: "b1", assetId: "a1" };
+    },
+    updateAssetMeta: async () => ({ shareCode: "x" }),
+    updateAssetCollection: async (_assetId, collectionId) => ({ collectionId })
+  });
+  const result = await actions.commit(1, 2);
+  assert.equal(result.ok, true);
+  assert.equal((result as { assetId?: string }).assetId, "a1");
+  assert.equal(commits.length, 1);
+  assert.equal(commits[0]?.count, 2);
+  assert.equal(store.getBatch(1, 2), undefined);
+});
+
+test("integration: 副本路由会把任务转发给编排层", async () => {
+  const calls: string[] = [];
+  const routes = createWorkerRoutes({
+    replicateBatch: async (batchId) => {
+      calls.push(`replicate:${batchId}`);
+    },
+    runBroadcast: async (broadcastId, runId) => {
+      calls.push(`broadcast:${broadcastId}:${runId}`);
+    },
+    runFollowKeywordNotify: async (assetId) => {
+      calls.push(`notify:${assetId}`);
+    }
+  });
+  await routes.replicationRoute({ data: { batchId: "batch-1" } });
+  await routes.broadcastRoute({ data: { broadcastId: "b1", runId: "r1" } });
+  await routes.notifyRoute({ name: "follow_keyword", data: { assetId: "a1" } });
+  assert.deepEqual(calls, ["replicate:batch-1", "broadcast:b1:r1", "notify:a1"]);
+});
+
+test("integration: 交付流程在副本未就绪时返回提示", async () => {
+  const { ctx, calls } = createMockCtx();
+  const open = createOpenHandler({
+    getTenantProtectContentEnabled: async () => false,
+    selectReplicas: async () => ({ status: "pending", message: "副本写入中" }),
+    resolveShareCode: async () => null
+  } as never);
+  await open.openAsset(ctx, "asset1", 1);
+  assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("副本写入中")));
+});
+
+registerDeliveryModuleTests(test);
+
+const main = async () => {
+  let passed = 0;
+  for (const item of tests) {
+    try {
+      await item.run();
+      passed += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.stack || error.message : String(error ?? "unknown error");
+      console.error(`[FAIL] ${item.name}\n${message}`);
+      process.exitCode = 1;
+    }
+  }
+  if (process.exitCode) {
+    console.error(`\n${passed}/${tests.length} passed`);
+    process.exit(process.exitCode);
+  }
+  console.log(`${passed}/${tests.length} passed`);
+};
+
+main();

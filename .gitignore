@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+
+dist/
+node_modules/
+
+.pgdata/
+vaultbot-sync/
+
+tools/redis/data/
+tools/redis/*.zip
+
+*.log
+.DS_Store
