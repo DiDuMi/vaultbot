@@ -28,6 +28,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 3002
+      TENANT_CODE: ${TENANT_CODE:?TENANT_CODE is required}
+      TENANT_NAME: ${TENANT_NAME:?TENANT_NAME is required}
       DATABASE_URL: postgresql://${POSTGRES_USER:-vaultbot}:${POSTGRES_PASSWORD:-vaultbot}@postgres:5432/${POSTGRES_DB:-vaultbot}
       REDIS_URL: ${REDIS_URL_INTERNAL:-redis://redis:6379}
     ports:
@@ -42,6 +44,8 @@ services:
     env_file:
       - .env
     environment:
+      TENANT_CODE: ${TENANT_CODE:?TENANT_CODE is required}
+      TENANT_NAME: ${TENANT_NAME:?TENANT_NAME is required}
       DATABASE_URL: postgresql://${POSTGRES_USER:-vaultbot}:${POSTGRES_PASSWORD:-vaultbot}@postgres:5432/${POSTGRES_DB:-vaultbot}
       REDIS_URL: ${REDIS_URL_INTERNAL:-redis://redis:6379}
     command: ["node", "dist/worker/index.js"]

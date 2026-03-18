@@ -5,6 +5,7 @@ export type Config = {
   webhookPath: string;
   webhookBaseUrl?: string;
   webhookSecret?: string;
+  opsToken?: string;
   databaseUrl: string;
   redisUrl: string;
   tenantCode: string;
@@ -67,6 +68,7 @@ export const loadConfig = (): Config => {
     webhookPath,
     webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
     webhookSecret: process.env.WEBHOOK_SECRET,
+    opsToken: process.env.OPS_TOKEN,
     databaseUrl: readEnv("DATABASE_URL"),
     redisUrl: readEnv("REDIS_URL"),
     tenantCode: readEnv("TENANT_CODE"),

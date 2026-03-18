@@ -13,7 +13,8 @@
     "start:worker": "node dist/worker/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "preflight:tenant": "node scripts/preflight-tenant.js"
   },
   "dependencies": {
     "@prisma/client": "^5.11.0",

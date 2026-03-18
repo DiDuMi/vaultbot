@@ -43,6 +43,8 @@ DATABASE_URL=postgresql://vaultbot:vaultbot@postgres:5432/vaultbot
 REDIS_URL=redis://redis:6379
 TENANT_CODE=your_tenant_code
 TENANT_NAME=Your Tenant Name
+EXPECTED_TENANT_CODE=your_tenant_code
+OPS_TOKEN=your_ops_token
 VAULT_CHAT_ID=your_vault_group_id
 VAULT_THREAD_ID=
 WEBHOOK_BASE_URL=
@@ -78,13 +80,16 @@ cd /path/to/vaultbot
 # 2. 拉取最新代码
 git pull
 
-# 3. 重新构建并启动（保留数据）
+# 3. 执行租户预检（阻断 TENANT_CODE 漂移）
+npm run preflight:tenant
+
+# 4. 重新构建并启动（保留数据）
 docker compose up -d --build
 
-# 4. 查看服务状态
+# 5. 查看服务状态
 docker compose ps
 
-# 5. 查看日志确认启动成功
+# 6. 查看日志确认启动成功
 docker compose logs -f app
 ```
 
@@ -143,8 +148,10 @@ docker compose exec -T postgres psql -U vaultbot vaultbot < backup_file.sql
 **避免数据丢失**：
 - ✅ 使用 `docker compose up -d --build` 更新
 - ✅ 使用 `docker compose down` 停止服务（不带 -v）
+- ✅ 固定 `TENANT_CODE`，并设置 `EXPECTED_TENANT_CODE` 后执行预检
 - ❌ 永远不要使用 `docker compose down -v`
 - ❌ 不要手动删除数据卷
+- ❌ 不要在迭代时改动租户编码（会导致统计视图切到新租户）
 
 ### 2. 定期备份
 
@@ -217,6 +224,16 @@ docker compose restart app
 ```bash
 # 查看用户数据
 docker compose exec postgres psql -U vaultbot -d vaultbot -c "SELECT \"tgUserId\", \"createdAt\", \"lastSeenAt\" FROM \"TenantUser\" LIMIT 10;"
+```
+
+### 检查租户是否漂移
+
+```bash
+# 发布前检查
+npm run preflight:tenant
+
+# 运行期诊断（可选 OPS_TOKEN 鉴权）
+curl -H "x-ops-token: <OPS_TOKEN>" http://127.0.0.1:3002/ops/tenant-check
 ```
 
 ---

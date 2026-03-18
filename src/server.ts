@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import { webhookCallback } from "grammy";
 import type { Bot } from "grammy";
 import type { Config } from "./config";
+import { prisma } from "./infra/persistence";
+import { getTenantDiagnostics } from "./infra/persistence/tenant-guard";
 
 export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) => {
   const app = Fastify({ logger: { redact: ["req.headers", "res.headers"] } });
@@ -20,6 +22,18 @@ export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) =
   }
 
   app.get("/health", async () => ({ ok: true }));
+  app.get("/ops/tenant-check", async (request, reply) => {
+    if (config.opsToken) {
+      const auth = request.headers["x-ops-token"];
+      const token = Array.isArray(auth) ? auth[0] : auth;
+      if (token !== config.opsToken) {
+        reply.code(401);
+        return { ok: false };
+      }
+    }
+    const result = await getTenantDiagnostics(prisma, config.tenantCode);
+    return { ok: true, ...result };
+  });
 
   return app;
 };

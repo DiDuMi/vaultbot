@@ -60,7 +60,13 @@ case "$1" in
     cd $PROJECT_DIR
     echo "1. 拉取最新代码..."
     git pull
-    echo "2. 重新构建并启动..."
+    if command -v node >/dev/null 2>&1 && [ -f "scripts/preflight-tenant.js" ] && [ -d "node_modules/@prisma/client" ]; then
+      echo "2. 执行租户一致性预检..."
+      node scripts/preflight-tenant.js
+      echo "3. 重新构建并启动..."
+    else
+      echo "2. 重新构建并启动..."
+    fi
     docker compose up -d --build
     echo "✅ 更新完成"
     ;;

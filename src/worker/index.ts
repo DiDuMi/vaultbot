@@ -2,6 +2,7 @@ import { Bot } from "grammy";
 import { PrismaClient } from "@prisma/client";
 import { Queue, Worker } from "bullmq";
 import { loadConfig } from "../config";
+import { assertTenantCodeConsistency } from "../infra/persistence/tenant-guard";
 import { createRedisConnection } from "../infra/queue";
 import { copyToVault, withTelegramRetry } from "../infra/telegram";
 import { createDeliveryService } from "../services/use-cases";
@@ -130,6 +131,7 @@ const start = async () => {
   const config = loadConfig();
   const bot = new Bot(config.botToken);
   const prisma = new PrismaClient();
+  await assertTenantCodeConsistency(prisma, config.tenantCode);
   const deliveryService = createDeliveryService(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
   const me = await Promise.race([
     bot.api.getMe(),
@@ -191,7 +193,13 @@ const start = async () => {
         update: {},
         create: { tenantId: batch.tenantId, vaultGroupId: createdGroup.id, role: "PRIMARY" }
       });
-      bindings.push({ id: "auto", tenantId: batch.tenantId, vaultGroupId: createdGroup.id, role: "PRIMARY", createdAt: new Date(), vaultGroup: createdGroup } as never);
+      const createdBinding = await prisma.tenantVaultBinding.findUnique({
+        where: { tenantId_vaultGroupId_role: { tenantId: batch.tenantId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
+        include: { vaultGroup: true }
+      });
+      if (createdBinding) {
+        bindings.push(createdBinding);
+      }
     }
 
     const roleRank = (role: "PRIMARY" | "BACKUP") => (role === "PRIMARY" ? 0 : 1);
