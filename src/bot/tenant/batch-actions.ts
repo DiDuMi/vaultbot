@@ -1,5 +1,6 @@
 import type { UploadMessage, UploadService } from "../../services/use-cases";
 import { createUploadBatchStore } from "../../services/use-cases";
+import { logError } from "../../infra/logging";
 import { escapeHtml } from "./ui-utils";
 
 type UploadBatchStore = ReturnType<typeof createUploadBatchStore>;
@@ -51,8 +52,7 @@ export const createBatchActions = (store: UploadBatchStore, service: UploadServi
         message: `✅ 已完成保存\n批次：<code>${escapeHtml(batch.id)}</code>\n${escapeHtml(summary)}`
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error ?? "unknown error");
-      console.error("[upload:commit]", message);
+      logError({ component: "bot", op: "upload_commit", userId, chatId, batchId: batch.id }, error);
       return { ok: false, message: "❌ 保存失败，请稍后重试。" };
     }
   };

@@ -16,7 +16,7 @@ type CommentInputState = {
 
 export const createTenantSocial = (deps: {
   deliveryService: DeliveryService | null;
-  mainKeyboard: unknown;
+  mainKeyboard: NonNullable<Parameters<Context["reply"]>[1]>["reply_markup"];
   ensureSessionMode: (key: string) => SessionMode;
   setSessionMode: (key: string, mode: SessionMode) => void;
   commentInputStates: KeyValueStore<CommentInputState>;
@@ -37,7 +37,7 @@ export const createTenantSocial = (deps: {
       if (mode === "edit") {
         await editHtml(ctx, message).catch(async () => replyHtml(ctx, message));
       } else {
-        await replyHtml(ctx, message, { reply_markup: mainKeyboard as never });
+        await replyHtml(ctx, message, { reply_markup: mainKeyboard });
       }
       return;
     }
@@ -47,7 +47,7 @@ export const createTenantSocial = (deps: {
       if (mode === "edit") {
         await editHtml(ctx, message).catch(async () => replyHtml(ctx, message));
       } else {
-        await replyHtml(ctx, message, { reply_markup: mainKeyboard as never });
+        await replyHtml(ctx, message, { reply_markup: mainKeyboard });
       }
       return;
     }
@@ -218,7 +218,7 @@ export const createTenantSocial = (deps: {
         return k;
       })();
 
-      await replyHtml(ctx, text, { reply_markup: keyboard as never, link_preview_options: { is_disabled: true } as never });
+      await replyHtml(ctx, text, { reply_markup: keyboard, link_preview_options: { is_disabled: true } });
       return true;
     }
     if (payload.startsWith("cv_")) {
@@ -254,7 +254,7 @@ export const createTenantSocial = (deps: {
         await replyHtml(ctx, result.message);
         return true;
       }
-      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
       await renderComments(ctx, result.assetId, 1, "reply");
       return true;
     }
@@ -421,13 +421,13 @@ export const createTenantSocial = (deps: {
       command === "设置"
     ) {
       await replyHtml(ctx, buildInputExitHint("评论", { afterExitHtml: "再点击消息里的 <b>⬅️ 返回内容</b> 或继续输入评论。" }), {
-        reply_markup: mainKeyboard as never
+        reply_markup: mainKeyboard
       });
       return true;
     }
     if (!deliveryService) {
       setSessionMode(key, "idle");
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法发表评论。", { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法发表评论。", { reply_markup: mainKeyboard });
       return true;
     }
     const authorName = ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name?.trim() || null;
@@ -450,7 +450,7 @@ export const createTenantSocial = (deps: {
         returnToAssetPage: state.returnToAssetPage
       });
     }
-    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
     await renderComments(ctx, state.assetId, 1, "reply");
     return true;
   };

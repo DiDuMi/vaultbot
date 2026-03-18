@@ -1,6 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import type { Bot, Context } from "grammy";
 import type { Message } from "grammy/types";
+import { logError } from "../../infra/logging";
 import { withTelegramRetry } from "../../infra/telegram";
 import type { DeliveryService, UploadMessage, UploadService } from "../../services/use-cases";
 import { createUploadBatchStore } from "../../services/use-cases";
@@ -65,6 +66,7 @@ import {
 } from "./keyboards";
 
 type UploadBatchStore = ReturnType<typeof createUploadBatchStore>;
+type ReplyMarkup = NonNullable<Parameters<Context["reply"]>[1]>["reply_markup"];
 
 const formatReceivedHint = (count: number) => {
   if (count < 10) {
@@ -125,7 +127,7 @@ const registerMediaHandlers = (
   options?: {
     shouldSkipInactiveHint?: (userId: number, chatId: number, kind: UploadMessage["kind"]) => boolean;
     getInactiveHint?: (userId: number, chatId: number, kind: UploadMessage["kind"]) => string | null;
-    getInactiveReplyKeyboard?: (ctx: Context) => Promise<unknown> | unknown;
+    getInactiveReplyKeyboard?: (ctx: Context) => Promise<ReplyMarkup | undefined> | ReplyMarkup | undefined;
   }
 ) => {
   const handle =
@@ -142,7 +144,7 @@ const registerMediaHandlers = (
         const hint = options?.getInactiveHint?.(ctx.from.id, ctx.chat.id, kind) ?? "请点击 <b>分享</b> 开始接收媒体。";
         const replyKeyboard = options?.getInactiveReplyKeyboard ? await options.getInactiveReplyKeyboard(ctx) : buildMainKeyboard();
         await replyHtml(ctx, hint, {
-          reply_markup: replyKeyboard as never
+          reply_markup: replyKeyboard ?? buildMainKeyboard()
         });
         return;
       }
@@ -610,10 +612,10 @@ export const registerTenantBot = (
       );
       return true;
     }
+    const actorUserId = String(ctx.from.id);
     try {
       const safeTitle = sanitizeTelegramHtml(title);
       const safeDescription = sanitizeTelegramHtml(description);
-      const actorUserId = String(ctx.from.id);
       const prevMeta = deliveryService ? await deliveryService.getUserAssetMeta(actorUserId, state.assetId).catch(() => null) : null;
       const result = await service.updateAssetMeta(state.assetId, {
         title: safeTitle,
@@ -670,8 +672,7 @@ export const registerTenantBot = (
               .join("\n");
       await replyHtml(ctx, message, { reply_markup: buildManageKeyboard(state.assetId, { searchable: true, recycled: false }) });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error ?? "unknown error");
-      console.error("[meta:save]", message);
+      logError({ component: "bot", op: "meta_save", assetId: state.assetId, userId: actorUserId }, error);
       await replyHtml(ctx, "❌ 保存标题/描述失败，请稍后重试。");
     } finally {
       setSessionMode(key, "idle");
@@ -1361,11 +1362,11 @@ export const registerTenantBot = (
       return;
     }
     if (ctx.from && ctx.chat && ctx.message.reply_to_message) {
-      const replied: any = ctx.message.reply_to_message as any;
+      const replied = ctx.message.reply_to_message;
       const replyFromBot =
         Boolean(replied?.from?.is_bot) && (ctx.me?.username ? replied?.from?.username === ctx.me.username : true);
       if (replyFromBot) {
-        const entities: any[] = Array.isArray(replied?.entities) ? replied.entities : [];
+        const entities = Array.isArray(replied?.entities) ? replied.entities : [];
         const urls: string[] = [];
         for (const entity of entities) {
           if (entity?.type === "text_link" && typeof entity.url === "string") {
@@ -1397,13 +1398,13 @@ export const registerTenantBot = (
         })();
         if (commentId) {
           if (!deliveryService) {
-            await replyHtml(ctx, "⚠️ 当前未启用数据库，无法回复。", { reply_markup: mainKeyboard as never });
+            await replyHtml(ctx, "⚠️ 当前未启用数据库，无法回复。", { reply_markup: mainKeyboard });
             return;
           }
           const userId = String(ctx.from.id);
           const context = await deliveryService.getAssetCommentContext(userId, commentId);
           if (!context) {
-            await replyHtml(ctx, "⚠️ 评论不存在或无权限。", { reply_markup: mainKeyboard as never });
+            await replyHtml(ctx, "⚠️ 评论不存在或无权限。", { reply_markup: mainKeyboard });
             return;
           }
           const key = toMetaKey(ctx.from.id, ctx.chat.id);
@@ -1418,7 +1419,7 @@ export const registerTenantBot = (
           if (result.ok && result.notify && result.commentId) {
             await notifyCommentTargets(ctx, { content: text, commentId: result.commentId, notify: result.notify }).catch(() => undefined);
           }
-          await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+          await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
           const located = await deliveryService.locateAssetComment(userId, commentId, 8).catch(() => null);
           await renderComments(ctx, context.assetId, located?.page ?? 1, "reply");
           return;

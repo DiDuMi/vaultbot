@@ -1,6 +1,7 @@
 import { InlineKeyboard, Keyboard } from "grammy";
 import type { Context } from "grammy";
 import type { DeliveryService } from "../../services/use-cases";
+import { logError } from "../../infra/logging";
 import {
   buildPublisherLine,
   escapeHtml,
@@ -44,8 +45,7 @@ export const createTenantRenderers = (deps: {
   formatLocalDateTime: (date: Date) => string;
 }) => {
   const logRendererError = (scope: string, error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error ?? "unknown error");
-    console.error(`[renderers:${scope}]`, message);
+    logError({ component: "bot", op: "renderer_error", scope }, error);
   };
 
   const renderStats = async (ctx: Context) => {

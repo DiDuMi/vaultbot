@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Keyboard } from "grammy";
 import { createTenantAdminInput } from "../bot/tenant/admin-input";
 import { createBatchActions } from "../bot/tenant/batch-actions";
 import { createOpenHandler } from "../bot/tenant/open";
@@ -72,7 +73,7 @@ test("admin-input: broadcastInput 无数据库时会退出并提示", async () =
 
   const admin = createTenantAdminInput({
     deliveryService: null,
-    mainKeyboard: {},
+    mainKeyboard: new Keyboard().text("菜单"),
     isActive: () => false,
     getSessionMode: (k) => (modes.get(k) ?? "idle") as never,
     setSessionMode: (k, mode) => {
@@ -119,7 +120,7 @@ test("admin-input: broadcastScheduleAt 时间格式错误会提示", async () =>
 
   const admin = createTenantAdminInput({
     deliveryService,
-    mainKeyboard: {},
+    mainKeyboard: new Keyboard().text("菜单"),
     isActive: () => false,
     getSessionMode: (k) => (modes.get(k) ?? "idle") as never,
     setSessionMode: (k, mode) => modes.set(k, mode as never),
@@ -160,7 +161,7 @@ test("admin-input: welcome 清除会写入 null", async () => {
   let renderCalled = false;
   const admin = createTenantAdminInput({
     deliveryService,
-    mainKeyboard: {},
+    mainKeyboard: new Keyboard().text("菜单"),
     isActive: () => false,
     getSessionMode: (k) => (modes.get(k) ?? "idle") as never,
     setSessionMode: (k, mode) => modes.set(k, mode as never),
@@ -194,7 +195,7 @@ test("social: 评论输入中发送保留词会提示并不退出", async () => 
 
   const social = createTenantSocial({
     deliveryService: null,
-    mainKeyboard: {},
+    mainKeyboard: new Keyboard().text("菜单"),
     ensureSessionMode: (k) => (modes.get(k) ?? "idle") as never,
     setSessionMode: (k, mode) => modes.set(k, mode as never),
     commentInputStates,
@@ -217,7 +218,7 @@ test("social: 无数据库时发表评论会退出并提示", async () => {
 
   const social = createTenantSocial({
     deliveryService: null,
-    mainKeyboard: {},
+    mainKeyboard: new Keyboard().text("菜单"),
     ensureSessionMode: (k) => (modes.get(k) ?? "idle") as never,
     setSessionMode: (k, mode) => modes.set(k, mode as never),
     commentInputStates,

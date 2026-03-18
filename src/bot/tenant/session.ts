@@ -23,6 +23,7 @@ export type SessionMode =
 type SessionState = {
   mode: SessionMode;
   active: boolean;
+  lastAccessAt: number;
   meta?: MetaState;
   adminInput?: { mode: "addAdmin" };
   settingsInput?:
@@ -53,14 +54,81 @@ type SessionState = {
 };
 
 export const createTenantSession = () => {
+  const sessionTtlMs = (() => {
+    const raw = Number(process.env.SESSION_TTL_MS ?? "3600000");
+    if (!Number.isFinite(raw)) {
+      return 3600000;
+    }
+    return Math.max(60000, Math.trunc(raw));
+  })();
+  const sessionSweepIntervalMs = (() => {
+    const raw = Number(process.env.SESSION_SWEEP_INTERVAL_MS ?? "60000");
+    if (!Number.isFinite(raw)) {
+      return 60000;
+    }
+    return Math.max(5000, Math.trunc(raw));
+  })();
   const sessionStates = new Map<string, SessionState>();
+  let lastSweepAt = 0;
+
+  const hasAttachedState = (state: SessionState) => {
+    return (
+      state.meta !== undefined ||
+      state.adminInput !== undefined ||
+      state.settingsInput !== undefined ||
+      state.broadcastDraft !== undefined ||
+      state.broadcastInput !== undefined ||
+      state.collectionId !== undefined ||
+      state.historyFilterSet === true ||
+      state.historyDate !== undefined ||
+      state.historyScope !== undefined ||
+      state.collectionInput !== undefined ||
+      state.collectionPicker !== undefined ||
+      state.search !== undefined ||
+      state.commentInput !== undefined ||
+      state.rankingView !== undefined
+    );
+  };
+
+  const shouldDeleteSession = (state: SessionState) => {
+    return state.mode === "idle" && state.active !== true && !hasAttachedState(state);
+  };
+
+  const sweepExpiredSessions = (now: number) => {
+    if (now - lastSweepAt < sessionSweepIntervalMs) {
+      return;
+    }
+    lastSweepAt = now;
+    for (const [key, state] of sessionStates) {
+      if (now - state.lastAccessAt >= sessionTtlMs) {
+        sessionStates.delete(key);
+      }
+    }
+  };
+
+  const upsertTouchedState = (key: string, state: SessionState, now: number) => {
+    state.lastAccessAt = now;
+    sessionStates.set(key, state);
+    sweepExpiredSessions(now);
+  };
+
+  const deleteIfIdle = (key: string, state: SessionState) => {
+    if (shouldDeleteSession(state)) {
+      sessionStates.delete(key);
+      return true;
+    }
+    return false;
+  };
+
   const ensureSessionState = (key: string): SessionState => {
+    const now = Date.now();
     const existing = sessionStates.get(key);
     if (existing) {
+      upsertTouchedState(key, existing, now);
       return existing;
     }
-    const created: SessionState = { mode: "idle", active: false };
-    sessionStates.set(key, created);
+    const created: SessionState = { mode: "idle", active: false, lastAccessAt: now };
+    upsertTouchedState(key, created, now);
     return created;
   };
 
@@ -76,6 +144,7 @@ export const createTenantSession = () => {
         if (!state) {
           return undefined;
         }
+        upsertTouchedState(key, state, Date.now());
         if (isPresent && !isPresent(state)) {
           return undefined;
         }
@@ -86,6 +155,7 @@ export const createTenantSession = () => {
         if (!state) {
           return false;
         }
+        upsertTouchedState(key, state, Date.now());
         if (isPresent) {
           return isPresent(state);
         }
@@ -94,7 +164,7 @@ export const createTenantSession = () => {
       set: (key, value) => {
         const state = ensureSessionState(key);
         write(state, value);
-        sessionStates.set(key, state);
+        upsertTouchedState(key, state, Date.now());
       },
       delete: (key) => {
         const state = sessionStates.get(key);
@@ -106,7 +176,9 @@ export const createTenantSession = () => {
           return false;
         }
         clear(state);
-        sessionStates.set(key, state);
+        if (!deleteIfIdle(key, state)) {
+          upsertTouchedState(key, state, Date.now());
+        }
         return true;
       }
     };
@@ -243,7 +315,12 @@ export const createTenantSession = () => {
   );
 
   const getSessionMode = (key: string): SessionMode => {
-    return sessionStates.get(key)?.mode ?? "idle";
+    const state = sessionStates.get(key);
+    if (!state) {
+      return "idle";
+    }
+    upsertTouchedState(key, state, Date.now());
+    return state.mode;
   };
 
   const getSessionLabel = (mode: SessionMode) => {
@@ -301,10 +378,16 @@ export const createTenantSession = () => {
     if (mode !== "commentInput") {
       commentInputStates.delete(key);
     }
-    if (mode !== "upload" && state.active === true) {
-      state.active = false;
+    const nextState = sessionStates.get(key);
+    if (!nextState) {
+      return;
     }
-    sessionStates.set(key, state);
+    if (mode !== "upload" && nextState.active === true) {
+      nextState.active = false;
+    }
+    if (!deleteIfIdle(key, nextState)) {
+      upsertTouchedState(key, nextState, Date.now());
+    }
   };
 
   const ensureSessionMode = (key: string): SessionMode => {
@@ -361,12 +444,18 @@ export const createTenantSession = () => {
     const key = toMetaKey(userId, chatId);
     const state = ensureSessionState(key);
     state.active = value;
-    sessionStates.set(key, state);
+    upsertTouchedState(key, state, Date.now());
     setSessionMode(key, value ? "upload" : "idle");
   };
 
   const isActive = (userId: number, chatId: number) => {
-    return sessionStates.get(toMetaKey(userId, chatId))?.active === true;
+    const key = toMetaKey(userId, chatId);
+    const state = sessionStates.get(key);
+    if (!state) {
+      return false;
+    }
+    upsertTouchedState(key, state, Date.now());
+    return state.active === true;
   };
 
   return {

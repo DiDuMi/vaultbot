@@ -1,4 +1,6 @@
 import { randomBytes } from "crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname, resolve } from "path";
 import type { PrismaClient } from "@prisma/client";
 
 export type UploadMessage = {
@@ -85,9 +87,71 @@ export const createInMemoryUploadService = (): UploadService => {
 };
 
 export const createUploadBatchStore = () => {
+  const storeFilePath = resolve(process.cwd(), process.env.UPLOAD_BATCH_STORE_FILE ?? ".runtime/upload-batches.json");
+  const pendingTtlMs = (() => {
+    const raw = Number(process.env.UPLOAD_BATCH_TTL_MS ?? "43200000");
+    if (!Number.isFinite(raw)) {
+      return 43200000;
+    }
+    return Math.max(60000, Math.trunc(raw));
+  })();
   const batches = new Map<UploadStoreKey, UploadBatch>();
+  const now = () => Date.now();
+
+  const isValidBatch = (value: unknown): value is UploadBatch => {
+    if (!value || typeof value !== "object") {
+      return false;
+    }
+    const row = value as Partial<UploadBatch>;
+    if (typeof row.id !== "string" || typeof row.userId !== "number" || typeof row.chatId !== "number") {
+      return false;
+    }
+    if (typeof row.createdAt !== "number" || !Array.isArray(row.messages)) {
+      return false;
+    }
+    return row.status === "pending" || row.status === "committed" || row.status === "canceled";
+  };
+
+  const persist = () => {
+    const values = Array.from(batches.values()).filter((batch) => batch.status === "pending");
+    const payload = JSON.stringify(values);
+    mkdirSync(dirname(storeFilePath), { recursive: true });
+    writeFileSync(storeFilePath, payload, "utf8");
+  };
+
+  const pruneExpired = () => {
+    const current = now();
+    let changed = false;
+    for (const [key, batch] of batches) {
+      if (current - batch.createdAt > pendingTtlMs) {
+        batches.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) {
+      persist();
+    }
+  };
+
+  if (existsSync(storeFilePath)) {
+    try {
+      const raw = readFileSync(storeFilePath, "utf8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        for (const row of parsed) {
+          if (isValidBatch(row) && row.status === "pending") {
+            batches.set(toKey(row.userId, row.chatId), row);
+          }
+        }
+      }
+    } catch {
+      batches.clear();
+    }
+  }
+  pruneExpired();
 
   const getBatch = (userId: number, chatId: number) => {
+    pruneExpired();
     return batches.get(toKey(userId, chatId));
   };
 
@@ -101,12 +165,13 @@ export const createUploadBatchStore = () => {
             id: createId(),
             userId,
             chatId,
-            createdAt: Date.now(),
+            createdAt: now(),
             messages: [] as UploadMessage[],
             status: "pending"
           };
     batch.messages.push(message);
     batches.set(key, batch);
+    persist();
     return batch;
   };
 
@@ -118,6 +183,7 @@ export const createUploadBatchStore = () => {
     }
     batch.status = "committed";
     batches.delete(key);
+    persist();
     return batch;
   };
 
@@ -129,6 +195,7 @@ export const createUploadBatchStore = () => {
     }
     batch.status = "canceled";
     batches.delete(key);
+    persist();
     return batch;
   };
 
@@ -306,14 +373,26 @@ export const createUploadService = (
   };
 
   const createUniqueShareCode = async () => {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
       const shareCode = createShareCode();
       const existing = await prisma.asset.findUnique({ where: { shareCode } });
       if (!existing) {
         return shareCode;
       }
     }
-    throw new Error("share code collision");
+    throw new Error("share code unavailable");
+  };
+
+  const isShareCodeConflict = (error: unknown) => {
+    const withCode = error as { code?: string; meta?: { target?: unknown } };
+    if (withCode?.code !== "P2002") {
+      return false;
+    }
+    const target = withCode?.meta?.target;
+    if (Array.isArray(target)) {
+      return target.includes("shareCode");
+    }
+    return String(target ?? "").includes("shareCode");
   };
 
   const ensureTenantAndVault = async () => {
@@ -514,15 +593,42 @@ export const createUploadService = (
       throw new Error("asset not found");
     }
     const isFirstPublish = !asset.shareCode;
-    const shareCode = asset.shareCode ?? (await createUniqueShareCode());
-    await prisma.asset.update({
-      where: { id: assetId },
-      data: {
-        title: input.title,
-        description: input.description,
-        shareCode
+    let shareCode = asset.shareCode ?? null;
+    if (shareCode) {
+      await prisma.asset.update({
+        where: { id: assetId },
+        data: {
+          title: input.title,
+          description: input.description,
+          shareCode
+        }
+      });
+    } else {
+      let updated = false;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const candidate = await createUniqueShareCode();
+        try {
+          await prisma.asset.update({
+            where: { id: assetId },
+            data: {
+              title: input.title,
+              description: input.description,
+              shareCode: candidate
+            }
+          });
+          shareCode = candidate;
+          updated = true;
+          break;
+        } catch (error) {
+          if (!isShareCodeConflict(error)) {
+            throw error;
+          }
+        }
       }
-    });
+      if (!updated || !shareCode) {
+        throw new Error("share code unavailable");
+      }
+    }
     await syncAssetTags(assetId, asset.tenantId, input.title, input.description).catch(() => undefined);
     const enabledRaw = await getTenantSetting(asset.tenantId, settingKeys.autoCategorizeEnabled).catch(() => null);
     const enabledValue = enabledRaw?.trim().toLowerCase();

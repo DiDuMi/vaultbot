@@ -33,7 +33,7 @@ type SettingsInputState =
 
 export const createTenantAdminInput = (deps: {
   deliveryService: DeliveryService | null;
-  mainKeyboard: unknown;
+  mainKeyboard: NonNullable<Parameters<Context["reply"]>[1]>["reply_markup"];
   isActive: (userId: number, chatId: number) => boolean;
   getSessionMode: (key: string) => SessionMode;
   setSessionMode: (key: string, mode: SessionMode) => void;
@@ -81,7 +81,7 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
@@ -96,7 +96,7 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 推送仅支持单媒体，请发送单张照片/单个视频/单个文件。", { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, "⚠️ 推送仅支持单媒体，请发送单张照片/单个视频/单个文件。", { reply_markup: mainKeyboard });
       await renderBroadcast(ctx);
       return true;
     }
@@ -115,7 +115,7 @@ export const createTenantAdminInput = (deps: {
     if (state?.mode === "broadcastContent") {
       setSessionMode(key, "idle");
     }
-    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
     await renderBroadcast(ctx);
     return true;
   };
@@ -137,7 +137,7 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
@@ -152,7 +152,7 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 推送仅支持单媒体，请发送单张照片/单个视频/单个文件。", { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, "⚠️ 推送仅支持单媒体，请发送单张照片/单个视频/单个文件。", { reply_markup: mainKeyboard });
       await renderBroadcast(ctx);
       return true;
     }
@@ -171,7 +171,7 @@ export const createTenantAdminInput = (deps: {
     if (state?.mode === "broadcastContent") {
       setSessionMode(key, "idle");
     }
-    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
     await renderBroadcast(ctx);
     return true;
   };
@@ -193,7 +193,7 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
@@ -208,7 +208,7 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 推送仅支持单媒体，请发送单张照片/单个视频/单个文件。", { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, "⚠️ 推送仅支持单媒体，请发送单张照片/单个视频/单个文件。", { reply_markup: mainKeyboard });
       await renderBroadcast(ctx);
       return true;
     }
@@ -227,7 +227,7 @@ export const createTenantAdminInput = (deps: {
     if (state?.mode === "broadcastContent") {
       setSessionMode(key, "idle");
     }
-    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
     await renderBroadcast(ctx);
     return true;
   };
@@ -262,7 +262,7 @@ export const createTenantAdminInput = (deps: {
     }
     if (!deliveryService) {
       setSessionMode(key, "idle");
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
@@ -286,7 +286,7 @@ export const createTenantAdminInput = (deps: {
           mediaFileId: null
         });
         setSessionMode(key, "idle");
-        await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+        await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
         await renderBroadcast(ctx);
         return true;
       }
@@ -297,7 +297,7 @@ export const createTenantAdminInput = (deps: {
         mediaFileId: null
       });
       setSessionMode(key, "idle");
-      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
       await renderBroadcast(ctx);
       return true;
     }
@@ -334,7 +334,7 @@ export const createTenantAdminInput = (deps: {
       const nextButtons = [...draft.buttons, { text: inputState.text, url }];
       const result = await deliveryService.updateBroadcastDraftButtons(actorUserId, inputState.draftId, nextButtons);
       setSessionMode(key, "idle");
-      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
       await renderBroadcastButtons(ctx);
       return true;
     }
@@ -347,7 +347,7 @@ export const createTenantAdminInput = (deps: {
       const nextRunAt = date.getTime() < Date.now() ? new Date() : date;
       const result = await deliveryService.scheduleBroadcast(actorUserId, inputState.draftId, { nextRunAt });
       setSessionMode(key, "idle");
-      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
       await renderBroadcast(ctx);
       return true;
     }
@@ -359,7 +359,7 @@ export const createTenantAdminInput = (deps: {
     const repeatEveryMs = Math.round(minutes * 60 * 1000);
     const result = await deliveryService.scheduleBroadcast(actorUserId, inputState.draftId, { nextRunAt: new Date(), repeatEveryMs });
     setSessionMode(key, "idle");
-    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
     await renderBroadcast(ctx);
     return true;
   };
@@ -394,7 +394,7 @@ export const createTenantAdminInput = (deps: {
     }
     if (!deliveryService) {
       setSessionMode(key, "idle");
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法保存设置。", { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法保存设置。", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
@@ -441,7 +441,7 @@ export const createTenantAdminInput = (deps: {
       const result = await deliveryService.setTenantAutoCategorizeRules(actorUserId, rules);
       setSessionMode(key, "idle");
       const extra = unknown.length ? `\n\n⚠️ 未找到这些分类名：${unknown.map((t) => `<code>${escapeHtml(t)}</code>`).join(" ")}` : "";
-      await replyHtml(ctx, `${result.message}${extra}`, { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, `${result.message}${extra}`, { reply_markup: mainKeyboard });
       await renderAutoCategorizeSettings(ctx);
       return true;
     }
@@ -449,7 +449,7 @@ export const createTenantAdminInput = (deps: {
       const normalized = text.trim();
       const result = await deliveryService.addBackupVaultGroup(actorUserId, normalized);
       setSessionMode(key, "idle");
-      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
       await renderVaultSettings(ctx);
       return true;
     }
@@ -460,7 +460,7 @@ export const createTenantAdminInput = (deps: {
           ? await deliveryService.setTenantStartWelcomeHtml(actorUserId, null)
           : await deliveryService.setTenantStartWelcomeHtml(actorUserId, normalized);
       setSessionMode(key, "idle");
-      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+      await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
       await renderWelcomeSettings(ctx);
       return true;
     }
@@ -482,7 +482,7 @@ export const createTenantAdminInput = (deps: {
     }
     const result = await deliveryService.setTenantDeliveryAdConfig(actorUserId, nextConfig);
     setSessionMode(key, "idle");
-    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard as never });
+    await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
     await renderAdSettings(ctx);
     return true;
   };
