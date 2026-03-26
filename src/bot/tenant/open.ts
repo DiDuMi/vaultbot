@@ -66,9 +66,27 @@ const buildRemainingSummary = (messages: { kind: UploadMessage["kind"] }[]) => {
   return `剩余 图片 ${counts.photo} · 视频 ${counts.video} · GIF ${counts.animation} · 文件 ${counts.file}`;
 };
 
+const parseNumberWithBounds = (raw: string | undefined, fallback: number, min: number, max: number) => {
+  const value = Number(raw ?? "");
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+};
+
 export const createOpenHandler = (deliveryService: DeliveryService | null) => {
   const pageSize = 20;
   const albumChunkSize = 10;
+  const metricsLogIntervalMs = parseNumberWithBounds(process.env.OPEN_METRICS_LOG_INTERVAL_MS, 60_000, 5_000, 3_600_000);
+  const maxOpenGuards = parseNumberWithBounds(process.env.OPEN_MAX_GUARDS, 5000, 100, 100_000);
+  const maxAssetViewStates = parseNumberWithBounds(process.env.OPEN_MAX_VIEW_STATES, 5000, 100, 100_000);
+  const openGuardTtlMs = parseNumberWithBounds(process.env.OPEN_GUARD_TTL_MS, 5 * 60 * 1000, 10_000, 12 * 60 * 60 * 1000);
+  const assetViewStateTtlMs = parseNumberWithBounds(
+    process.env.OPEN_VIEW_STATE_TTL_MS,
+    30 * 60 * 1000,
+    60_000,
+    24 * 60 * 60 * 1000
+  );
   const openGuards = new Map<string, { lastAt: number; busy: boolean }>();
   const assetViewStates = new Map<
     string,
@@ -78,13 +96,82 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
       totalPages: number;
       isTenant: boolean;
       adConfig: { prevText: string; nextText: string; adButtonText: string | null; adButtonUrl: string | null } | null;
+      touchedAt: number;
     }
   >();
   const minIntervalMs = 1200;
+  let openGuardsTtlEvictions = 0;
+  let openGuardsCapEvictions = 0;
+  let assetViewStatesTtlEvictions = 0;
+  let assetViewStatesCapEvictions = 0;
+  let lastMetricsLogAt = Date.now();
+  const flushOpenMetrics = (now: number) => {
+    if (now - lastMetricsLogAt < metricsLogIntervalMs) {
+      return;
+    }
+    const hasChanges =
+      openGuardsTtlEvictions > 0 ||
+      openGuardsCapEvictions > 0 ||
+      assetViewStatesTtlEvictions > 0 ||
+      assetViewStatesCapEvictions > 0;
+    if (hasChanges) {
+      console.info(
+        JSON.stringify({
+          level: "info",
+          at: new Date(now).toISOString(),
+          component: "open_handler",
+          op: "state_cleanup",
+          openGuardsSize: openGuards.size,
+          assetViewStatesSize: assetViewStates.size,
+          openGuardsTtlEvictions,
+          openGuardsCapEvictions,
+          assetViewStatesTtlEvictions,
+          assetViewStatesCapEvictions
+        })
+      );
+      openGuardsTtlEvictions = 0;
+      openGuardsCapEvictions = 0;
+      assetViewStatesTtlEvictions = 0;
+      assetViewStatesCapEvictions = 0;
+    }
+    lastMetricsLogAt = now;
+  };
+  const cleanupOpenState = (now: number) => {
+    for (const [key, state] of openGuards) {
+      if (!state.busy && now - state.lastAt > openGuardTtlMs) {
+        openGuards.delete(key);
+        openGuardsTtlEvictions += 1;
+      }
+    }
+    while (openGuards.size > maxOpenGuards) {
+      const oldest = openGuards.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      openGuards.delete(oldest.value);
+      openGuardsCapEvictions += 1;
+    }
+    for (const [key, state] of assetViewStates) {
+      if (now - state.touchedAt > assetViewStateTtlMs) {
+        assetViewStates.delete(key);
+        assetViewStatesTtlEvictions += 1;
+      }
+    }
+    while (assetViewStates.size > maxAssetViewStates) {
+      const oldest = assetViewStates.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      assetViewStates.delete(oldest.value);
+      assetViewStatesCapEvictions += 1;
+    }
+    flushOpenMetrics(now);
+  };
 
   const openAsset = async (ctx: Context, assetId: string, page = 1) => {
+    cleanupOpenState(Date.now());
     if (!ctx.chat || !ctx.from) {
-      return;
+      return "not_ready" as const;
     }
     const guardKey = `${ctx.from.id}:${assetId}`;
     const now = Date.now();
@@ -95,7 +182,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
       } else {
         await replyHtml(ctx, "⏳ 正在发送中，请稍等…");
       }
-      return;
+      return "busy" as const;
     }
     if (existing && now - existing.lastAt < minIntervalMs) {
       if (ctx.callbackQuery) {
@@ -103,20 +190,20 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
       } else {
         await replyHtml(ctx, "⚠️ 操作太快啦，稍等一下再试。");
       }
-      return;
+      return "throttled" as const;
     }
     openGuards.set(guardKey, { lastAt: now, busy: true });
     if (!deliveryService) {
       openGuards.set(guardKey, { lastAt: now, busy: false });
       await replyHtml(ctx, "⚠️ 当前未启用数据库，无法交付内容。");
-      return;
+      return "db_disabled" as const;
     }
     try {
       const protectContent = await deliveryService.getTenantProtectContentEnabled().catch(() => false);
       const selection = await deliveryService.selectReplicas(String(ctx.from.id), assetId);
       if (selection.status !== "ready") {
         await replyHtml(ctx, escapeHtml(selection.message));
-        return;
+        return "not_ready" as const;
       }
       const messages = selection.messages;
       const isAlbumItem = (message: DeliveryMessage) => {
@@ -285,10 +372,17 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
       const likeAction = safeCallbackData(`asset:like:${assetId}`, "asset:noop");
       keyboard
         .row()
-        .text(`${liked ? "👍 已赞" : "👍 点赞"} ${likeHint}`, likeAction)
+        .text(`${liked ? "⭐️ 已收藏" : "⭐️ 收藏"} ${likeHint}`, likeAction)
         .text(`💬 评论 ${commentHint}`, `comment:list:${assetId}:1:${currentPage}`);
       const isTenant = await deliveryService.isTenantUser(String(ctx.from.id)).catch(() => false);
-      assetViewStates.set(toMetaKey(ctx.from.id, chatId), { assetId, page: currentPage, totalPages, isTenant, adConfig });
+      assetViewStates.set(toMetaKey(ctx.from.id, chatId), {
+        assetId,
+        page: currentPage,
+        totalPages,
+        isTenant,
+        adConfig,
+        touchedAt: Date.now()
+      });
       const finalKeyboard = (() => {
         if (isTenant) {
           return keyboard;
@@ -304,17 +398,22 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
       if (currentPage === 1) {
         await deliveryService.trackOpen(selection.tenantId, String(ctx.from.id), assetId);
       }
+      return "opened" as const;
     } finally {
       openGuards.set(guardKey, { lastAt: Date.now(), busy: false });
     }
   };
 
   const refreshAssetActions = async (ctx: Context, assetId: string) => {
+    cleanupOpenState(Date.now());
     if (!deliveryService || !ctx.from || !ctx.chat) {
       return;
     }
     const key = toMetaKey(ctx.from.id, ctx.chat.id);
     const view = assetViewStates.get(key);
+    if (view) {
+      assetViewStates.set(key, { ...view, touchedAt: Date.now() });
+    }
     const page = view?.assetId === assetId ? view.page : 1;
     const totalPages = view?.assetId === assetId ? view.totalPages : 1;
     const isTenant =
@@ -329,7 +428,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
     const likeAction = safeCallbackData(`asset:like:${assetId}`, "asset:noop");
     keyboard
       .row()
-      .text(`${liked ? "👍 已赞" : "👍 点赞"} ${likeHint}`, likeAction)
+      .text(`${liked ? "⭐️ 已收藏" : "⭐️ 收藏"} ${likeHint}`, likeAction)
       .text(`💬 评论 ${commentHint}`, `comment:list:${assetId}:1:${page}`);
     if (!isTenant) {
       keyboard.row().text("👣 足迹", "user:history");
@@ -340,14 +439,15 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
   const openShareCode = async (ctx: Context, shareCode: string, page = 1) => {
     if (!deliveryService) {
       await replyHtml(ctx, "⚠️ 当前未启用数据库，无法交付内容。");
-      return;
+      return "db_disabled" as const;
     }
     const assetId = await deliveryService.resolveShareCode(shareCode);
     if (!assetId) {
       await replyHtml(ctx, "🔍 未找到该哈希，请确认后重试。");
-      return;
+      return "not_found" as const;
     }
-    await openAsset(ctx, assetId, Number.isFinite(page) && page >= 1 ? page : 1);
+    const result = await openAsset(ctx, assetId, Number.isFinite(page) && page >= 1 ? page : 1);
+    return result === "opened" ? "opened" : "not_ready";
   };
 
   return { openAsset, openShareCode, refreshAssetActions };

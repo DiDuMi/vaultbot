@@ -85,7 +85,7 @@ export type TenantCallbackDeps = {
     renderManagePanel: (ctx: Context, assetId: string) => Promise<void>;
     startMeta: (ctx: Context, assetId: string, mode: "create" | "edit") => Promise<void>;
     renderComments: (ctx: Context, assetId: string, page: number, mode: "reply" | "edit") => Promise<void>;
-    openAsset: (ctx: Context, assetId: string, page: number) => Promise<void>;
+    openAsset: (ctx: Context, assetId: string, page: number) => Promise<unknown>;
     refreshAssetActions: (ctx: Context, assetId: string) => Promise<void>;
     renderFootprint: (
       ctx: Context,

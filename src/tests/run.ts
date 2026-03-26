@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { Keyboard } from "grammy";
 import { createTenantAdminInput } from "../bot/tenant/admin-input";
 import { createBatchActions } from "../bot/tenant/batch-actions";
@@ -18,7 +20,8 @@ import { rankMoreCallbackRe } from "../bot/tenant/callbacks/home";
 import { buildWorkerHeartbeatLines, parseHeartbeatAgoMin } from "../services/use-cases/worker-heartbeat";
 import { registerDeliveryModuleTests } from "./use-cases/delivery-modules";
 import { createWorkerRoutes } from "../worker/routes";
-import { buildAssetActionLine } from "../bot/tenant/index";
+import { buildAssetActionLine, buildPreviewLinkLine } from "../bot/tenant/index";
+import { buildFootprintKeyboard, buildRankingKeyboard } from "../bot/tenant/keyboards";
 
 type TestCase = { name: string; run: () => Promise<void> | void };
 
@@ -295,7 +298,7 @@ test("index: 普通用户操作行仅显示点击查看", () => {
     assetId: "asset_1",
     canManage: false
   });
-  assert.equal(line, '操作：<a href="https://t.me/bot_name?start=abc123">点击查看</a>');
+  assert.equal(line, '操作：<a href="https://t.me/bot_name?start=p_abc123">点击查看</a>');
 });
 
 test("index: 管理员操作行并排显示管理与点击查看", () => {
@@ -307,8 +310,52 @@ test("index: 管理员操作行并排显示管理与点击查看", () => {
   });
   assert.equal(
     line,
-    '操作：<a href="https://t.me/bot_name?start=m_asset_1">管理</a> ｜ <a href="https://t.me/bot_name?start=abc123">点击查看</a>'
+    '操作：<a href="https://t.me/bot_name?start=m_asset_1">管理</a> ｜ <a href="https://t.me/bot_name?start=p_abc123">点击查看</a>'
   );
+});
+
+test("index: 预览链接展示使用超链接而非 code 包裹", () => {
+  const line = buildPreviewLinkLine("https://t.me/bot_name?start=p_abc123");
+  assert.ok(line.includes('<a href="https://t.me/bot_name?start=p_abc123">点击预览</a>'));
+  assert.equal(line.includes("<code>"), false);
+  assert.equal(line.includes("预览 -"), false);
+});
+
+test("keyboards: 排行指标 like 文案显示为收藏", () => {
+  const keyboard = buildRankingKeyboard({ range: "today", metric: "like", isTenant: true });
+  const textList = (keyboard as unknown as { inline_keyboard: Array<Array<{ text: string }>> }).inline_keyboard
+    .flat()
+    .map((item) => item.text);
+  assert.ok(textList.includes("收藏 ✅"));
+  assert.equal(textList.includes("点赞 ✅"), false);
+  assert.equal(textList.includes("点赞"), false);
+});
+
+test("keyboards: 足迹 tab like 文案显示为收藏", () => {
+  const keyboard = buildFootprintKeyboard({ tab: "like", range: "30d", page: 1, totalPages: 1 });
+  const textList = (keyboard as unknown as { inline_keyboard: Array<Array<{ text: string }>> }).inline_keyboard
+    .flat()
+    .map((item) => item.text);
+  assert.ok(textList.includes("收藏 ✅"));
+  assert.equal(textList.includes("点赞 ✅"), false);
+  assert.equal(textList.includes("点赞"), false);
+});
+
+test("copy: like 核心入口文案保持收藏语义", () => {
+  const files = [
+    path.resolve(__dirname, "../bot/tenant/open.ts"),
+    path.resolve(__dirname, "../bot/tenant/index.ts"),
+    path.resolve(__dirname, "../bot/tenant/renderers.ts"),
+    path.resolve(__dirname, "../bot/tenant/keyboards.ts"),
+    path.resolve(__dirname, "../bot/tenant/social.ts"),
+    path.resolve(__dirname, "../services/use-cases/delivery-social.ts")
+  ];
+  const texts = files.map((file) => fs.readFileSync(file, "utf8"));
+  assert.ok(texts.some((text) => text.includes("收藏")));
+  for (const text of texts) {
+    assert.equal(text.includes("点赞"), false);
+    assert.equal(text.includes("已赞"), false);
+  }
 });
 
 test("callbacks: tag:open 回调能正确解析 tagId 与页码", () => {

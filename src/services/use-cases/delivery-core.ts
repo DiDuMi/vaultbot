@@ -124,9 +124,13 @@ export const createDeliveryCore = (deps: {
     await deps.prisma.event.create({ data: { tenantId, userId, assetId, type: "OPEN" } });
   };
 
-  const trackVisit = async (userId: string, source: "start" | "start_payload" | "home" | "help") => {
+  const trackVisit = async (
+    userId: string,
+    source: "start" | "start_payload" | "home" | "help",
+    metadata?: Record<string, unknown>
+  ) => {
     const tenantId = await getTenantId();
-    await deps.prisma.event.create({ data: { tenantId, userId, type: "IMPRESSION", payload: { source } } });
+    await deps.prisma.event.create({ data: { tenantId, userId, type: "IMPRESSION", payload: { source, ...metadata } } });
   };
 
   return {

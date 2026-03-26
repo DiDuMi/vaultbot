@@ -343,7 +343,7 @@ export const buildRankingKeyboard = (options: {
     .text(options.metric === "visit" ? "访问 ✅" : "访问", "rank:metric:visit");
   keyboard
     .row()
-    .text(options.metric === "like" ? "点赞 ✅" : "点赞", "rank:metric:like")
+    .text(options.metric === "like" ? "收藏 ✅" : "收藏", "rank:metric:like")
     .text(options.metric === "comment" ? "评论 ✅" : "评论", "rank:metric:comment");
   keyboard
     .row()
@@ -598,7 +598,7 @@ export const buildFootprintKeyboard = (options: {
   const nextAction = current < maxPage ? `foot:page:${options.tab}:${next}:${range}` : "foot:noop";
   const keyboard = new InlineKeyboard()
     .text(options.tab === "open" ? "最近浏览 ✅" : "最近浏览", "foot:tab:open")
-    .text(options.tab === "like" ? "点赞 ✅" : "点赞", "foot:tab:like")
+    .text(options.tab === "like" ? "收藏 ✅" : "收藏", "foot:tab:like")
     .row()
     .text(options.tab === "comment" ? "评论 ✅" : "评论", "foot:tab:comment")
     .text(options.tab === "reply" ? "回复 ✅" : "回复", "foot:tab:reply");

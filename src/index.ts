@@ -67,11 +67,10 @@ const start = async () => {
       logError({ component: "main", op: "clear_webhook" }, error);
     }
 
-    try {
-      await bot.start();
-    } catch (error) {
+    await bot.start().catch((error) => {
       logError({ component: "main", op: "bot_start" }, error);
-    }
+      throw error;
+    });
   }
 };
 

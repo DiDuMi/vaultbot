@@ -78,12 +78,12 @@ export const createTenantSocial = (deps: {
               const time = escapeHtml(formatLocalDateTime(c.createdAt));
               const actionLine = (() => {
                 if (!username) {
-                  return `时间：<b>${time}</b> · 点赞 · 回复 · 对话`;
+                  return `时间：<b>${time}</b> · 收藏 · 回复 · 对话`;
                 }
                 const likeLink = buildStartLink(username, `cl_${c.id}`);
                 const replyLink = buildStartLink(username, `cr_${c.id}`);
                 const threadLink = buildStartLink(username, `ct_${c.id}_${returnToAssetPage}`);
-                return `时间：<b>${time}</b> · <a href="${escapeHtml(likeLink)}">点赞</a> · <a href="${escapeHtml(replyLink)}">回复</a> · <a href="${escapeHtml(threadLink)}">对话</a>`;
+                return `时间：<b>${time}</b> · <a href="${escapeHtml(likeLink)}">收藏</a> · <a href="${escapeHtml(replyLink)}">回复</a> · <a href="${escapeHtml(threadLink)}">对话</a>`;
               })();
               return [
                 `<b>#${order}</b> ${author}`,
@@ -246,7 +246,7 @@ export const createTenantSocial = (deps: {
     if (payload.startsWith("cl_")) {
       const commentId = payload.slice(3);
       if (!deliveryService || !ctx.from) {
-        await replyHtml(ctx, "⚠️ 当前未启用数据库，无法点赞。");
+        await replyHtml(ctx, "⚠️ 当前未启用数据库，无法收藏。");
         return true;
       }
       const result = await deliveryService.toggleAssetCommentLike(String(ctx.from.id), commentId);

@@ -78,6 +78,41 @@ const formatReceivedHint = (count: number) => {
 
 const ASSET_ACTION_LABEL = "操作";
 const ASSET_ACTION_SEPARATOR = " ｜ ";
+type StartPayloadEntry = "command" | "text_link";
+type StartPayloadStatus = "received" | "routed_social" | "opened" | "failed";
+
+const detectStartPayloadKind = (payload: string) => {
+  const normalized = payload.trim();
+  if (!normalized) {
+    return "empty";
+  }
+  if (normalized.startsWith("p_")) {
+    return "p";
+  }
+  if (normalized.startsWith("m_")) {
+    return "m";
+  }
+  if (normalized.startsWith("ct_")) {
+    return "ct";
+  }
+  if (normalized.startsWith("cv_")) {
+    return "cv";
+  }
+  if (normalized.startsWith("cl_")) {
+    return "cl";
+  }
+  if (normalized.startsWith("cr_")) {
+    return "cr";
+  }
+  if (normalized.startsWith("ca_")) {
+    return "ca";
+  }
+  return "raw_share_code";
+};
+
+export const buildPreviewLinkLine = (openLink?: string) => {
+  return openLink ? `打开链接：<a href="${escapeHtml(openLink)}">点击预览</a>` : "";
+};
 
 export const buildAssetActionLine = (options: {
   username?: string;
@@ -86,9 +121,9 @@ export const buildAssetActionLine = (options: {
   canManage: boolean;
 }) => {
   const manageCode = `m_${options.assetId}`;
-  const manageLink = options.canManage && options.username ? `https://t.me/${options.username}?start=${manageCode}` : undefined;
+  const manageLink = options.canManage && options.username ? buildStartLink(options.username, manageCode) : undefined;
   const openLink =
-    options.shareCode && options.username ? `https://t.me/${options.username}?start=${encodeURIComponent(options.shareCode)}` : undefined;
+    options.shareCode && options.username ? buildStartLink(options.username, `p_${options.shareCode}`) : undefined;
   const line = [
     manageLink ? `<a href="${escapeHtml(manageLink)}">管理</a>` : "",
     openLink ? `<a href="${escapeHtml(openLink)}">点击查看</a>` : ""
@@ -508,8 +543,8 @@ export const registerTenantBot = (
     const listLines = items.map((item, index) => {
       const plainTitle = truncatePlainText(stripHtmlTags(item.title).trim() || "未命名", 40);
       const plainDesc = truncatePlainText(stripHtmlTags(item.description ?? "").trim().replace(/\s+/g, " "), 60);
-      const openLink = item.shareCode && botUsername ? `https://t.me/${botUsername}?start=${encodeURIComponent(item.shareCode)}` : null;
-      const manageLink = botUsername ? `https://t.me/${botUsername}?start=m_${encodeURIComponent(item.assetId)}` : null;
+      const openLink = item.shareCode && botUsername ? buildStartLink(botUsername, `p_${item.shareCode}`) : null;
+      const manageLink = botUsername ? buildStartLink(botUsername, `m_${item.assetId}`) : null;
       const titlePart = openLink ? `<a href="${escapeHtml(openLink)}">${escapeHtml(plainTitle)}</a>` : escapeHtml(plainTitle);
       const linkParts = [
         openLink ? `<a href="${escapeHtml(openLink)}">打开链接</a>` : "",
@@ -639,9 +674,9 @@ export const registerTenantBot = (
       }
       const username = ctx.me?.username;
       const openCode = result.shareCode;
-      const openLink = username ? `https://t.me/${username}?start=${openCode}` : undefined;
+      const openLink = username ? buildStartLink(username, `p_${openCode}`) : undefined;
       const manageCode = `m_${state.assetId}`;
-      const manageLink = username ? `https://t.me/${username}?start=${manageCode}` : undefined;
+      const manageLink = username ? buildStartLink(username, manageCode) : undefined;
       const message =
         state.mode === "edit"
           ? [
@@ -649,8 +684,7 @@ export const registerTenantBot = (
               "",
               "打开哈希：",
               `<code>${escapeHtml(openCode)}</code>`,
-              openLink ? "打开链接：" : "",
-              openLink ? `<code>预览 - ${escapeHtml(openLink)}</code>` : "",
+              buildPreviewLinkLine(openLink),
               "",
               manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : ""
             ]
@@ -661,8 +695,7 @@ export const registerTenantBot = (
               "",
               "打开哈希：",
               `<code>${escapeHtml(openCode)}</code>`,
-              openLink ? "打开链接：" : "",
-              openLink ? `<code>预览 - ${escapeHtml(openLink)}</code>` : "",
+              buildPreviewLinkLine(openLink),
               "",
               manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : "",
               "",
@@ -680,8 +713,29 @@ export const registerTenantBot = (
     return true;
   };
 
-  const handleStartPayloadEntry = async (ctx: Context, payload: string) => {
+  const trackStartPayloadVisit = async (
+    ctx: Context,
+    payload: string,
+    entry: StartPayloadEntry,
+    status: StartPayloadStatus,
+    reason?: string
+  ) => {
+    if (!deliveryService || !ctx.from) {
+      return;
+    }
+    await deliveryService
+      .trackVisit(String(ctx.from.id), "start_payload", {
+        entry,
+        payloadKind: detectStartPayloadKind(payload),
+        status,
+        reason: reason ?? null
+      })
+      .catch(() => undefined);
+  };
+
+  const handleStartPayloadEntry = async (ctx: Context, payload: string, entry: StartPayloadEntry) => {
     if (await handleStartPayload(ctx, payload)) {
+      await trackStartPayloadVisit(ctx, payload, entry, "routed_social");
       return true;
     }
     if (payload.startsWith("p_")) {
@@ -691,21 +745,34 @@ export const registerTenantBot = (
       const hasPage = Number.isFinite(parsedPage) && parsedPage >= 1;
       const page = hasPage ? parsedPage : 1;
       const shareCode = lastUnderscore > 0 && hasPage ? raw.slice(0, lastUnderscore) : raw;
-      await openShareCode(ctx, shareCode, page);
+      if (!shareCode.trim()) {
+        await replyHtml(ctx, "⚠️ 链接参数无效，请重新获取预览链接。");
+        await trackStartPayloadVisit(ctx, payload, entry, "failed", "empty_share_code");
+        return true;
+      }
+      const openResult = await openShareCode(ctx, shareCode, page);
+      if (openResult === "opened") {
+        await trackStartPayloadVisit(ctx, payload, entry, "opened");
+      } else {
+        await trackStartPayloadVisit(ctx, payload, entry, "failed", openResult);
+      }
       return true;
     }
     if (payload.startsWith("m_")) {
       const assetId = payload.slice(2);
       if (!ctx.from) {
+        await trackStartPayloadVisit(ctx, payload, entry, "failed", "missing_user");
         return true;
       }
       if (!deliveryService) {
         await replyHtml(ctx, "⚠️ 当前未启用数据库，无法进入管理。");
+        await trackStartPayloadVisit(ctx, payload, entry, "failed", "db_disabled");
         return true;
       }
       const meta = await deliveryService.getUserAssetMeta(String(ctx.from.id), assetId);
       if (!meta) {
         await replyHtml(ctx, "🔒 无权限或内容不存在。");
+        await trackStartPayloadVisit(ctx, payload, entry, "failed", "forbidden_or_missing");
         return true;
       }
       const collections = await deliveryService.listCollections().catch(() => []);
@@ -713,10 +780,10 @@ export const registerTenantBot = (
         meta.collectionId === null ? "未分类" : stripHtmlTags(collections.find((c) => c.id === meta.collectionId)?.title ?? "未分类");
       const username = ctx.me?.username;
       const manageCode = `m_${meta.assetId}`;
-      const manageLink = username ? `https://t.me/${username}?start=${manageCode}` : undefined;
+      const manageLink = username ? buildStartLink(username, manageCode) : undefined;
       const safeTitle = sanitizeTelegramHtml(meta.title);
       const safeDesc = meta.description ? sanitizeTelegramHtml(meta.description) : "";
-      const openLink = meta.shareCode ? (username ? `https://t.me/${username}?start=${meta.shareCode}` : undefined) : undefined;
+      const openLink = meta.shareCode ? (username ? buildStartLink(username, `p_${meta.shareCode}`) : undefined) : undefined;
       const isRecycled = !meta.searchable && meta.visibility === "RESTRICTED";
       const statusText = isRecycled ? "已回收" : meta.searchable ? "显示中" : "已隐藏";
       const lines = [
@@ -727,25 +794,32 @@ export const registerTenantBot = (
         safeDesc ? `<blockquote expandable>${safeDesc}</blockquote>` : "",
         manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : "",
         meta.shareCode ? `打开哈希：<code>${escapeHtml(meta.shareCode)}</code>` : "",
-        openLink ? `打开链接：<code>预览 - ${escapeHtml(openLink)}</code>` : ""
+        buildPreviewLinkLine(openLink ?? undefined)
       ]
         .filter(Boolean)
         .join("\n");
       await replyHtml(ctx, lines, { reply_markup: buildManageKeyboard(meta.assetId, { searchable: meta.searchable, recycled: isRecycled }) });
+      await trackStartPayloadVisit(ctx, payload, entry, "opened");
       return true;
     }
-    await openShareCode(ctx, payload, 1);
+    const openResult = await openShareCode(ctx, payload, 1);
+    if (openResult === "opened") {
+      await trackStartPayloadVisit(ctx, payload, entry, "opened");
+    } else {
+      await trackStartPayloadVisit(ctx, payload, entry, "failed", openResult);
+    }
     return true;
   };
 
   bot.command("start", async (ctx) => {
     const payload = ctx.match?.trim();
-    if (deliveryService && ctx.from) {
-      await deliveryService.trackVisit(String(ctx.from.id), payload ? "start_payload" : "start").catch(() => undefined);
-    }
     if (payload) {
-      await handleStartPayloadEntry(ctx, payload);
+      await trackStartPayloadVisit(ctx, payload, "command", "received");
+      await handleStartPayloadEntry(ctx, payload, "command");
       return;
+    }
+    if (deliveryService && ctx.from) {
+      await deliveryService.trackVisit(String(ctx.from.id), "start").catch(() => undefined);
     }
     await renderStartHome(ctx);
   });
@@ -811,10 +885,10 @@ export const registerTenantBot = (
         : stripHtmlTags(collections.find((c) => c.id === meta.collectionId)?.title ?? "未分类");
     const username = ctx.me?.username;
     const manageCode = `m_${meta.assetId}`;
-    const manageLink = username ? `https://t.me/${username}?start=${manageCode}` : undefined;
+    const manageLink = username ? buildStartLink(username, manageCode) : undefined;
     const safeTitle = sanitizeTelegramHtml(meta.title);
     const safeDesc = meta.description ? sanitizeTelegramHtml(meta.description) : "";
-    const openLink = meta.shareCode ? (username ? `https://t.me/${username}?start=${meta.shareCode}` : undefined) : undefined;
+    const openLink = meta.shareCode ? (username ? buildStartLink(username, `p_${meta.shareCode}`) : undefined) : undefined;
     const isRecycled = !meta.searchable && meta.visibility === "RESTRICTED";
     const statusText = isRecycled ? "已回收" : meta.searchable ? "显示中" : "已隐藏";
     const lines = [
@@ -825,7 +899,7 @@ export const registerTenantBot = (
       safeDesc ? `<blockquote expandable>${safeDesc}</blockquote>` : "",
       manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : "",
       meta.shareCode ? `打开哈希：<code>${escapeHtml(meta.shareCode)}</code>` : "",
-      openLink ? `打开链接：<code>预览 - ${escapeHtml(openLink)}</code>` : ""
+      buildPreviewLinkLine(openLink ?? undefined)
     ]
       .filter(Boolean)
       .join("\n");
@@ -892,14 +966,14 @@ export const registerTenantBot = (
         return { total: result.total, items: result.items.map((i) => ({ ...i, at: i.createdAt })) };
       })();
     }
-    const tabTitle = tab === "open" ? "最近浏览" : tab === "like" ? "点赞" : tab === "comment" ? "评论" : "回复";
+    const tabTitle = tab === "open" ? "最近浏览" : tab === "like" ? "收藏" : tab === "comment" ? "评论" : "回复";
     const rangeTitle = range === "7d" ? "近7天" : range === "30d" ? "近30天" : "全部";
     if (data.total === 0) {
       const message =
         tab === "open"
           ? "📭 暂无最近浏览。"
           : tab === "like"
-            ? "📭 暂无点赞。"
+            ? "📭 暂无收藏。"
             : tab === "comment"
               ? "📭 暂无评论。"
               : "📭 暂无回复。";
@@ -917,12 +991,11 @@ export const registerTenantBot = (
           const order = (currentPage - 1) * pageSize + index + 1;
           const titleText = escapeHtml(stripHtmlTags((item as { title: string }).title));
           const shareCode = (item as { shareCode: string | null }).shareCode;
-          const openLink =
-            shareCode && username ? `https://t.me/${username}?start=${encodeURIComponent(shareCode)}` : undefined;
+          const openLink = shareCode && username ? buildStartLink(username, `p_${shareCode}`) : undefined;
           const titleLine = `<b>${order}. ${titleText}</b>`;
           const openLine = openLink ? `打开：<a href="${escapeHtml(openLink)}">点击查看</a>` : "";
           const at = (item as { at: Date }).at;
-          const timeLabel = tab === "open" ? "浏览" : tab === "like" ? "点赞" : tab === "comment" ? "评论" : "回复";
+          const timeLabel = tab === "open" ? "浏览" : tab === "like" ? "收藏" : tab === "comment" ? "评论" : "回复";
           const timeLine = `${timeLabel}：<b>${escapeHtml(formatLocalDateTime(at))}</b>`;
           return [
             titleLine,
@@ -1692,10 +1765,8 @@ export const registerTenantBot = (
     }
     const payloadFromLink = extractStartPayloadFromText(text);
     if (payloadFromLink) {
-      if (deliveryService && ctx.from) {
-        await deliveryService.trackVisit(String(ctx.from.id), "start_payload").catch(() => undefined);
-      }
-      await handleStartPayloadEntry(ctx, payloadFromLink);
+      await trackStartPayloadVisit(ctx, payloadFromLink, "text_link", "received");
+      await handleStartPayloadEntry(ctx, payloadFromLink, "text_link");
       return;
     }
     if (/^[a-zA-Z0-9_-]{6,16}$/.test(text)) {

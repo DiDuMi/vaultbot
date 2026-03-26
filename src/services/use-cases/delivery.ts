@@ -55,7 +55,11 @@ export type DeliveryService = {
     openedShares: number;
   }>;
   trackOpen: (tenantId: string, userId: string, assetId: string) => Promise<void>;
-  trackVisit: (userId: string, source: "start" | "start_payload" | "home" | "help") => Promise<void>;
+  trackVisit: (
+    userId: string,
+    source: "start" | "start_payload" | "home" | "help",
+    metadata?: Record<string, unknown>
+  ) => Promise<void>;
   getTenantSearchMode: () => Promise<"OFF" | "ENTITLED_ONLY" | "PUBLIC">;
   setTenantSearchMode: (
     actorUserId: string,

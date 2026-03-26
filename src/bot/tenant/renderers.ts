@@ -4,6 +4,7 @@ import type { DeliveryService } from "../../services/use-cases";
 import { logError } from "../../infra/logging";
 import {
   buildPublisherLine,
+  buildStartLink,
   escapeHtml,
   type KeyValueStore,
   sanitizeTelegramHtml,
@@ -112,7 +113,7 @@ export const createTenantRenderers = (deps: {
     if (items.length === 0) {
       const emptyText =
         metric === "like"
-          ? "🏆 暂无点赞数据。"
+          ? "🏆 暂无收藏数据。"
           : metric === "visit"
             ? "🏆 暂无访问数据。"
             : metric === "comment"
@@ -123,13 +124,13 @@ export const createTenantRenderers = (deps: {
     }
     const username = ctx.me?.username;
     const rangeTitle = range === "today" ? "今日" : range === "week" ? "本周" : "本月";
-    const metricTitle = metric === "like" ? "点赞" : metric === "visit" ? "访问" : metric === "comment" ? "评论" : "浏览";
+    const metricTitle = metric === "like" ? "收藏" : metric === "visit" ? "访问" : metric === "comment" ? "评论" : "浏览";
     const content = (
       await Promise.all(
         items.map(async (item, index) => {
           const order = index + 1;
           const titleText = escapeHtml(stripHtmlTags(item.title));
-          const openLink = username && item.shareCode ? `https://t.me/${username}?start=${item.shareCode}` : undefined;
+          const openLink = username && item.shareCode ? buildStartLink(username, `p_${item.shareCode}`) : undefined;
           const metricCount =
             metric === "like"
               ? (item as { likes: number }).likes

@@ -12,6 +12,13 @@ import { upsertWorkerProcessHeartbeat, upsertWorkerReplicationHeartbeat } from "
 import { buildBroadcastKeyboard, escapeHtml, isBlockedError, logWorkerError, stripHtml } from "./strategy";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const parseNumberWithBounds = (raw: string | undefined, fallback: number, min: number, max: number) => {
+  const value = Number(raw ?? "");
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+};
 
 const sendMediaGroupWithRetry = async (
   bot: Bot,
@@ -645,7 +652,8 @@ const start = async () => {
         await withTelegramRetry(() =>
           bot.api.sendMessage(chatId, text, { parse_mode: "HTML", link_preview_options: { is_disabled: true } })
         );
-      } catch {
+      } catch (error) {
+        logWorkerError({ op: "follow_notify_send", scope: `asset:${asset.id}:user:${chatId}`, tenantId: asset.tenantId }, error);
         continue;
       }
       await sleep(30);
@@ -742,10 +750,71 @@ const start = async () => {
 
   let replicationTimer: NodeJS.Timeout | null = null;
   const replicationEnqueuedAt = new Map<string, number>();
+  const replicationEnqueuedTtlMs = parseNumberWithBounds(
+    process.env.REPLICATION_ENQUEUED_TTL_MS,
+    60 * 60 * 1000,
+    60_000,
+    24 * 60 * 60 * 1000
+  );
+  const replicationEnqueuedMaxSize = parseNumberWithBounds(
+    process.env.REPLICATION_ENQUEUED_MAX_SIZE,
+    20_000,
+    1000,
+    200_000
+  );
+  const replicationMetricsLogIntervalMs = parseNumberWithBounds(
+    process.env.REPLICATION_METRICS_LOG_INTERVAL_MS,
+    60_000,
+    5_000,
+    3_600_000
+  );
+  let replicationTtlEvictions = 0;
+  let replicationCapEvictions = 0;
+  let lastReplicationMetricsLogAt = Date.now();
+  const flushReplicationMetrics = (now: number) => {
+    if (now - lastReplicationMetricsLogAt < replicationMetricsLogIntervalMs) {
+      return;
+    }
+    const hasChanges = replicationTtlEvictions > 0 || replicationCapEvictions > 0;
+    if (hasChanges) {
+      console.info(
+        JSON.stringify({
+          level: "info",
+          at: new Date(now).toISOString(),
+          component: "worker",
+          op: "replication_enqueued_cleanup",
+          mapSize: replicationEnqueuedAt.size,
+          ttlEvictions: replicationTtlEvictions,
+          capEvictions: replicationCapEvictions
+        })
+      );
+      replicationTtlEvictions = 0;
+      replicationCapEvictions = 0;
+    }
+    lastReplicationMetricsLogAt = now;
+  };
+  const cleanupReplicationEnqueuedAt = (now: number) => {
+    for (const [batchId, ts] of replicationEnqueuedAt) {
+      if (now - ts > replicationEnqueuedTtlMs) {
+        replicationEnqueuedAt.delete(batchId);
+        replicationTtlEvictions += 1;
+      }
+    }
+    while (replicationEnqueuedAt.size > replicationEnqueuedMaxSize) {
+      const oldest = replicationEnqueuedAt.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      replicationEnqueuedAt.delete(oldest.value);
+      replicationCapEvictions += 1;
+    }
+    flushReplicationMetrics(now);
+  };
   let backfillOffset = 0;
   const startReplicationScheduler = () => {
     const tick = async () => {
       const now = Date.now();
+      cleanupReplicationEnqueuedAt(now);
       await upsertWorkerProcessHeartbeat(prisma, runtimeTenantId, now).catch((error) =>
         logWorkerError({ op: "heartbeat_process_upsert", tenantId: runtimeTenantId }, error)
       );

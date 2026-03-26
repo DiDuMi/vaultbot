@@ -220,13 +220,13 @@ export const createDeliverySocial = (deps: {
     if (existing) {
       await deps.prisma.assetCommentLike.delete({ where: { id: existing.id } });
       const count = await deps.prisma.assetCommentLike.count({ where: { tenantId, commentId } });
-      return { ok: true, message: "✅ 已取消点赞。", liked: false, count, assetId: context.assetId };
+      return { ok: true, message: "✅ 已取消收藏。", liked: false, count, assetId: context.assetId };
     }
     await deps.prisma.assetCommentLike.create({
       data: { tenantId, commentId, userId }
     });
     const count = await deps.prisma.assetCommentLike.count({ where: { tenantId, commentId } });
-    return { ok: true, message: "👍 已点赞。", liked: true, count, assetId: context.assetId };
+    return { ok: true, message: "⭐️ 已收藏。", liked: true, count, assetId: context.assetId };
   };
 
   const getAssetLikeCount = async (userId: string, assetId: string) => {
@@ -264,11 +264,11 @@ export const createDeliverySocial = (deps: {
     if (existing) {
       await deps.prisma.assetLike.delete({ where: { id: existing.id } });
       const count = await deps.prisma.assetLike.count({ where: { tenantId, assetId } });
-      return { ok: true, message: "✅ 已取消点赞。", liked: false, count };
+      return { ok: true, message: "✅ 已取消收藏。", liked: false, count };
     }
     await deps.prisma.assetLike.create({ data: { tenantId, assetId, userId } });
     const count = await deps.prisma.assetLike.count({ where: { tenantId, assetId } });
-    return { ok: true, message: "👍 已点赞。", liked: true, count };
+    return { ok: true, message: "⭐️ 已收藏。", liked: true, count };
   };
 
   const addAssetComment = async (
