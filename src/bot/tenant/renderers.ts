@@ -140,7 +140,7 @@ export const createTenantRenderers = (deps: {
                   ? (item as { comments: number }).comments
                   : (item as { opens: number }).opens;
           const titleLine = `${order}. ${titleText} · ${metricTitle} ${metricCount} 次`;
-          const openLine = openLink ? `打开：${escapeHtml(openLink)}` : "";
+          const openLine = openLink ? `<a href="${escapeHtml(openLink)}">点击查看</a>` : "";
           return [
             titleLine,
             openLine

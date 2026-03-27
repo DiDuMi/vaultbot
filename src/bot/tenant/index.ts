@@ -114,6 +114,16 @@ export const buildPreviewLinkLine = (openLink?: string) => {
   return openLink ? `打开链接：<a href="${escapeHtml(openLink)}">点击预览</a>` : "";
 };
 
+const buildPreviewCopyLines = (openLink?: string, title?: string) => {
+  if (!openLink) {
+    return [];
+  }
+  const safeOpenLink = escapeHtml(openLink);
+  const plainTitle = stripHtmlTags(title ?? "").trim() || "未命名";
+  const safeTitle = escapeHtml(plainTitle);
+  return [`预览 - <code>${safeOpenLink}</code>`, `<code>${safeTitle}\n预览 - ${safeOpenLink}</code>`];
+};
+
 export const buildAssetActionLine = (options: {
   username?: string;
   shareCode?: string | null;
@@ -684,7 +694,7 @@ export const registerTenantBot = (
               "",
               "打开哈希：",
               `<code>${escapeHtml(openCode)}</code>`,
-              buildPreviewLinkLine(openLink),
+              ...buildPreviewCopyLines(openLink, title),
               "",
               manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : ""
             ]
@@ -695,7 +705,7 @@ export const registerTenantBot = (
               "",
               "打开哈希：",
               `<code>${escapeHtml(openCode)}</code>`,
-              buildPreviewLinkLine(openLink),
+              ...buildPreviewCopyLines(openLink, title),
               "",
               manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : "",
               "",
@@ -993,7 +1003,7 @@ export const registerTenantBot = (
           const shareCode = (item as { shareCode: string | null }).shareCode;
           const openLink = shareCode && username ? buildStartLink(username, `p_${shareCode}`) : undefined;
           const titleLine = `<b>${order}. ${titleText}</b>`;
-          const openLine = openLink ? `打开：<a href="${escapeHtml(openLink)}">点击查看</a>` : "";
+          const openLine = openLink ? `<a href="${escapeHtml(openLink)}">点击查看</a>` : "";
           const at = (item as { at: Date }).at;
           const timeLabel = tab === "open" ? "浏览" : tab === "like" ? "收藏" : tab === "comment" ? "评论" : "回复";
           const timeLine = `${timeLabel}：<b>${escapeHtml(formatLocalDateTime(at))}</b>`;
