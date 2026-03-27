@@ -76,7 +76,7 @@ export const loadConfig = (): Config => {
     vaultChatId: assertTelegramId("VAULT_CHAT_ID", readEnv("VAULT_CHAT_ID")),
     vaultThreadId: readOptionalInt("VAULT_THREAD_ID"),
     host: readEnv("HOST", "0.0.0.0"),
-    port: assertPort(Number(readEnv("PORT", "3000")))
+    port: assertPort(Number(readEnv("PORT", "3002")))
   };
   if (config.webhookBaseUrl && (!config.webhookSecret || config.webhookSecret.trim() === "")) {
     throw new Error("启用 WEBHOOK_BASE_URL 时必须设置 WEBHOOK_SECRET");

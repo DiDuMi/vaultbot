@@ -29,7 +29,7 @@ COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 
 RUN chmod +x ./scripts/docker-entrypoint.sh
 
-EXPOSE 3000
+EXPOSE 3002
 
 ENTRYPOINT ["./scripts/docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]
