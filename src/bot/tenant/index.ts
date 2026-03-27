@@ -7,6 +7,7 @@ import type { DeliveryService, UploadMessage, UploadService } from "../../servic
 import { createUploadBatchStore } from "../../services/use-cases";
 import {
   buildPublisherLine,
+  buildDbDisabledHint,
   buildGuideHint,
   buildSuccessHint,
   buildStartLink,
@@ -121,7 +122,12 @@ const buildPreviewCopyLines = (openLink?: string, title?: string) => {
   const safeOpenLink = escapeHtml(openLink);
   const plainTitle = stripHtmlTags(title ?? "").trim() || "未命名";
   const safeTitle = escapeHtml(plainTitle);
-  return [`预览 - <code>${safeOpenLink}</code>`, `<code>${safeTitle}\n预览 - ${safeOpenLink}</code>`];
+  return [
+    "📎 <b>预览链接（可复制）</b>",
+    `<code>预览 - ${safeOpenLink}</code>`,
+    "🧾 <b>分享文案（可复制）</b>",
+    `<code>${safeTitle}\n\n预览 - ${safeOpenLink}</code>`
+  ];
 };
 
 export const buildAssetActionLine = (options: {
@@ -453,7 +459,7 @@ export const registerTenantBot = (
 
   const renderCollections = async (ctx: Context, options: { returnTo: "settings" | "upload"; page?: number }) => {
     if (!deliveryService) {
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法管理分类。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, buildDbDisabledHint("管理分类"), { reply_markup: mainKeyboard });
       return;
     }
     await hydrateUserPreferences(ctx);
@@ -690,26 +696,24 @@ export const registerTenantBot = (
       const message =
         state.mode === "edit"
           ? [
-              "✅ 已更新",
+              "✅ <b>已更新</b>",
               "",
-              "打开哈希：",
-              `<code>${escapeHtml(openCode)}</code>`,
+              `🔑 打开哈希：<code>${escapeHtml(openCode)}</code>`,
               ...buildPreviewCopyLines(openLink, title),
               "",
-              manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : ""
+              manageLink ? `🛠 管理：<a href="${escapeHtml(manageLink)}">点击进入管理</a>` : ""
             ]
               .filter(Boolean)
               .join("\n")
           : [
-              "✅ 已保存",
+              "✅ <b>已保存</b>",
               "",
-              "打开哈希：",
-              `<code>${escapeHtml(openCode)}</code>`,
+              `🔑 打开哈希：<code>${escapeHtml(openCode)}</code>`,
               ...buildPreviewCopyLines(openLink, title),
               "",
-              manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : "",
+              manageLink ? `🛠 管理：<a href="${escapeHtml(manageLink)}">点击进入管理</a>` : "",
               "",
-              "提示：管理用于后续修改。"
+              "<i>提示：管理入口用于后续修改标题、描述与状态。</i>"
             ]
               .filter(Boolean)
               .join("\n");
@@ -775,7 +779,7 @@ export const registerTenantBot = (
         return true;
       }
       if (!deliveryService) {
-        await replyHtml(ctx, "⚠️ 当前未启用数据库，无法进入管理。");
+        await replyHtml(ctx, buildDbDisabledHint("进入管理"));
         await trackStartPayloadVisit(ctx, payload, entry, "failed", "db_disabled");
         return true;
       }
@@ -876,7 +880,7 @@ export const registerTenantBot = (
   const renderManagePanel = async (ctx: Context, assetId: string) => {
     syncSessionForView(ctx);
     if (!deliveryService) {
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法进入管理。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, buildDbDisabledHint("进入管理"), { reply_markup: mainKeyboard });
       return;
     }
     if (!ctx.from) {
@@ -929,7 +933,7 @@ export const registerTenantBot = (
     }
     syncSessionForView(ctx);
     if (!deliveryService) {
-      const message = "⚠️ 当前未启用数据库，无法查看足迹。";
+      const message = buildDbDisabledHint("查看足迹");
       if (mode === "edit") {
         await editHtml(ctx, message).catch(async () => replyHtml(ctx, message));
       } else {
@@ -981,12 +985,12 @@ export const registerTenantBot = (
     if (data.total === 0) {
       const message =
         tab === "open"
-          ? "📭 暂无最近浏览。"
+          ? "📭 暂无最近浏览。\n可先去 <b>📚 列表</b> 或 <b>🔎 搜索</b> 看看。"
           : tab === "like"
-            ? "📭 暂无收藏。"
+            ? "📭 暂无收藏。\n看到喜欢的内容后可点 ⭐️ 收藏。"
             : tab === "comment"
-              ? "📭 暂无评论。"
-              : "📭 暂无回复。";
+              ? "📭 暂无评论。\n打开内容后即可参与评论。"
+              : "📭 暂无回复。\n有评论互动后会显示在这里。";
       await upsertHtml(
         ctx,
         `<b>👣 足迹｜${tabTitle}（${rangeTitle}）</b>\n\n${message}`,
@@ -1035,7 +1039,7 @@ export const registerTenantBot = (
     }
     syncSessionForView(ctx);
     if (!deliveryService) {
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法查看历史。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, buildDbDisabledHint("查看历史"), { reply_markup: mainKeyboard });
       return;
     }
     await hydrateUserPreferences(ctx);
@@ -1144,7 +1148,7 @@ export const registerTenantBot = (
 
   const renderSearch = async (ctx: Context, query: string, page: number, mode: "reply" | "edit") => {
     if (!deliveryService) {
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法搜索。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, buildDbDisabledHint("搜索"), { reply_markup: mainKeyboard });
       return;
     }
     if (!ctx.from) {
@@ -1173,7 +1177,7 @@ export const registerTenantBot = (
     const pageSize = 10;
     let data = await deliveryService.searchAssets(userId, safeQuery, page, pageSize).catch(() => null);
     if (!data || data.total === 0) {
-      const text = `🔍 未找到相关内容：<code>${escapeHtml(safeQuery)}</code>`;
+      const text = [`🔍 未找到相关内容：<code>${escapeHtml(safeQuery)}</code>`, "", "你可以尝试：", "1) 更换关键词", "2) 发送 <code>标签</code> 浏览热门标签", "3) 点底部 <b>📚 列表</b> 查看全部"].join("\n");
       if (mode === "edit") {
         await editHtml(ctx, text, { reply_markup: buildSearchKeyboard(1, 1) });
       } else {
@@ -1186,7 +1190,7 @@ export const registerTenantBot = (
     if (data.items.length === 0 && currentPage !== page) {
       data = await deliveryService.searchAssets(userId, safeQuery, currentPage, pageSize).catch(() => null);
       if (!data || data.total === 0) {
-        const text = `🔍 未找到相关内容：<code>${escapeHtml(safeQuery)}</code>`;
+        const text = [`🔍 未找到相关内容：<code>${escapeHtml(safeQuery)}</code>`, "", "你可以尝试：", "1) 更换关键词", "2) 发送 <code>标签</code> 浏览热门标签", "3) 点底部 <b>📚 列表</b> 查看全部"].join("\n");
         if (mode === "edit") {
           await editHtml(ctx, text, { reply_markup: buildSearchKeyboard(1, 1) });
         } else {
@@ -1211,7 +1215,7 @@ export const registerTenantBot = (
       })
       .filter(Boolean)
       .join("\n\n");
-    const text = `🔎 搜索结果：<code>${escapeHtml(safeQuery)}</code>\n（第 ${currentPage}/${totalPages} 页，共 ${data.total} 条）\n\n${content}`;
+    const text = `<b>🔎 搜索结果</b>：<code>${escapeHtml(safeQuery)}</code>\n（第 ${currentPage}/${totalPages} 页，共 ${data.total} 条）\n\n${content}`;
     const keyboard = buildSearchKeyboard(currentPage, totalPages);
     if (mode === "edit") {
       await editHtml(ctx, text, { reply_markup: keyboard });
@@ -1248,7 +1252,7 @@ export const registerTenantBot = (
 
   const renderTagIndex = async (ctx: Context, mode: "reply" | "edit") => {
     if (!deliveryService) {
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法查看标签。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, buildDbDisabledHint("查看标签"), { reply_markup: mainKeyboard });
       return;
     }
     if (!ctx.from) {
@@ -1272,7 +1276,7 @@ export const registerTenantBot = (
     const items = await deliveryService.listTopTags(50).catch(() => []);
     const content =
       items.length === 0
-        ? "（暂无标签。发布内容时在标题/描述里写 #标签，保存后会自动归档。）"
+        ? "📭 暂无标签。\n发布内容时在标题/描述里写 <code>#标签</code>，保存后会自动归档。"
         : items
             .slice(0, 20)
             .map((t, i) => `${i + 1}. <b>#${escapeHtml(t.name)}</b>（${t.count}）`)
@@ -1288,7 +1292,7 @@ export const registerTenantBot = (
 
   const renderTagAssets = async (ctx: Context, tagId: string, page: number, mode: "reply" | "edit") => {
     if (!deliveryService) {
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法查看标签。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, buildDbDisabledHint("查看标签"), { reply_markup: mainKeyboard });
       return;
     }
     if (!ctx.from) {
@@ -1481,7 +1485,7 @@ export const registerTenantBot = (
         })();
         if (commentId) {
           if (!deliveryService) {
-            await replyHtml(ctx, "⚠️ 当前未启用数据库，无法回复。", { reply_markup: mainKeyboard });
+            await replyHtml(ctx, buildDbDisabledHint("回复"), { reply_markup: mainKeyboard });
             return;
           }
           const userId = String(ctx.from.id);
@@ -1532,7 +1536,7 @@ export const registerTenantBot = (
         }
         if (!deliveryService) {
           setSessionMode(key, "idle");
-          await replyHtml(ctx, "⚠️ 当前未启用数据库，无法保存关注关键词。", { reply_markup: mainKeyboard });
+          await replyHtml(ctx, buildDbDisabledHint("保存关注关键词"), { reply_markup: mainKeyboard });
           return;
         }
         const userId = String(ctx.from.id);
@@ -1580,7 +1584,7 @@ export const registerTenantBot = (
         }
         if (!deliveryService) {
           setSessionMode(key, "idle");
-          await replyHtml(ctx, `⚠️ 当前未启用数据库，无法${inputState.mode === "renameCollection" ? "重命名" : "创建"}分类。`, {
+          await replyHtml(ctx, buildDbDisabledHint(`${inputState.mode === "renameCollection" ? "重命名" : "创建"}分类`), {
             reply_markup: mainKeyboard
           });
           return;
@@ -1635,7 +1639,7 @@ export const registerTenantBot = (
         }
         if (!deliveryService) {
           setSessionMode(key, "idle");
-          await replyHtml(ctx, "⚠️ 当前未启用数据库，无法添加管理员。", { reply_markup: mainKeyboard });
+          await replyHtml(ctx, buildDbDisabledHint("添加管理员"), { reply_markup: mainKeyboard });
           return;
         }
         const actorUserId = String(ctx.from.id);
@@ -1754,7 +1758,7 @@ export const registerTenantBot = (
     const tagMatch = text.match(/^#([\p{L}\p{N}_-]{1,32})$/u);
     if (tagMatch) {
       if (!deliveryService) {
-        await replyHtml(ctx, "⚠️ 当前未启用数据库，无法查看标签。", { reply_markup: mainKeyboard });
+        await replyHtml(ctx, buildDbDisabledHint("查看标签"), { reply_markup: mainKeyboard });
         return;
       }
       const tagName = tagMatch[1] ?? "";

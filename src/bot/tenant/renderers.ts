@@ -3,6 +3,7 @@ import type { Context } from "grammy";
 import type { DeliveryService } from "../../services/use-cases";
 import { logError } from "../../infra/logging";
 import {
+  buildDbDisabledHint,
   buildPublisherLine,
   buildStartLink,
   escapeHtml,
@@ -52,7 +53,7 @@ export const createTenantRenderers = (deps: {
   const renderStats = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法查看统计。", buildHomeKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("查看统计"), buildHomeKeyboard());
       return;
     }
     if (!ctx.from || !(await deps.deliveryService.isTenantUser(String(ctx.from.id)))) {
@@ -82,7 +83,7 @@ export const createTenantRenderers = (deps: {
   ) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法查看排行。");
+      await upsertHtml(ctx, buildDbDisabledHint("查看排行"));
       return;
     }
     if (!ctx.from) {
@@ -243,7 +244,7 @@ export const createTenantRenderers = (deps: {
   const renderFollow = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法使用关注。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("使用关注"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -268,8 +269,12 @@ export const createTenantRenderers = (deps: {
 
   const renderMy = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
-    if (!deps.deliveryService || !ctx.from) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法查看我的信息。", buildHelpKeyboard());
+    if (!deps.deliveryService) {
+      await upsertHtml(ctx, buildDbDisabledHint("查看我的信息"), buildHelpKeyboard());
+      return;
+    }
+    if (!ctx.from) {
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
       return;
     }
     const userId = String(ctx.from.id);
@@ -306,7 +311,7 @@ export const createTenantRenderers = (deps: {
   const renderNotifySettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置通知。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置通知"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -334,7 +339,7 @@ export const createTenantRenderers = (deps: {
   const renderSettings = async (ctx: Context, showMoreActions = false) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法打开设置。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("打开设置"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -398,7 +403,7 @@ export const createTenantRenderers = (deps: {
   const renderVaultSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置存储群。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置存储群"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -446,7 +451,7 @@ export const createTenantRenderers = (deps: {
   const renderWelcomeSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置欢迎词。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置欢迎词"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -475,7 +480,7 @@ export const createTenantRenderers = (deps: {
   const renderAdSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置广告。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置广告"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -513,7 +518,7 @@ export const createTenantRenderers = (deps: {
   const renderProtectSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置内容保护。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置内容保护"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -542,7 +547,7 @@ export const createTenantRenderers = (deps: {
   const renderHidePublisherSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置隐藏发布者。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置隐藏发布者"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -571,7 +576,7 @@ export const createTenantRenderers = (deps: {
   const renderAutoCategorizeSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置自动归类。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置自动归类"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -619,7 +624,7 @@ export const createTenantRenderers = (deps: {
   const renderRankPublicSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置排行开放。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置排行开放"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -648,7 +653,7 @@ export const createTenantRenderers = (deps: {
   const renderSearchModeSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置搜索开放。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置搜索开放"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -679,7 +684,7 @@ export const createTenantRenderers = (deps: {
   const renderBroadcast = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法使用推送。", buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("使用推送"), buildHelpKeyboard());
       return;
     }
     if (!ctx.from) {
@@ -780,13 +785,13 @@ export const createTenantRenderers = (deps: {
     const botName = ctx.me?.first_name?.trim() || ctx.me?.username?.trim() || "bot";
     const intro = `这里是“${escapeHtml(botName)}”，用于领取与管理内容。`;
     const welcomeBlock = welcomeText ? ["", "——", welcomeText].join("\n") : "";
-    const footer = ["〰️〰️〰️〰️〰️〰️", "本支持机器人由 @V5MeshBot 提供技术支持"].join("\n");
+    const footer = ["〰️〰️〰️〰️〰️〰️", "<i>本支持机器人由 @V5MeshBot 提供技术支持</i>"].join("\n");
     if (!deps.deliveryService || !ctx.from) {
       await replyHtml(
         ctx,
         [
-          `👋 你好，${escapeHtml(firstName)}`,
-          userId ? `ID：${escapeHtml(userId)}` : "",
+          `👋 你好，<b>${escapeHtml(firstName)}</b>`,
+          userId ? `ID：<code>${escapeHtml(userId)}</code>` : "",
           intro,
           welcomeBlock,
           "",
@@ -805,15 +810,15 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const isTenant = await deps.deliveryService.isTenantUser(String(ctx.from.id)).catch(() => false);
-    const roleLine = isTenant ? "身份：租户成员（可发布作品）" : "身份：用户（可浏览与领取内容）";
+    const roleLine = isTenant ? "👤 身份：<b>租户成员</b>（可发布作品）" : "👤 身份：<b>用户</b>（可浏览与领取内容）";
     const quickStart = isTenant
-      ? ["快速开始", "点底部 分享 → 发送媒体 → 点 ✅ 完成 保存 → 按提示提交标题/描述。", "也可以发送打开哈希领取内容，例如：Abc123。"].join("\n")
-      : ["快速开始", "发送打开哈希即可领取内容，例如：Abc123", "或点底部 📚 列表 / 🔎 搜索 浏览内容。"].join("\n");
+      ? ["<b>🚀 快速开始</b>", "点底部 分享 → 发送媒体 → 点 ✅ 完成 保存 → 按提示提交标题/描述。", "也可以发送打开哈希领取内容，例如：<code>Abc123</code>。"].join("\n")
+      : ["<b>🚀 快速开始</b>", "发送打开哈希即可领取内容，例如：<code>Abc123</code>", "或点底部 📚 列表 / 🔎 搜索 浏览内容。"].join("\n");
     await replyHtml(
       ctx,
       [
-        `👋 你好，${escapeHtml(firstName)}`,
-        `ID：${escapeHtml(String(ctx.from.id))}`,
+        `👋 你好，<b>${escapeHtml(firstName)}</b>`,
+        `ID：<code>${escapeHtml(String(ctx.from.id))}</code>`,
         intro,
         "",
         roleLine,

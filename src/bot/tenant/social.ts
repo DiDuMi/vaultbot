@@ -1,7 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 import { buildCommentKeyboard } from "./keyboards";
-import { buildInputExitHint, buildStartLink, editHtml, escapeHtml, normalizeButtonText, replyHtml, toMetaKey } from "./ui-utils";
+import { buildDbDisabledHint, buildInputExitHint, buildStartLink, editHtml, escapeHtml, normalizeButtonText, replyHtml, toMetaKey } from "./ui-utils";
 import { withTelegramRetry } from "../../infra/telegram";
 import type { DeliveryService } from "../../services/use-cases";
 import type { SessionMode } from "./session";
@@ -33,7 +33,7 @@ export const createTenantSocial = (deps: {
 
   const renderComments = async (ctx: Context, assetId: string, page: number, mode: "reply" | "edit") => {
     if (!deliveryService) {
-      const message = "⚠️ 当前未启用数据库，无法查看评论。";
+      const message = buildDbDisabledHint("查看评论");
       if (mode === "edit") {
         await editHtml(ctx, message).catch(async () => replyHtml(ctx, message));
       } else {
@@ -134,7 +134,7 @@ export const createTenantSocial = (deps: {
       const rootCommentId =
         lastUnderscore > 0 && Number.isFinite(Number(raw.slice(lastUnderscore + 1))) ? raw.slice(0, lastUnderscore) : raw;
       if (!deliveryService || !ctx.from) {
-        await replyHtml(ctx, "⚠️ 当前未启用数据库，无法查看对话。");
+        await replyHtml(ctx, buildDbDisabledHint("查看对话"));
         return true;
       }
       const thread = await deliveryService.getCommentThread(String(ctx.from.id), rootCommentId);
@@ -224,7 +224,7 @@ export const createTenantSocial = (deps: {
     if (payload.startsWith("cv_")) {
       const commentId = payload.slice(3);
       if (!deliveryService || !ctx.from) {
-        await replyHtml(ctx, "⚠️ 当前未启用数据库，无法查看评论。");
+        await replyHtml(ctx, buildDbDisabledHint("查看评论"));
         return true;
       }
       const chatId = ctx.chat?.id;
@@ -246,7 +246,7 @@ export const createTenantSocial = (deps: {
     if (payload.startsWith("cl_")) {
       const commentId = payload.slice(3);
       if (!deliveryService || !ctx.from) {
-        await replyHtml(ctx, "⚠️ 当前未启用数据库，无法收藏。");
+        await replyHtml(ctx, buildDbDisabledHint("收藏"));
         return true;
       }
       const result = await deliveryService.toggleAssetCommentLike(String(ctx.from.id), commentId);
@@ -261,7 +261,7 @@ export const createTenantSocial = (deps: {
     if (payload.startsWith("cr_")) {
       const commentId = payload.slice(3);
       if (!deliveryService || !ctx.from) {
-        await replyHtml(ctx, "⚠️ 当前未启用数据库，无法回复。");
+        await replyHtml(ctx, buildDbDisabledHint("回复"));
         return true;
       }
       const chatId = ctx.chat?.id;
@@ -285,7 +285,7 @@ export const createTenantSocial = (deps: {
     if (payload.startsWith("ca_")) {
       const assetId = payload.slice(3);
       if (!deliveryService || !ctx.from) {
-        await replyHtml(ctx, "⚠️ 当前未启用数据库，无法查看评论。");
+        await replyHtml(ctx, buildDbDisabledHint("查看评论"));
         return true;
       }
       const chatId = ctx.chat?.id;
@@ -427,7 +427,7 @@ export const createTenantSocial = (deps: {
     }
     if (!deliveryService) {
       setSessionMode(key, "idle");
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法发表评论。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, buildDbDisabledHint("发表评论"), { reply_markup: mainKeyboard });
       return true;
     }
     const authorName = ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name?.trim() || null;

@@ -118,6 +118,13 @@ export const buildBlockingHint = (message: string, nextStepHtml?: string) => {
   return step ? `⚠️ ${escapeHtml(message)}\n${step}` : `⚠️ ${escapeHtml(message)}`;
 };
 
+export const buildDbDisabledHint = (action: string, nextStepHtml?: string) => {
+  const normalizedAction = action.trim();
+  const detail = normalizedAction ? `暂时无法${escapeHtml(normalizedAction)}。` : "暂时不可用。";
+  const step = nextStepHtml?.trim();
+  return step ? `⚠️ <b>当前未启用数据库</b>\n${detail}\n${step}` : `⚠️ <b>当前未启用数据库</b>\n${detail}`;
+};
+
 export const buildGuideHint = (message: string, nextStepHtml?: string) => {
   const step = nextStepHtml?.trim();
   return step ? `🧭 ${escapeHtml(message)}\n${step}` : `🧭 ${escapeHtml(message)}`;

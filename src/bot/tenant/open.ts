@@ -3,6 +3,7 @@ import type { Context } from "grammy";
 import { withTelegramRetry } from "../../infra/telegram";
 import type { DeliveryMessage, DeliveryService, UploadMessage } from "../../services/use-cases";
 import {
+  buildDbDisabledHint,
   buildPublisherLine,
   escapeHtml,
   formatApproxCount,
@@ -195,7 +196,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
     openGuards.set(guardKey, { lastAt: now, busy: true });
     if (!deliveryService) {
       openGuards.set(guardKey, { lastAt: now, busy: false });
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法交付内容。");
+      await replyHtml(ctx, buildDbDisabledHint("交付内容"));
       return "db_disabled" as const;
     }
     try {
@@ -438,7 +439,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
 
   const openShareCode = async (ctx: Context, shareCode: string, page = 1) => {
     if (!deliveryService) {
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法交付内容。");
+      await replyHtml(ctx, buildDbDisabledHint("交付内容"));
       return "db_disabled" as const;
     }
     const assetId = await deliveryService.resolveShareCode(shareCode);
