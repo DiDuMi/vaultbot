@@ -7,15 +7,21 @@ import { getTenantDiagnostics } from "./infra/persistence/tenant-guard";
 import { createRedisConnection } from "./infra/queue";
 
 const withTimeout = async <T>(promise: Promise<T>, ms: number) => {
-  return await Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      const timer = setTimeout(() => {
-        clearTimeout(timer);
-        reject(new Error("timeout"));
-      }, ms);
-    })
-  ]);
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error("timeout"));
+        }, ms);
+      })
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 };
 
 const parseNumberWithBounds = (raw: string | undefined, fallback: number, min: number, max: number) => {
@@ -26,7 +32,10 @@ const parseNumberWithBounds = (raw: string | undefined, fallback: number, min: n
   return Math.min(max, Math.max(min, Math.trunc(value)));
 };
 
-const getClientIp = (headers: Record<string, unknown>, ip: string) => {
+const getClientIp = (headers: Record<string, unknown>, ip: string, trustProxy: boolean) => {
+  if (!trustProxy) {
+    return ip;
+  }
   const forwarded = headers["x-forwarded-for"];
   const firstForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded;
   if (typeof firstForwarded === "string" && firstForwarded.trim() !== "") {
@@ -36,11 +45,21 @@ const getClientIp = (headers: Record<string, unknown>, ip: string) => {
 };
 
 export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) => {
-  const app = Fastify({ logger: { redact: ["req.headers", "res.headers"] } });
+  const trustProxy = process.env.TRUST_PROXY === "1";
+  const app = Fastify({ logger: { redact: ["req.headers", "res.headers"] }, trustProxy });
   const healthTimeoutMs = parseNumberWithBounds(process.env.HEALTH_CHECK_TIMEOUT_MS, 1500, 200, 10_000);
   const opsRateLimitWindowMs = parseNumberWithBounds(process.env.OPS_TENANT_CHECK_RATE_WINDOW_MS, 60_000, 1_000, 3_600_000);
   const opsRateLimitMax = parseNumberWithBounds(process.env.OPS_TENANT_CHECK_RATE_LIMIT, 60, 1, 10_000);
   const opsRateLimitStates = new Map<string, { windowStartAt: number; count: number }>();
+  let lastOpsRateLimitCleanupAt = 0;
+  const healthRedisConnection = config.redisUrl === "memory" ? null : createRedisConnection(config.redisUrl);
+
+  if (healthRedisConnection) {
+    app.addHook("onClose", async () => {
+      await healthRedisConnection.quit().catch(() => undefined);
+    });
+  }
+
   const checkReadiness = async () => {
     let database = false;
     let redis = config.redisUrl === "memory";
@@ -51,25 +70,15 @@ export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) =
       database = false;
     }
     if (config.redisUrl !== "memory") {
-      const connection = createRedisConnection(config.redisUrl);
       try {
-        await withTimeout(connection.connect(), healthTimeoutMs);
-        await withTimeout(connection.ping(), healthTimeoutMs);
+        if (!healthRedisConnection) {
+          throw new Error("redis connection missing");
+        }
+        await withTimeout(healthRedisConnection.connect(), healthTimeoutMs);
+        await withTimeout(healthRedisConnection.ping(), healthTimeoutMs);
         redis = true;
       } catch {
         redis = false;
-      } finally {
-        await connection.quit().catch((error) => {
-          console.error(
-            JSON.stringify({
-              level: "warn",
-              at: new Date().toISOString(),
-              component: "server",
-              op: "health_redis_quit",
-              error: error instanceof Error ? error.message : String(error ?? "unknown error")
-            })
-          );
-        });
       }
     }
     const ok = database && redis;
@@ -111,8 +120,16 @@ export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) =
     const auditBase = {
       at: new Date().toISOString(),
       op: "tenant_check",
-      ip: getClientIp(request.headers as Record<string, unknown>, request.ip)
+      ip: getClientIp(request.headers as Record<string, unknown>, request.ip, trustProxy)
     };
+    if (now - lastOpsRateLimitCleanupAt >= opsRateLimitWindowMs) {
+      for (const [ip, state] of opsRateLimitStates) {
+        if (now - state.windowStartAt >= opsRateLimitWindowMs) {
+          opsRateLimitStates.delete(ip);
+        }
+      }
+      lastOpsRateLimitCleanupAt = now;
+    }
     const current = opsRateLimitStates.get(auditBase.ip);
     const inWindow = current && now - current.windowStartAt < opsRateLimitWindowMs;
     const nextCount = inWindow ? current.count + 1 : 1;

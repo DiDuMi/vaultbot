@@ -495,7 +495,7 @@ export const createTenantRenderers = (deps: {
     const canManage = await deps.deliveryService.canManageAdmins(userId);
     const config = await deps.deliveryService.getTenantDeliveryAdConfig().catch(() => ({
       prevText: "⬅️ 上一页",
-      nextText: "下一页 ➡️",
+      nextText: "下一组 ➡️",
       adButtonText: null,
       adButtonUrl: null
     }));
@@ -503,8 +503,8 @@ export const createTenantRenderers = (deps: {
     const text = [
       "📣 领取翻页广告配置",
       "",
-      `上一页按钮：${escapeHtml(config.prevText)}`,
-      `下一页按钮：${escapeHtml(config.nextText)}`,
+      "上一页按钮：已移除（用户上拉聊天记录即可查看上一组）",
+      `下一组按钮：${escapeHtml(config.nextText)}`,
       "",
       hasAdButton
         ? `广告按钮：${escapeHtml(config.adButtonText as string)}\n广告链接：${escapeHtml(config.adButtonUrl as string)}`

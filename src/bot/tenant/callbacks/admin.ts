@@ -685,15 +685,14 @@ export const registerAdsCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
     }
     const key = toMetaKey(ctx.from.id, chatId);
     if (kind === "prev") {
-      settingsInputStates.set(key, { mode: "adPrev" });
-      setSessionMode(key, "settingsInput");
-      await upsertHtml(ctx, ["<b>✏️ 修改上一页文案</b>", "", "请发送新的按钮文案："].join("\n"), buildSettingsInputKeyboard());
+      await ctx.answerCallbackQuery({ text: "已移除上一页按钮，无需配置。", show_alert: true }).catch(() => ctx.answerCallbackQuery());
+      await renderAdSettings(ctx);
       return;
     }
     if (kind === "next") {
       settingsInputStates.set(key, { mode: "adNext" });
       setSessionMode(key, "settingsInput");
-      await upsertHtml(ctx, ["<b>✏️ 修改下一页文案</b>", "", "请发送新的按钮文案："].join("\n"), buildSettingsInputKeyboard());
+      await upsertHtml(ctx, ["<b>✏️ 修改下一组文案</b>", "", "请发送新的按钮文案："].join("\n"), buildSettingsInputKeyboard());
       return;
     }
     if (kind === "btn_text") {
@@ -716,7 +715,7 @@ export const registerAdsCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
     const actorUserId = String(ctx.from.id);
     const current = await deliveryService.getTenantDeliveryAdConfig().catch(() => ({
       prevText: "⬅️ 上一页",
-      nextText: "下一页 ➡️",
+      nextText: "下一组 ➡️",
       adButtonText: null,
       adButtonUrl: null
     }));
@@ -734,7 +733,7 @@ export const registerAdsCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
     const actorUserId = String(ctx.from.id);
     const result = await deliveryService.setTenantDeliveryAdConfig(actorUserId, {
       prevText: "⬅️ 上一页",
-      nextText: "下一页 ➡️",
+      nextText: "下一组 ➡️",
       adButtonText: null,
       adButtonUrl: null
     });

@@ -358,7 +358,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
         totalPages > 1
           ? await deliveryService.getTenantDeliveryAdConfig().catch(() => ({
               prevText: "⬅️ 上一页",
-              nextText: "下一页 ➡️",
+              nextText: "下一组 ➡️",
               adButtonText: null,
               adButtonUrl: null
             }))
@@ -384,17 +384,10 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
         adConfig,
         touchedAt: Date.now()
       });
-      const finalKeyboard = (() => {
-        if (isTenant) {
-          return keyboard;
-        }
-        keyboard.row().text("👣 足迹", "user:history");
-        return keyboard;
-      })();
       await replyHtml(
         ctx,
         text,
-        finalKeyboard ? { reply_markup: finalKeyboard, protect_content: protectContent } : { protect_content: protectContent }
+        keyboard ? { reply_markup: keyboard, protect_content: protectContent } : { protect_content: protectContent }
       );
       if (currentPage === 1) {
         await deliveryService.trackOpen(selection.tenantId, String(ctx.from.id), assetId);
@@ -431,9 +424,6 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
       .row()
       .text(`${liked ? "⭐️ 已收藏" : "⭐️ 收藏"} ${likeHint}`, likeAction)
       .text(`💬 评论 ${commentHint}`, `comment:list:${assetId}:1:${page}`);
-    if (!isTenant) {
-      keyboard.row().text("👣 足迹", "user:history");
-    }
     await ctx.editMessageReplyMarkup({ reply_markup: sanitizeInlineKeyboard(keyboard) }).catch(() => undefined);
   };
 

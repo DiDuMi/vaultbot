@@ -278,10 +278,36 @@ export const sanitizeInlineKeyboard = (keyboard: InlineKeyboard) => {
   return keyboard;
 };
 
-const userLabelCache = new Map<string, string>();
+type UserLabelCacheEntry = { value: string; expiresAt: number };
+
+const userLabelCache = new Map<string, UserLabelCacheEntry>();
+const userLabelCacheTtlMs = 24 * 60 * 60 * 1000;
+const userLabelCacheMaxSize = 5000;
+
+const getCachedUserLabel = (userId: string) => {
+  const entry = userLabelCache.get(userId);
+  if (!entry) {
+    return null;
+  }
+  if (Date.now() >= entry.expiresAt) {
+    userLabelCache.delete(userId);
+    return null;
+  }
+  return entry.value;
+};
+
+const setCachedUserLabel = (userId: string, value: string) => {
+  if (!userLabelCache.has(userId) && userLabelCache.size >= userLabelCacheMaxSize) {
+    const firstKey = userLabelCache.keys().next().value as string | undefined;
+    if (firstKey) {
+      userLabelCache.delete(firstKey);
+    }
+  }
+  userLabelCache.set(userId, { value, expiresAt: Date.now() + userLabelCacheTtlMs });
+};
 
 export const resolveUserLabel = async (ctx: Context, userId: string, deliveryService?: DeliveryService | null) => {
-  const cached = userLabelCache.get(userId);
+  const cached = getCachedUserLabel(userId);
   if (cached) {
     return cached;
   }
@@ -289,7 +315,7 @@ export const resolveUserLabel = async (ctx: Context, userId: string, deliverySer
     const stored = await deliveryService.getTenantUserLabel(userId).catch(() => null);
     if (stored) {
       const normalizedStored = truncatePlainText(stored.replace(/\s+/g, " "), 30) || "匿名用户";
-      userLabelCache.set(userId, normalizedStored);
+      setCachedUserLabel(userId, normalizedStored);
       return normalizedStored;
     }
   }
@@ -297,12 +323,12 @@ export const resolveUserLabel = async (ctx: Context, userId: string, deliverySer
   if (typeof selfId === "number" && Number.isFinite(selfId) && String(selfId) === userId) {
     const selfLabel = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name?.trim() || "匿名用户";
     const normalizedSelf = truncatePlainText(selfLabel.replace(/\s+/g, " "), 30) || "匿名用户";
-    userLabelCache.set(userId, normalizedSelf);
+    setCachedUserLabel(userId, normalizedSelf);
     return normalizedSelf;
   }
   const numericId = Number(userId);
   if (!Number.isFinite(numericId)) {
-    userLabelCache.set(userId, "匿名用户");
+    setCachedUserLabel(userId, "匿名用户");
     return "匿名用户";
   }
   const chat = await ctx.api.getChat(numericId).catch(() => null);
@@ -314,7 +340,7 @@ export const resolveUserLabel = async (ctx: Context, userId: string, deliverySer
   const fallbackId = `用户#${String(Math.trunc(numericId)).slice(-6)}`;
   const label = username ? `@${username}` : fullName || title?.trim() || fallbackId;
   const normalized = truncatePlainText(label.replace(/\s+/g, " "), 30) || "匿名用户";
-  userLabelCache.set(userId, normalized);
+  setCachedUserLabel(userId, normalized);
   return normalized;
 };
 

@@ -466,7 +466,7 @@ export const createTenantAdminInput = (deps: {
     }
     const current = await deliveryService.getTenantDeliveryAdConfig().catch(() => ({
       prevText: "⬅️ 上一页",
-      nextText: "下一页 ➡️",
+      nextText: "下一组 ➡️",
       adButtonText: null,
       adButtonUrl: null
     }));

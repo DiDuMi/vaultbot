@@ -11,6 +11,10 @@ vaultbot-sync/
 
 tools/redis/data/
 tools/redis/*.zip
+tools/redis/*.rdb
+tools/redis/*.exe
+tools/redis/*.dll
+tools/redis/*.pdb
 
 *.log
 .DS_Store

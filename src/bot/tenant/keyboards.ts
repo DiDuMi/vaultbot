@@ -425,8 +425,7 @@ export const buildAdKeyboard = (canManage: boolean, hasAdButton: boolean) => {
   if (canManage) {
     keyboard
       .row()
-      .text("上一页文案", "ads:edit:prev")
-      .text("下一页文案", "ads:edit:next")
+      .text("下一组文案", "ads:edit:next")
       .row()
       .text("广告按钮文案", "ads:edit:btn_text")
       .text("广告按钮链接", "ads:edit:btn_url");
@@ -630,13 +629,11 @@ export const buildAssetPageKeyboard = (
 ) => {
   const current = page < 1 ? 1 : page;
   const maxPage = totalPages < 1 ? 1 : totalPages;
-  const prev = current > 1 ? current - 1 : 1;
   const next = current < maxPage ? current + 1 : maxPage;
-  const prevAction = current > 1 ? `asset:page:${assetId}:${prev}` : "asset:noop";
   const nextAction = current < maxPage ? `asset:page:${assetId}:${next}` : "asset:noop";
-  const prevText = options?.prevText?.trim() || "⬅️ 上一页";
-  const nextText = options?.nextText?.trim() || "下一页 ➡️";
-  const keyboard = new InlineKeyboard().text(prevText, prevAction).text(`${current}/${maxPage}`, "asset:noop").text(nextText, nextAction);
+  const nextText = options?.nextText?.trim() || "下一组 ➡️";
+  const label = current < maxPage ? `${current}/${maxPage} ${nextText}` : `${current}/${maxPage} 已是最后一组`;
+  const keyboard = new InlineKeyboard().text(label, nextAction);
   const adText = options?.adButtonText?.trim() || "";
   const adUrl = options?.adButtonUrl?.trim() || "";
   if (adText && adUrl) {
