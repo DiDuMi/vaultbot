@@ -55,6 +55,11 @@ export const assertTenantCodeConsistency = async (
   tenantCode: string,
   allowMismatch = process.env.ALLOW_TENANT_CODE_MISMATCH === "1"
 ) => {
+  const expectedTenantCode = (process.env.EXPECTED_TENANT_CODE || "").trim();
+  if (expectedTenantCode && expectedTenantCode !== tenantCode) {
+    throw new Error(`TENANT_CODE 校验失败：当前=${tenantCode}，期望=${expectedTenantCode}`);
+  }
+  const requireExisting = process.env.REQUIRE_EXISTING_TENANT === "1";
   const existing = await prisma.tenant.findUnique({
     where: { code: tenantCode },
     select: { id: true }
@@ -67,7 +72,13 @@ export const assertTenantCodeConsistency = async (
     select: { code: true },
     take: 20
   });
-  if (tenants.length === 0 || allowMismatch) {
+  if (tenants.length === 0) {
+    if (requireExisting) {
+      throw new Error("数据库中尚无租户数据：已阻止启动，避免连到空库/新库导致设置与统计被重置。");
+    }
+    return;
+  }
+  if (allowMismatch) {
     return;
   }
   const codes = tenants.map((row) => row.code).filter(Boolean);

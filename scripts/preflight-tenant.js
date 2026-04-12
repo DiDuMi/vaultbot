@@ -4,6 +4,7 @@ const { PrismaClient } = require("@prisma/client");
 const tenantCode = (process.env.TENANT_CODE || "").trim();
 const expectedTenantCode = (process.env.EXPECTED_TENANT_CODE || "").trim();
 const allowMismatch = process.env.ALLOW_TENANT_CODE_MISMATCH === "1";
+const requireExisting = process.env.REQUIRE_EXISTING_TENANT === "1";
 
 if (!tenantCode) {
   console.error("❌ 缺少 TENANT_CODE");
@@ -39,8 +40,16 @@ const run = async () => {
     select: { code: true },
     take: 20
   });
-  if (tenants.length === 0 || allowMismatch) {
+  if (tenants.length === 0) {
+    if (requireExisting) {
+      console.error("❌ 数据库中尚无租户数据：已阻止启动，避免连到空库/新库导致设置与统计被重置");
+      process.exit(1);
+    }
     console.log(`✅ TENANT_CODE 校验通过：${tenantCode}（库中暂无租户或允许新建）`);
+    return;
+  }
+  if (allowMismatch) {
+    console.log(`✅ TENANT_CODE 校验通过：${tenantCode}（允许新建租户）`);
     return;
   }
   const summary = tenants.map((row) => row.code).filter(Boolean).join(", ");

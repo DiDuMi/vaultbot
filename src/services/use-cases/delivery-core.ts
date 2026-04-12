@@ -16,12 +16,49 @@ export const createDeliveryCore = (deps: {
   };
   const startOfLocalMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
 
+  const tenantSettingKeys = {
+    protectContentEnabled: "protect_content_enabled",
+    hidePublisherEnabled: "hide_publisher_enabled",
+    publicRankingEnabled: "public_ranking_enabled",
+    autoCategorizeEnabled: "auto_categorize_enabled"
+  } as const;
+
+  const parseTruthyEnv = (name: string) => {
+    const raw = process.env[name];
+    if (!raw || raw.trim() === "") {
+      return null;
+    }
+    const value = raw.trim().toLowerCase();
+    return value === "1" || value === "true" || value === "yes" || value === "on";
+  };
+
+  const bootstrapTenantSettings = async (tenantId: string) => {
+    const entries = [
+      { key: tenantSettingKeys.hidePublisherEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_HIDE_PUBLISHER_ENABLED") },
+      { key: tenantSettingKeys.protectContentEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_PROTECT_CONTENT_ENABLED") },
+      { key: tenantSettingKeys.publicRankingEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_PUBLIC_RANKING_ENABLED") },
+      { key: tenantSettingKeys.autoCategorizeEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_AUTO_CATEGORIZE_ENABLED") }
+    ].filter((entry) => entry.enabled === true);
+    if (entries.length === 0) {
+      return;
+    }
+    const keys = entries.map((entry) => entry.key);
+    const existing = await deps.prisma.tenantSetting.findMany({ where: { tenantId, key: { in: keys } }, select: { key: true } });
+    const existingKeys = new Set(existing.map((row) => row.key));
+    const missing = entries.filter((entry) => !existingKeys.has(entry.key)).map((entry) => ({ tenantId, key: entry.key, value: "1" }));
+    if (missing.length === 0) {
+      return;
+    }
+    await deps.prisma.tenantSetting.createMany({ data: missing, skipDuplicates: true });
+  };
+
   const ensureTenant = async () => {
     const tenant = await deps.prisma.tenant.upsert({
       where: { code: deps.config.tenantCode },
       update: { name: deps.config.tenantName },
       create: { code: deps.config.tenantCode, name: deps.config.tenantName }
     });
+    await bootstrapTenantSettings(tenant.id).catch(() => undefined);
     return tenant.id;
   };
 
