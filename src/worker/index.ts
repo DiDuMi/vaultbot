@@ -756,6 +756,8 @@ const start = async () => {
     60_000,
     24 * 60 * 60 * 1000
   );
+  const replicationBackfillEnabled = process.env.REPLICATION_BACKFILL_ENABLED !== "0";
+  const replicationBackfillTake = parseNumberWithBounds(process.env.REPLICATION_BACKFILL_TAKE, 5, 0, 50);
   const replicationEnqueuedMaxSize = parseNumberWithBounds(
     process.env.REPLICATION_ENQUEUED_MAX_SIZE,
     20_000,
@@ -836,7 +838,7 @@ const start = async () => {
             .add(
               "replicate",
               { batchId: batch.id },
-              { jobId: `replicate:poll:${batch.id}:${now}`, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
+              { jobId: `replicate:poll:${batch.id}:${now}`, priority: 5, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
             )
             .then(() => true)
             .catch((error) => {
@@ -859,15 +861,24 @@ const start = async () => {
         }
       }
 
+      if (!replicationBackfillEnabled || replicationBackfillTake <= 0 || batches.length > 0) {
+        for (const tenantId of replicationHeartbeatTenantIds) {
+          await upsertWorkerReplicationHeartbeat(prisma, tenantId, now).catch((error) =>
+            logWorkerError({ op: "heartbeat_replication_upsert", tenantId }, error)
+          );
+        }
+        return;
+      }
+
       const backfill = await prisma.uploadBatch.findMany({
         where: { status: "COMMITTED" },
         orderBy: { createdAt: "desc" },
-        take: 20,
+        take: replicationBackfillTake,
         skip: backfillOffset,
         select: { id: true, tenantId: true }
       });
       backfillOffset += backfill.length;
-      if (backfill.length < 20) {
+      if (backfill.length < replicationBackfillTake) {
         backfillOffset = 0;
       }
       for (const batch of backfill) {
@@ -881,7 +892,7 @@ const start = async () => {
             .add(
               "replicate",
               { batchId: batch.id },
-              { jobId: `replicate:backfill:${batch.id}:${now}`, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
+              { jobId: `replicate:backfill:${batch.id}:${now}`, priority: 20, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
             )
             .then(() => true)
             .catch((error) => {

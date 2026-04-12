@@ -51,6 +51,7 @@ export type UploadQueue = {
     data: { batchId: string },
     options?: {
       jobId?: string;
+      priority?: number;
       attempts?: number;
       backoff?: { type: "exponential"; delay: number };
       removeOnComplete?: boolean;
@@ -65,6 +66,7 @@ export type NotifyQueue = {
     data: unknown,
     options?: {
       jobId?: string;
+      priority?: number;
       attempts?: number;
       backoff?: { type: "exponential"; delay: number };
       removeOnComplete?: boolean;
@@ -565,6 +567,7 @@ export const createUploadService = (
         },
         {
           jobId: `replicate:${created.batchId}`,
+          priority: 1,
           attempts: 5,
           backoff: { type: "exponential", delay: 1000 },
           removeOnComplete: true,
