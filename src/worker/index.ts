@@ -838,7 +838,7 @@ const start = async () => {
             .add(
               "replicate",
               { batchId: batch.id },
-              { jobId: `replicate:poll:${batch.id}:${now}`, priority: 5, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
+              { jobId: `replicate:poll:${batch.id}:${now}`, priority: 50, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
             )
             .then(() => true)
             .catch((error) => {
@@ -892,7 +892,7 @@ const start = async () => {
             .add(
               "replicate",
               { batchId: batch.id },
-              { jobId: `replicate:backfill:${batch.id}:${now}`, priority: 20, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
+              { jobId: `replicate:backfill:${batch.id}:${now}`, priority: 100, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
             )
             .then(() => true)
             .catch((error) => {

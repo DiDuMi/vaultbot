@@ -567,7 +567,6 @@ export const createUploadService = (
         },
         {
           jobId: `replicate:${created.batchId}`,
-          priority: 1,
           attempts: 5,
           backoff: { type: "exponential", delay: 1000 },
           removeOnComplete: true,
