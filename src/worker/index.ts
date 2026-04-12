@@ -596,6 +596,7 @@ const start = async () => {
 
   const broadcastQueue = connection ? new Queue("broadcast", { connection }) : null;
   const replicationQueue = connection ? new Queue("replication", { connection }) : null;
+  const replicationBackfillQueue = connection ? new Queue("replication_backfill", { connection }) : null;
   const notifyQueue = connection ? new Queue("notify", { connection }) : null;
 
   const runFollowKeywordNotify = async (assetId: string) => {
@@ -662,11 +663,35 @@ const start = async () => {
 
   const routes = createWorkerRoutes({ replicateBatch, runBroadcast, runFollowKeywordNotify });
 
+  const replicationConcurrency = parseNumberWithBounds(process.env.REPLICATION_CONCURRENCY, 5, 1, 50);
+  const replicationBackfillConcurrency = parseNumberWithBounds(process.env.REPLICATION_BACKFILL_CONCURRENCY, 1, 1, 10);
+  const shouldPurgeReplicationQueue = process.env.REPLICATION_QUEUE_PURGE === "1";
+  if (shouldPurgeReplicationQueue) {
+    if (replicationQueue) {
+      await replicationQueue.pause().catch(() => undefined);
+      await replicationQueue.obliterate({ force: true }).catch(() => undefined);
+      await replicationQueue.resume().catch(() => undefined);
+    }
+    if (replicationBackfillQueue) {
+      await replicationBackfillQueue.pause().catch(() => undefined);
+      await replicationBackfillQueue.obliterate({ force: true }).catch(() => undefined);
+      await replicationBackfillQueue.resume().catch(() => undefined);
+    }
+  }
+
   const replicationWorker = connection
     ? new Worker(
         "replication",
         routes.replicationRoute,
-        { connection, concurrency: 5 }
+        { connection, concurrency: replicationConcurrency }
+      )
+    : null;
+
+  const replicationBackfillWorker = connection
+    ? new Worker(
+        "replication_backfill",
+        routes.replicationRoute,
+        { connection, concurrency: replicationBackfillConcurrency }
       )
     : null;
 
@@ -887,7 +912,22 @@ const start = async () => {
           continue;
         }
         replicationEnqueuedAt.set(batch.id, now);
-        if (replicationQueue) {
+        if (replicationBackfillQueue) {
+          const enqueued = await replicationBackfillQueue
+            .add(
+              "replicate",
+              { batchId: batch.id },
+              { jobId: `replicate:backfill:${batch.id}:${now}`, priority: 100, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
+            )
+            .then(() => true)
+            .catch((error) => {
+              logWorkerError({ op: "replication_enqueue_backfill", tenantId: batch.tenantId, batchId: batch.id }, error);
+              return false;
+            });
+          if (enqueued) {
+            replicationHeartbeatTenantIds.add(batch.tenantId);
+          }
+        } else if (replicationQueue) {
           const enqueued = await replicationQueue
             .add(
               "replicate",
@@ -930,6 +970,9 @@ const start = async () => {
     if (replicationWorker) {
       await replicationWorker.close();
     }
+    if (replicationBackfillWorker) {
+      await replicationBackfillWorker.close();
+    }
     if (broadcastWorker) {
       await broadcastWorker.close();
     }
@@ -949,6 +992,9 @@ const start = async () => {
     }
     if (replicationQueue) {
       await replicationQueue.close();
+    }
+    if (replicationBackfillQueue) {
+      await replicationBackfillQueue.close();
     }
     if (notifyQueue) {
       await notifyQueue.close();
