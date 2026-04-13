@@ -695,6 +695,52 @@ const start = async () => {
       )
     : null;
 
+  const replicationBackfillAutoPauseEnabled = process.env.REPLICATION_BACKFILL_AUTOPAUSE !== "0";
+  const replicationBackfillAutoPauseIntervalMs = parseNumberWithBounds(
+    process.env.REPLICATION_BACKFILL_AUTOPAUSE_INTERVAL_MS,
+    2000,
+    500,
+    30_000
+  );
+  let replicationBackfillAutoPauseTimer: NodeJS.Timeout | null = null;
+  const startReplicationBackfillAutoPause = () => {
+    if (!replicationBackfillAutoPauseEnabled || !replicationBackfillQueue) {
+      return;
+    }
+    const tick = async () => {
+      const shouldPauseBecauseDisabled = process.env.REPLICATION_BACKFILL_ENABLED === "0";
+      const hasPendingWork = await prisma.uploadBatch
+        .findFirst({
+          where: { status: "COMMITTED", items: { some: { status: { in: ["PENDING", "FAILED"] } } } },
+          select: { id: true }
+        })
+        .then(Boolean)
+        .catch(() => false);
+      const foregroundQueueHasJobs = await (async () => {
+        if (!replicationQueue) {
+          return false;
+        }
+        try {
+          const counts = (await replicationQueue.getJobCounts()) as Record<string, number>;
+          const waiting = counts.waiting ?? 0;
+          const active = counts.active ?? 0;
+          const delayed = counts.delayed ?? 0;
+          const prioritized = (counts as Record<string, number>).prioritized ?? 0;
+          return waiting + active + delayed + prioritized > 0;
+        } catch {
+          return false;
+        }
+      })();
+      const shouldPause = shouldPauseBecauseDisabled || hasPendingWork || foregroundQueueHasJobs;
+      if (shouldPause) {
+        await replicationBackfillQueue.pause().catch(() => undefined);
+        return;
+      }
+      await replicationBackfillQueue.resume().catch(() => undefined);
+    };
+    replicationBackfillAutoPauseTimer = startIntervalScheduler(replicationBackfillAutoPauseIntervalMs, tick, () => undefined);
+  };
+
   const broadcastWorker = connection
     ? new Worker(
         "broadcast",
@@ -772,6 +818,7 @@ const start = async () => {
   };
 
   startBroadcastScheduler();
+  startReplicationBackfillAutoPause();
 
   let replicationTimer: NodeJS.Timeout | null = null;
   const replicationEnqueuedAt = new Map<string, number>();
@@ -986,6 +1033,10 @@ const start = async () => {
     if (replicationTimer) {
       clearInterval(replicationTimer);
       replicationTimer = null;
+    }
+    if (replicationBackfillAutoPauseTimer) {
+      clearInterval(replicationBackfillAutoPauseTimer);
+      replicationBackfillAutoPauseTimer = null;
     }
     if (broadcastQueue) {
       await broadcastQueue.close();
