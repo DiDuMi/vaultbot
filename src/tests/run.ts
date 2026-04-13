@@ -409,8 +409,11 @@ test("integration: 上传流程会提交批次并返回资产ID", async () => {
 test("integration: 副本路由会把任务转发给编排层", async () => {
   const calls: string[] = [];
   const routes = createWorkerRoutes({
-    replicateBatch: async (batchId) => {
-      calls.push(`replicate:${batchId}`);
+    replicateRequired: async (batchId: string) => {
+      calls.push(`replicate_required:${batchId}`);
+    },
+    replicateBackfill: async (batchId: string) => {
+      calls.push(`replicate_backfill:${batchId}`);
     },
     runBroadcast: async (broadcastId, runId) => {
       calls.push(`broadcast:${broadcastId}:${runId}`);
@@ -420,9 +423,15 @@ test("integration: 副本路由会把任务转发给编排层", async () => {
     }
   });
   await routes.replicationRoute({ data: { batchId: "batch-1" } });
+  await routes.replicationRoute({ name: "replicate_backfill", data: { batchId: "batch-2" } });
   await routes.broadcastRoute({ data: { broadcastId: "b1", runId: "r1" } });
   await routes.notifyRoute({ name: "follow_keyword", data: { assetId: "a1" } });
-  assert.deepEqual(calls, ["replicate:batch-1", "broadcast:b1:r1", "notify:a1"]);
+  assert.deepEqual(calls, [
+    "replicate_required:batch-1",
+    "replicate_backfill:batch-2",
+    "broadcast:b1:r1",
+    "notify:a1"
+  ]);
 });
 
 test("integration: 交付流程在副本未就绪时返回提示", async () => {

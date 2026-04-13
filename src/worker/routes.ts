@@ -1,7 +1,8 @@
 type QueueJob = { name?: string; data?: Record<string, unknown> };
 
 export const createWorkerRoutes = (deps: {
-  replicateBatch: (batchId: string) => Promise<void>;
+  replicateRequired: (batchId: string) => Promise<void>;
+  replicateBackfill: (batchId: string) => Promise<void>;
   runBroadcast: (broadcastId: string, runId: string) => Promise<void>;
   runFollowKeywordNotify: (assetId: string) => Promise<void>;
 }) => {
@@ -10,7 +11,11 @@ export const createWorkerRoutes = (deps: {
     if (!batchId) {
       return;
     }
-    await deps.replicateBatch(batchId);
+    if (job.name === "replicate_backfill") {
+      await deps.replicateBackfill(batchId);
+      return;
+    }
+    await deps.replicateRequired(batchId);
   };
 
   const broadcastRoute = async (job: QueueJob) => {

@@ -166,7 +166,8 @@ const start = async () => {
   }
   const runtimeTenantId = await ensureTenantId(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
 
-  const replicateBatch = async (batchId: string) => {
+  const replicateBatch = async (batchId: string, options?: { includeOptional?: boolean }) => {
+    const includeOptional = options?.includeOptional !== false;
     const batch = await prisma.uploadBatch.findUnique({
       where: { id: batchId },
       include: { items: { orderBy: { createdAt: "asc" } } }
@@ -221,7 +222,9 @@ const start = async () => {
     const nonBanned = uniqueBindings.filter((b) => b.vaultGroup.status !== "BANNED");
     const required = nonBanned.find((b) => b.role === "PRIMARY") ?? nonBanned[0] ?? uniqueBindings[0];
     const optional = nonBanned.filter((b) => b.vaultGroupId !== required.vaultGroupId);
-    const targets = [{ binding: required, required: true }, ...optional.map((b) => ({ binding: b, required: false }))];
+    const targets = includeOptional
+      ? [{ binding: required, required: true }, ...optional.map((b) => ({ binding: b, required: false }))]
+      : [{ binding: required, required: true }];
 
     const rawMinReplicas = await prisma.tenantSetting
       .findUnique({
@@ -661,7 +664,12 @@ const start = async () => {
     }
   };
 
-  const routes = createWorkerRoutes({ replicateBatch, runBroadcast, runFollowKeywordNotify });
+  const routes = createWorkerRoutes({
+    replicateRequired: (batchId: string) => replicateBatch(batchId, { includeOptional: false }),
+    replicateBackfill: (batchId: string) => replicateBatch(batchId, { includeOptional: true }),
+    runBroadcast,
+    runFollowKeywordNotify
+  });
 
   const replicationConcurrency = parseNumberWithBounds(process.env.REPLICATION_CONCURRENCY, 5, 1, 50);
   const replicationBackfillConcurrency = parseNumberWithBounds(process.env.REPLICATION_BACKFILL_CONCURRENCY, 1, 1, 10);
@@ -908,7 +916,7 @@ const start = async () => {
         if (replicationQueue) {
           const enqueued = await replicationQueue
             .add(
-              "replicate",
+              "replicate_required",
               { batchId: batch.id },
               { jobId: `replicate:poll:${batch.id}:${now}`, priority: 50, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
             )
@@ -921,7 +929,7 @@ const start = async () => {
             replicationHeartbeatTenantIds.add(batch.tenantId);
           }
         } else {
-          const replicated = await replicateBatch(batch.id)
+          const replicated = await replicateBatch(batch.id, { includeOptional: false })
             .then(() => true)
             .catch((error) => {
               logWorkerError({ op: "replication_direct_poll", tenantId: batch.tenantId, batchId: batch.id }, error);
@@ -962,7 +970,7 @@ const start = async () => {
         if (replicationBackfillQueue) {
           const enqueued = await replicationBackfillQueue
             .add(
-              "replicate",
+              "replicate_backfill",
               { batchId: batch.id },
               { jobId: `replicate:backfill:${batch.id}:${now}`, priority: 100, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
             )
@@ -977,7 +985,7 @@ const start = async () => {
         } else if (replicationQueue) {
           const enqueued = await replicationQueue
             .add(
-              "replicate",
+              "replicate_backfill",
               { batchId: batch.id },
               { jobId: `replicate:backfill:${batch.id}:${now}`, priority: 100, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
             )
@@ -990,7 +998,7 @@ const start = async () => {
             replicationHeartbeatTenantIds.add(batch.tenantId);
           }
         } else {
-          const replicated = await replicateBatch(batch.id)
+          const replicated = await replicateBatch(batch.id, { includeOptional: true })
             .then(() => true)
             .catch((error) => {
               logWorkerError({ op: "replication_direct_backfill", tenantId: batch.tenantId, batchId: batch.id }, error);

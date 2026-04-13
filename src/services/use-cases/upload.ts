@@ -561,7 +561,7 @@ export const createUploadService = (
 
     try {
       await queue.add(
-        "replicate",
+        "replicate_required",
         {
           batchId: created.batchId
         },
