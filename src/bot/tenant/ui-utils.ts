@@ -1,6 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 import type { DeliveryService } from "../../services/use-cases";
+import { logErrorThrottled } from "../../infra/logging";
 
 export type KeyValueStore<T> = {
   get: (key: string) => T | undefined;
@@ -229,7 +230,12 @@ export const upsertHtml = async (ctx: Context, html: string, reply_markup?: Inli
     return;
   }
   await editHtml(ctx, html).catch(async () => {
-    await replyHtml(ctx, html).catch(() => undefined);
+    await replyHtml(ctx, html).catch((error) =>
+      logErrorThrottled({ component: "tenant_ui", op: "upsert_html_reply_fallback" }, error, {
+        key: "upsert_html_reply_fallback",
+        intervalMs: 30_000
+      })
+    );
   });
 };
 

@@ -3,6 +3,7 @@ import type { Context } from "grammy";
 import { buildCommentKeyboard } from "./keyboards";
 import { buildDbDisabledHint, buildInputExitHint, buildStartLink, buildSuccessHint, editHtml, escapeHtml, normalizeButtonText, replyHtml, toMetaKey } from "./ui-utils";
 import { withTelegramRetry } from "../../infra/telegram";
+import { logErrorThrottled } from "../../infra/logging";
 import type { DeliveryService } from "../../services/use-cases";
 import type { SessionMode } from "./session";
 import type { KeyValueStore } from "./ui-utils";
@@ -374,7 +375,13 @@ export const createTenantSocial = (deps: {
         if (allowed) {
           await withTelegramRetry(() =>
             ctx.api.sendMessage(chatId, textLines.join("\n"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } })
-          ).catch(() => undefined);
+          ).catch((error) =>
+            logErrorThrottled(
+              { component: "tenant_social", op: "comment_notify_send", scope: "reply_to" },
+              error,
+              { key: "comment_notify_send", intervalMs: 30_000 }
+            )
+          );
         }
       }
     }
@@ -389,7 +396,13 @@ export const createTenantSocial = (deps: {
         if (allowed) {
           await withTelegramRetry(() =>
             ctx.api.sendMessage(chatId, textLines.join("\n"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } })
-          ).catch(() => undefined);
+          ).catch((error) =>
+            logErrorThrottled(
+              { component: "tenant_social", op: "comment_notify_send", scope: "publisher" },
+              error,
+              { key: "comment_notify_send", intervalMs: 30_000 }
+            )
+          );
         }
       }
     }
@@ -444,7 +457,13 @@ export const createTenantSocial = (deps: {
       replyToCommentId: state.replyToCommentId
     });
     if (result.ok && result.notify && result.commentId) {
-      await notifyCommentTargets(ctx, { content: text, commentId: result.commentId, notify: result.notify }).catch(() => undefined);
+      await notifyCommentTargets(ctx, { content: text, commentId: result.commentId, notify: result.notify }).catch((error) =>
+        logErrorThrottled(
+          { component: "tenant_social", op: "comment_notify_targets", commentId: result.commentId, assetId: state.assetId },
+          error,
+          { key: "comment_notify_targets", intervalMs: 30_000 }
+        )
+      );
     }
     setSessionMode(key, "commentInput");
     if (state.replyToCommentId) {

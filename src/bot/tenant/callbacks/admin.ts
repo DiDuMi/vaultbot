@@ -1,6 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import type { Bot, Context } from "grammy";
 import { buildBlockingHint, buildSuccessHint, escapeHtml, replyHtml, sanitizeTelegramHtml, stripHtmlTags, toMetaKey, upsertHtml } from "../ui-utils";
+import { logErrorThrottled } from "../../../infra/logging";
 import {
   buildAdminInputKeyboard,
   buildAdminManageKeyboard,
@@ -998,7 +999,13 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
     const key = toMetaKey(ctx.from.id, chatId);
     collectionStates.set(key, null);
     if (deliveryService) {
-      await deliveryService.setUserDefaultCollectionId(String(ctx.from.id), null).catch(() => undefined);
+      await deliveryService.setUserDefaultCollectionId(String(ctx.from.id), null).catch((error) =>
+        logErrorThrottled(
+          { component: "tenant_admin", op: "set_user_default_collection_id", scope: "select_none", userId: String(ctx.from.id) },
+          error,
+          { key: "set_user_default_collection_id", intervalMs: 30_000 }
+        )
+      );
     }
     const returnTo = collectionPickerStates.get(key)?.returnTo ?? "settings";
     collectionPickerStates.delete(key);
@@ -1021,7 +1028,13 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
     const key = toMetaKey(ctx.from.id, chatId);
     collectionStates.set(key, collectionId);
     if (deliveryService) {
-      await deliveryService.setUserDefaultCollectionId(String(ctx.from.id), collectionId).catch(() => undefined);
+      await deliveryService.setUserDefaultCollectionId(String(ctx.from.id), collectionId).catch((error) =>
+        logErrorThrottled(
+          { component: "tenant_admin", op: "set_user_default_collection_id", scope: "select_collection", userId: String(ctx.from.id), collectionId },
+          error,
+          { key: "set_user_default_collection_id", intervalMs: 30_000 }
+        )
+      );
     }
     const returnTo = collectionPickerStates.get(key)?.returnTo ?? "settings";
     collectionPickerStates.delete(key);
@@ -1118,11 +1131,23 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
     const key = toMetaKey(ctx.from.id, chatId);
     if (collectionStates.get(key) === collectionId) {
       collectionStates.set(key, null);
-      await deliveryService.setUserDefaultCollectionId(String(ctx.from.id), null).catch(() => undefined);
+      await deliveryService.setUserDefaultCollectionId(String(ctx.from.id), null).catch((error) =>
+        logErrorThrottled(
+          { component: "tenant_admin", op: "set_user_default_collection_id", scope: "delete_collection_cleanup", userId: String(ctx.from.id) },
+          error,
+          { key: "set_user_default_collection_id", intervalMs: 30_000 }
+        )
+      );
     }
     if (historyFilterStates.get(key) === collectionId) {
       historyFilterStates.delete(key);
-      await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), undefined).catch(() => undefined);
+      await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), undefined).catch((error) =>
+        logErrorThrottled(
+          { component: "tenant_admin", op: "set_user_history_collection_filter", scope: "delete_collection_cleanup", userId: String(ctx.from.id) },
+          error,
+          { key: "set_user_history_collection_filter", intervalMs: 30_000 }
+        )
+      );
     }
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderCollections(ctx, { returnTo: "settings" });

@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 import { replyHtml, toMetaKey, upsertHtml } from "../ui-utils";
 import { buildFollowInputKeyboard, buildHelpKeyboard, buildHistoryFilterKeyboard } from "../keyboards";
+import { logErrorThrottled } from "../../../infra/logging";
 import type { TenantCallbackDeps } from "./types";
 
 export const commentListCallbackRe = /^comment:list:([^:]+):(\d+)(?::(\d+))?$/;
@@ -260,11 +261,24 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     const key = toMetaKey(ctx.from.id, chatId);
     const current =
       historyDateStates.get(key) ??
-      (await deliveryService.getUserHistoryListDate(String(ctx.from.id)).catch(() => undefined)) ??
+      (await deliveryService.getUserHistoryListDate(String(ctx.from.id)).catch((error) => {
+        logErrorThrottled(
+          { component: "tenant_social_callbacks", op: "get_user_history_list_date", scope: "day_prev", userId: String(ctx.from.id) },
+          error,
+          { key: "get_user_history_list_date", intervalMs: 30_000 }
+        );
+        return undefined;
+      })) ??
       startOfLocalDay(new Date());
     const selectedDate = new Date(startOfLocalDay(current).getTime() - dayMs);
     historyDateStates.set(key, selectedDate);
-    await deliveryService.setUserHistoryListDate(String(ctx.from.id), selectedDate).catch(() => undefined);
+    await deliveryService.setUserHistoryListDate(String(ctx.from.id), selectedDate).catch((error) =>
+      logErrorThrottled(
+        { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "day_prev", userId: String(ctx.from.id) },
+        error,
+        { key: "set_user_history_list_date", intervalMs: 30_000 }
+      )
+    );
     await ctx.answerCallbackQuery();
     await renderHistory(ctx, 1);
   });
@@ -283,12 +297,25 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     const todayStart = startOfLocalDay(new Date());
     const current =
       historyDateStates.get(key) ??
-      (await deliveryService.getUserHistoryListDate(String(ctx.from.id)).catch(() => undefined)) ??
+      (await deliveryService.getUserHistoryListDate(String(ctx.from.id)).catch((error) => {
+        logErrorThrottled(
+          { component: "tenant_social_callbacks", op: "get_user_history_list_date", scope: "day_next", userId: String(ctx.from.id) },
+          error,
+          { key: "get_user_history_list_date", intervalMs: 30_000 }
+        );
+        return undefined;
+      })) ??
       todayStart;
     const next = new Date(startOfLocalDay(current).getTime() + dayMs);
     const selectedDate = next.getTime() > todayStart.getTime() ? todayStart : next;
     historyDateStates.set(key, selectedDate);
-    await deliveryService.setUserHistoryListDate(String(ctx.from.id), selectedDate).catch(() => undefined);
+    await deliveryService.setUserHistoryListDate(String(ctx.from.id), selectedDate).catch((error) =>
+      logErrorThrottled(
+        { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "day_next", userId: String(ctx.from.id) },
+        error,
+        { key: "set_user_history_list_date", intervalMs: 30_000 }
+      )
+    );
     await ctx.answerCallbackQuery();
     await renderHistory(ctx, 1);
   });
@@ -306,7 +333,13 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     const key = toMetaKey(ctx.from.id, chatId);
     const todayStart = startOfLocalDay(new Date());
     historyDateStates.set(key, todayStart);
-    await deliveryService.setUserHistoryListDate(String(ctx.from.id), todayStart).catch(() => undefined);
+    await deliveryService.setUserHistoryListDate(String(ctx.from.id), todayStart).catch((error) =>
+      logErrorThrottled(
+        { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "day_today", userId: String(ctx.from.id) },
+        error,
+        { key: "set_user_history_list_date", intervalMs: 30_000 }
+      )
+    );
     await ctx.answerCallbackQuery();
     await renderHistory(ctx, 1);
   });
@@ -355,7 +388,13 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     if (ctx.from && chatId) {
       historyFilterStates.delete(toMetaKey(ctx.from.id, chatId));
       if (deliveryService) {
-        await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), undefined).catch(() => undefined);
+        await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), undefined).catch((error) =>
+          logErrorThrottled(
+            { component: "tenant_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_all", userId: String(ctx.from.id) },
+            error,
+            { key: "set_user_history_collection_filter", intervalMs: 30_000 }
+          )
+        );
       }
     }
     await ctx.answerCallbackQuery();
@@ -367,7 +406,13 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     if (ctx.from && chatId) {
       historyFilterStates.set(toMetaKey(ctx.from.id, chatId), null);
       if (deliveryService) {
-        await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), null).catch(() => undefined);
+        await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), null).catch((error) =>
+          logErrorThrottled(
+            { component: "tenant_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_none", userId: String(ctx.from.id) },
+            error,
+            { key: "set_user_history_collection_filter", intervalMs: 30_000 }
+          )
+        );
       }
     }
     await ctx.answerCallbackQuery();
@@ -380,7 +425,13 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     if (ctx.from && chatId) {
       historyFilterStates.set(toMetaKey(ctx.from.id, chatId), collectionId);
       if (deliveryService) {
-        await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), collectionId).catch(() => undefined);
+        await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), collectionId).catch((error) =>
+          logErrorThrottled(
+            { component: "tenant_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_collection", userId: String(ctx.from.id), collectionId },
+            error,
+            { key: "set_user_history_collection_filter", intervalMs: 30_000 }
+          )
+        );
       }
     }
     await ctx.answerCallbackQuery();
@@ -520,7 +571,13 @@ export const registerHelpCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         historyDateStates.set(key, today);
-        await deliveryService.setUserHistoryListDate(String(ctx.from.id), today).catch(() => undefined);
+        await deliveryService.setUserHistoryListDate(String(ctx.from.id), today).catch((error) =>
+          logErrorThrottled(
+            { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "help_list", userId: String(ctx.from.id) },
+            error,
+            { key: "set_user_history_list_date", intervalMs: 30_000 }
+          )
+        );
       }
     }
     await renderHistory(ctx, 1, "community");

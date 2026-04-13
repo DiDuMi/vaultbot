@@ -248,7 +248,7 @@ export const registerTenantBot = (
     const key = toMetaKey(ctx.from.id, ctx.chat.id);
     const mode = ensureSessionMode(key);
     if (mode === "upload") {
-      await cancel(ctx.from.id, ctx.chat.id).catch(() => undefined);
+      await cancel(ctx.from.id, ctx.chat.id);
       setActive(ctx.from.id, ctx.chat.id, false);
     }
     setSessionMode(key, "idle");
@@ -1590,7 +1590,13 @@ export const registerTenantBot = (
             replyToCommentId: commentId
           });
           if (result.ok && result.notify && result.commentId) {
-            await notifyCommentTargets(ctx, { content: text, commentId: result.commentId, notify: result.notify }).catch(() => undefined);
+            await notifyCommentTargets(ctx, { content: text, commentId: result.commentId, notify: result.notify }).catch((error) =>
+              logErrorThrottled(
+                { component: "tenant", op: "comment_notify_targets", scope: "reply_comment", commentId: result.commentId, assetId: context.assetId },
+                error,
+                { key: "comment_notify_targets", intervalMs: 30_000 }
+              )
+            );
           }
           await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
           const located = await deliveryService.locateAssetComment(userId, commentId, 8).catch(() => null);
