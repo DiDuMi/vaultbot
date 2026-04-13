@@ -1,17 +1,81 @@
 import type { Bot, Context } from "grammy";
 import { editHtml, escapeHtml, replyHtml, sanitizeTelegramHtml, stripHtmlTags, toMetaKey, upsertHtml } from "../ui-utils";
 import { buildHelpKeyboard, buildManageRecycleConfirmKeyboard, buildRecycleBinKeyboard } from "../keyboards";
+import { logErrorThrottled } from "../../../infra/logging";
 import type { TenantCallbackDeps } from "./types";
+
+const getTelegramErrorCode = (error: unknown) => {
+  const response = (error as { response?: { error_code?: number } })?.response;
+  return typeof response?.error_code === "number" ? response.error_code : null;
+};
+
+const getTelegramErrorDescription = (error: unknown) => {
+  const response = (error as { response?: { description?: string } })?.response;
+  return typeof response?.description === "string" ? response.description : null;
+};
+
+const isIgnorableCallbackQueryError = (error: unknown) => {
+  const code = getTelegramErrorCode(error);
+  if (code === 400) {
+    return true;
+  }
+  if (code === 403) {
+    return true;
+  }
+  return false;
+};
+
+const isIgnorableEditReplyMarkupError = (error: unknown) => {
+  const code = getTelegramErrorCode(error);
+  if (code !== 400) {
+    return false;
+  }
+  const desc = (getTelegramErrorDescription(error) ?? "").toLowerCase();
+  if (!desc) {
+    return true;
+  }
+  return desc.includes("message is not modified") || desc.includes("message to edit not found") || desc.includes("message not found");
+};
+
+const safeAnswerCallbackQuery = async (
+  ctx: Context,
+  payload?: Parameters<Context["answerCallbackQuery"]>[0],
+  meta?: { scope?: string; assetId?: string }
+) => {
+  await ctx.answerCallbackQuery(payload as never).catch((error) => {
+    if (isIgnorableCallbackQueryError(error)) {
+      return;
+    }
+    logErrorThrottled(
+      { component: "tenant_assets", op: "answer_callback_query", scope: meta?.scope, assetId: meta?.assetId },
+      error,
+      { key: "answer_callback_query", intervalMs: 30_000 }
+    );
+  });
+};
+
+const safeEditReplyMarkup = async (ctx: Context, meta?: { scope?: string; assetId?: string }) => {
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch((error) => {
+    if (isIgnorableEditReplyMarkupError(error)) {
+      return;
+    }
+    logErrorThrottled(
+      { component: "tenant_assets", op: "edit_message_reply_markup", scope: meta?.scope, assetId: meta?.assetId },
+      error,
+      { key: "edit_message_reply_markup", intervalMs: 30_000 }
+    );
+  });
+};
 
 export const registerAssetManageCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
   const { renderManagePanel } = deps.renderers;
   bot.callbackQuery(/^asset:manage:([^:]+)$/, async (ctx) => {
     const assetId = ctx.match?.[1];
     if (!assetId) {
-      await ctx.answerCallbackQuery();
+      await safeAnswerCallbackQuery(ctx, undefined, { scope: "manage_missing_asset" });
       return;
     }
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallbackQuery(ctx, undefined, { scope: "manage", assetId });
     await renderManagePanel(ctx, assetId);
   });
 };
@@ -24,7 +88,7 @@ export const registerUploadCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
   bot.callbackQuery("upload:commit", async (ctx) => {
     const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
     if (!ctx.from || !chatId) {
-      await ctx.answerCallbackQuery();
+      await safeAnswerCallbackQuery(ctx, undefined, { scope: "upload_commit_missing_ctx" });
       return;
     }
     const result = await batchActions.commit(ctx.from.id, chatId);
@@ -36,13 +100,13 @@ export const registerUploadCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
     if (result.ok && result.assetId) {
       await startMeta(ctx, result.assetId, "create");
     }
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallbackQuery(ctx, undefined, { scope: "upload_commit" });
   });
 
   bot.callbackQuery("upload:cancel", async (ctx) => {
     const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
     if (!ctx.from || !chatId) {
-      await ctx.answerCallbackQuery();
+      await safeAnswerCallbackQuery(ctx, undefined, { scope: "upload_cancel_missing_ctx" });
       return;
     }
     const result = await batchActions.cancel(ctx.from.id, chatId);
@@ -51,7 +115,7 @@ export const registerUploadCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
     await editHtml(ctx, message).catch(async () => {
       await replyHtml(ctx, message);
     });
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallbackQuery(ctx, undefined, { scope: "upload_cancel" });
   });
 };
 
@@ -96,7 +160,7 @@ export const registerAssetCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
     if (assetId) {
       await openAsset(ctx, assetId, 1);
     }
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallbackQuery(ctx, undefined, { scope: "asset_open", assetId });
   });
 
   bot.callbackQuery(/^asset:like:([^:]+)$/, async (ctx) => {
@@ -106,26 +170,26 @@ export const registerAssetCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
       return;
     }
     if (!deliveryService) {
-      await ctx.answerCallbackQuery({ text: "当前未启用数据库", show_alert: true });
+      await safeAnswerCallbackQuery(ctx, { text: "当前未启用数据库", show_alert: true }, { scope: "asset_like_db_disabled", assetId });
       return;
     }
     const result = await deliveryService.toggleAssetLike(String(ctx.from.id), assetId);
-    await ctx.answerCallbackQuery({ text: result.message, show_alert: false }).catch(() => undefined);
+    await safeAnswerCallbackQuery(ctx, { text: result.message, show_alert: false }, { scope: "asset_like", assetId });
     await refreshAssetActions(ctx, assetId);
   });
 
   bot.callbackQuery(/^asset:page:([^:]+):(\d+)$/, async (ctx) => {
     const assetId = ctx.match?.[1];
     const page = Number(ctx.match?.[2] ?? "1");
-    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+    await safeEditReplyMarkup(ctx, { scope: "asset_page_clear_markup", assetId });
     if (assetId) {
       await openAsset(ctx, assetId, page);
     }
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallbackQuery(ctx, undefined, { scope: "asset_page", assetId });
   });
 
   bot.callbackQuery("asset:noop", async (ctx) => {
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallbackQuery(ctx, undefined, { scope: "asset_noop" });
   });
 
   bot.callbackQuery(/^asset:meta:([^:]+)$/, async (ctx) => {
@@ -135,15 +199,15 @@ export const registerAssetCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
       return;
     }
     if (!deliveryService) {
-      await ctx.answerCallbackQuery({ text: "当前未启用数据库", show_alert: true });
+      await safeAnswerCallbackQuery(ctx, { text: "当前未启用数据库", show_alert: true }, { scope: "asset_meta_db_disabled", assetId });
       return;
     }
     const meta = await deliveryService.getUserAssetMeta(String(ctx.from.id), assetId);
     if (!meta) {
-      await ctx.answerCallbackQuery({ text: "无权限或内容不存在", show_alert: true });
+      await safeAnswerCallbackQuery(ctx, { text: "无权限或内容不存在", show_alert: true }, { scope: "asset_meta_forbidden", assetId });
       return;
     }
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallbackQuery(ctx, undefined, { scope: "asset_meta", assetId });
     await startMeta(ctx, assetId, "edit");
   });
 
@@ -155,11 +219,11 @@ export const registerAssetCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
       return;
     }
     if (!deliveryService) {
-      await ctx.answerCallbackQuery({ text: "当前未启用数据库", show_alert: true });
+      await safeAnswerCallbackQuery(ctx, { text: "当前未启用数据库", show_alert: true }, { scope: "asset_searchable_db_disabled", assetId });
       return;
     }
     const result = await deliveryService.setUserAssetSearchable(String(ctx.from.id), assetId, value === "1");
-    await ctx.answerCallbackQuery({ text: result.message, show_alert: !result.ok }).catch(() => undefined);
+    await safeAnswerCallbackQuery(ctx, { text: result.message, show_alert: !result.ok }, { scope: "asset_searchable", assetId });
     await renderManagePanel(ctx, assetId);
   });
 
@@ -170,15 +234,15 @@ export const registerAssetCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
       return;
     }
     if (!deliveryService) {
-      await ctx.answerCallbackQuery({ text: "当前未启用数据库", show_alert: true });
+      await safeAnswerCallbackQuery(ctx, { text: "当前未启用数据库", show_alert: true }, { scope: "asset_recycle_db_disabled", assetId });
       return;
     }
     const meta = await deliveryService.getUserAssetMeta(String(ctx.from.id), assetId);
     if (!meta) {
-      await ctx.answerCallbackQuery({ text: "无权限或内容不存在", show_alert: true });
+      await safeAnswerCallbackQuery(ctx, { text: "无权限或内容不存在", show_alert: true }, { scope: "asset_recycle_forbidden", assetId });
       return;
     }
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallbackQuery(ctx, undefined, { scope: "asset_recycle_confirm_ui", assetId });
     await upsertHtml(
       ctx,
       ["<b>⚠️ 回收内容</b>", "", `将回收：<b>${meta.title}</b>`, "回收后对用户不可见，可在管理模式恢复。"].join("\n"),
@@ -193,11 +257,11 @@ export const registerAssetCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
       return;
     }
     if (!deliveryService) {
-      await ctx.answerCallbackQuery({ text: "当前未启用数据库", show_alert: true });
+      await safeAnswerCallbackQuery(ctx, { text: "当前未启用数据库", show_alert: true }, { scope: "asset_recycle_confirm_db_disabled", assetId });
       return;
     }
     const result = await deliveryService.recycleUserAsset(String(ctx.from.id), assetId);
-    await ctx.answerCallbackQuery({ text: result.message, show_alert: !result.ok }).catch(() => undefined);
+    await safeAnswerCallbackQuery(ctx, { text: result.message, show_alert: !result.ok }, { scope: "asset_recycle_confirm", assetId });
     if (result.ok) {
       await renderManagePanel(ctx, assetId);
       return;
@@ -212,11 +276,11 @@ export const registerAssetCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
       return;
     }
     if (!deliveryService) {
-      await ctx.answerCallbackQuery({ text: "当前未启用数据库", show_alert: true });
+      await safeAnswerCallbackQuery(ctx, { text: "当前未启用数据库", show_alert: true }, { scope: "asset_restore_db_disabled", assetId });
       return;
     }
     const result = await deliveryService.restoreUserAsset(String(ctx.from.id), assetId);
-    await ctx.answerCallbackQuery({ text: result.message, show_alert: !result.ok }).catch(() => undefined);
+    await safeAnswerCallbackQuery(ctx, { text: result.message, show_alert: !result.ok }, { scope: "asset_restore", assetId });
     if (result.ok) {
       await renderManagePanel(ctx, assetId);
       return;
@@ -226,20 +290,20 @@ export const registerAssetCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
 
   bot.callbackQuery(/^asset:recycle:list:(\d+)$/, async (ctx) => {
     const page = Number(ctx.match?.[1] ?? "1");
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallbackQuery(ctx, undefined, { scope: "asset_recycle_list" });
     await renderRecycleBin(ctx, Number.isFinite(page) ? page : 1);
   });
 
   bot.callbackQuery(/^asset:recycle:restore_page:(\d+)$/, async (ctx) => {
     const page = Number(ctx.match?.[1] ?? "1");
     if (!deliveryService || !ctx.from) {
-      await ctx.answerCallbackQuery({ text: "当前未启用数据库", show_alert: true });
+      await safeAnswerCallbackQuery(ctx, { text: "当前未启用数据库", show_alert: true }, { scope: "asset_restore_page_db_disabled" });
       return;
     }
     const data = await deliveryService.listUserRecycledAssets(String(ctx.from.id), Number.isFinite(page) ? page : 1, 10);
     const ids = data.items.map((item) => item.assetId);
     const result = await deliveryService.restoreUserAssets(String(ctx.from.id), ids);
-    await ctx.answerCallbackQuery({ text: result.message, show_alert: !result.ok }).catch(() => undefined);
+    await safeAnswerCallbackQuery(ctx, { text: result.message, show_alert: !result.ok }, { scope: "asset_restore_page" });
     await renderRecycleBin(ctx, Number.isFinite(page) ? page : 1);
   });
 };
