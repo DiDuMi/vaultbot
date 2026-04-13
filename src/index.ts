@@ -53,6 +53,7 @@ const start = async () => {
       }
     } catch (error) {
       logError({ component: "main", op: "set_webhook" }, error);
+      throw error;
     }
   } else {
     try {

@@ -567,9 +567,10 @@ export const createDeliveryService = (
     });
 
   const isTenantUserSafe = async (userId: string) => isTenantUser(userId).catch(() => false);
+  const isTenantAdminSafe = async (userId: string) => isTenantAdmin(userId).catch(() => false);
 
   const getUserProfileSummary = createGetUserProfileSummary({ prisma, getTenantId });
-  const getTenantAssetAccess = createGetTenantAssetAccess({ prisma, isTenantUserSafe });
+  const getTenantAssetAccess = createGetTenantAssetAccess({ prisma, isTenantUserSafe, isTenantAdminSafe });
 
 
   const {

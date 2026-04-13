@@ -8,6 +8,8 @@ export const createDeliveryDiscovery = (deps: {
   isTenantUserSafe: (userId: string) => Promise<boolean>;
   startOfLocalDay: (date: Date) => Date;
 }) => {
+  const recycledVisibilityKey = (assetId: string) => `recycled_visibility:${assetId}`;
+
   const searchAssets = async (
     userId: string,
     query: string,
@@ -235,6 +237,7 @@ export const createDeliveryDiscovery = (deps: {
       return { ok: true, message: "✅ 内容不存在或已删除。" };
     }
     await deps.prisma.$transaction(async (tx) => {
+      await tx.tenantSetting.deleteMany({ where: { tenantId, key: recycledVisibilityKey(existing.id) } });
       await tx.assetCommentLike.deleteMany({ where: { tenantId, comment: { assetId: existing.id } } });
       await tx.assetComment.deleteMany({ where: { tenantId, assetId: existing.id } });
       await tx.assetLike.deleteMany({ where: { tenantId, assetId: existing.id } });
@@ -266,7 +269,14 @@ export const createDeliveryDiscovery = (deps: {
     if (!existing.searchable && existing.visibility === "RESTRICTED") {
       return { ok: true, message: "✅ 当前已在回收状态。" };
     }
-    await deps.prisma.asset.update({ where: { id: existing.id }, data: { searchable: false, visibility: "RESTRICTED" } });
+    await deps.prisma.$transaction(async (tx) => {
+      await tx.tenantSetting.upsert({
+        where: { tenantId_key: { tenantId, key: recycledVisibilityKey(existing.id) } },
+        update: { value: existing.visibility },
+        create: { tenantId, key: recycledVisibilityKey(existing.id), value: existing.visibility }
+      });
+      await tx.asset.update({ where: { id: existing.id }, data: { searchable: false, visibility: "RESTRICTED" } });
+    });
     return { ok: true, message: "✅ 已回收该内容，可在管理模式恢复。" };
   };
 
@@ -289,7 +299,20 @@ export const createDeliveryDiscovery = (deps: {
     if (existing.searchable && existing.visibility !== "RESTRICTED") {
       return { ok: true, message: "✅ 当前已是正常状态。" };
     }
-    await deps.prisma.asset.update({ where: { id: existing.id }, data: { searchable: true, visibility: "PROTECTED" } });
+    const previousVisibility = await deps.prisma.tenantSetting
+      .findUnique({
+        where: { tenantId_key: { tenantId, key: recycledVisibilityKey(existing.id) } },
+        select: { value: true }
+      })
+      .then((row) => row?.value ?? null);
+    const restoredVisibility =
+      previousVisibility === "PUBLIC" || previousVisibility === "PROTECTED" || previousVisibility === "RESTRICTED"
+        ? previousVisibility
+        : "PROTECTED";
+    await deps.prisma.$transaction(async (tx) => {
+      await tx.asset.update({ where: { id: existing.id }, data: { searchable: true, visibility: restoredVisibility } });
+      await tx.tenantSetting.deleteMany({ where: { tenantId, key: recycledVisibilityKey(existing.id) } });
+    });
     return { ok: true, message: "✅ 已恢复该内容。" };
   };
 
@@ -367,7 +390,7 @@ export const createDeliveryDiscovery = (deps: {
     const isTenantViewer = options.viewerUserId ? await deps.isTenantUserSafe(options.viewerUserId) : true;
     const assetWhere = {
       ...(options.collectionId === undefined ? {} : { collectionId: options.collectionId }),
-      ...(isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } })
+      ...(isTenantViewer ? {} : { visibility: "PUBLIC" as const })
     };
     const where = {
       tenantId,
@@ -518,7 +541,7 @@ export const createDeliveryDiscovery = (deps: {
     const safeSize = normalizePageSize(pageSize);
     const isTenant = await deps.isTenantUserSafe(userId);
     const since = options?.since;
-    const where = isTenant ? { tenantId, userId } : { tenantId, userId, asset: { visibility: { not: "RESTRICTED" as const } } };
+    const where = isTenant ? { tenantId, userId } : { tenantId, userId, asset: { visibility: "PUBLIC" as const } };
     const finalWhere = since ? { ...where, createdAt: { gte: since } } : where;
     const [total, likes] = await Promise.all([
       deps.prisma.assetLike.count({ where: finalWhere }),

@@ -28,7 +28,7 @@ export const createDeliverySocial = (deps: {
       authorUserId: userId,
       replyToCommentId: kind === "reply" ? { not: null } : null,
       ...(since ? { createdAt: { gte: since } } : {}),
-      ...(isTenant ? {} : { asset: { visibility: { not: "RESTRICTED" as const } } })
+      ...(isTenant ? {} : { asset: { visibility: "PUBLIC" as const } })
     };
     const [total, comments] = await Promise.all([
       deps.prisma.assetComment.count({ where }),
@@ -119,18 +119,15 @@ export const createDeliverySocial = (deps: {
         assetId: true,
         authorUserId: true,
         authorName: true,
-        createdAt: true,
-        asset: { select: { visibility: true } }
+        createdAt: true
       }
     });
     if (!comment) {
       return null;
     }
-    if (comment.asset.visibility === "RESTRICTED") {
-      const isTenant = await deps.isTenantUserSafe(userId);
-      if (!isTenant) {
-        return null;
-      }
+    const access = await deps.getTenantAssetAccess(tenantId, userId, comment.assetId);
+    if (access.status !== "ok") {
+      return null;
     }
     return { assetId: comment.assetId, authorUserId: comment.authorUserId, authorName: comment.authorName };
   };
@@ -140,16 +137,14 @@ export const createDeliverySocial = (deps: {
     const safeSize = normalizePageSize(pageSize, { maxSize: 50 });
     const comment = await deps.prisma.assetComment.findFirst({
       where: { id: commentId, tenantId },
-      select: { id: true, assetId: true, createdAt: true, asset: { select: { visibility: true } } }
+      select: { id: true, assetId: true, createdAt: true }
     });
     if (!comment) {
       return null;
     }
-    if (comment.asset.visibility === "RESTRICTED") {
-      const isTenant = await deps.isTenantUserSafe(userId);
-      if (!isTenant) {
-        return null;
-      }
+    const access = await deps.getTenantAssetAccess(tenantId, userId, comment.assetId);
+    if (access.status !== "ok") {
+      return null;
     }
     const newerCount = await deps.prisma.assetComment.count({
       where: { tenantId, assetId: comment.assetId, createdAt: { gt: comment.createdAt } }
@@ -169,22 +164,15 @@ export const createDeliverySocial = (deps: {
         authorName: true,
         content: true,
         createdAt: true,
-        asset: { select: { title: true, shareCode: true, visibility: true } }
+        asset: { select: { title: true, shareCode: true } }
       }
     });
     if (!root) {
       return null;
     }
-    if (root.asset.visibility === "RESTRICTED") {
-      const isTenant = await deps.isTenantUserSafe(userId);
-      if (!isTenant) {
-        return null;
-      }
-    } else {
-      const access = await deps.getTenantAssetAccess(tenantId, userId, root.assetId);
-      if (access.status !== "ok") {
-        return null;
-      }
+    const access = await deps.getTenantAssetAccess(tenantId, userId, root.assetId);
+    if (access.status !== "ok") {
+      return null;
     }
     const replies = await deps.prisma.assetComment.findMany({
       where: { tenantId, assetId: root.assetId, replyToCommentId: root.id },

@@ -55,7 +55,7 @@ export const createDeliveryStats = (deps: {
       .map((assetId) => {
         const found = assetMap.get(assetId);
         const value = input.valueMap.get(assetId) ?? 0;
-        if (found && input.isPublicViewer && found.visibility === "RESTRICTED") {
+        if (found && input.isPublicViewer && found.visibility !== "PUBLIC") {
           return null;
         }
         if (!found) {

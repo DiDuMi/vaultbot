@@ -23,6 +23,8 @@ import { createWorkerRoutes } from "../worker/routes";
 import { startIntervalScheduler } from "../worker/orchestration";
 import { buildAssetActionLine, buildPreviewLinkLine } from "../bot/tenant/index";
 import { buildFootprintKeyboard, buildRankingKeyboard } from "../bot/tenant/keyboards";
+import { createDeliveryDiscovery } from "../services/use-cases/delivery-discovery";
+import { createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
 
 type TestCase = { name: string; run: () => Promise<void> | void };
 
@@ -498,6 +500,124 @@ test("integration: 交付流程在副本未就绪时返回提示", async () => {
   } as never);
   await open.openAsset(ctx, "asset1", 1);
   assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("副本写入中")));
+});
+
+test("discovery: recycle and restore preserve original visibility", async () => {
+  const tenantId = "tenant_1";
+  const asset = {
+    id: "asset_1",
+    searchable: true,
+    visibility: "PUBLIC" as "PUBLIC" | "PROTECTED" | "RESTRICTED"
+  };
+  const settings = new Map<string, string>();
+
+  const prisma = {
+    uploadBatch: {
+      findFirst: async () => ({ id: "batch_1" })
+    },
+    asset: {
+      findFirst: async () => ({ ...asset }),
+      update: async ({ data }: { data: { searchable?: boolean; visibility?: "PUBLIC" | "PROTECTED" | "RESTRICTED" } }) => {
+        if (data.searchable !== undefined) {
+          asset.searchable = data.searchable;
+        }
+        if (data.visibility !== undefined) {
+          asset.visibility = data.visibility;
+        }
+        return { ...asset };
+      }
+    },
+    tenantSetting: {
+      upsert: async ({
+        create,
+        update
+      }: {
+        create: { key: string; value: string | null };
+        update: { value: string | null };
+      }) => {
+        settings.set(create.key, update.value ?? create.value ?? "");
+      },
+      findUnique: async ({ where }: { where: { tenantId_key: { key: string } } }) => ({
+        value: settings.get(where.tenantId_key.key) ?? null
+      }),
+      deleteMany: async ({ where }: { where: { key: string } }) => {
+        settings.delete(where.key);
+        return { count: 1 };
+      }
+    },
+    $transaction: async (runner: (tx: any) => Promise<void>) => runner(prisma)
+  } as never;
+
+  const discovery = createDeliveryDiscovery({
+    prisma,
+    getTenantId: async () => tenantId,
+    isTenantUserSafe: async () => true,
+    startOfLocalDay: (date) => date
+  });
+
+  const recycled = await discovery.recycleUserAsset("user_1", asset.id);
+  assert.equal(recycled.ok, true);
+  assert.equal(asset.searchable, false);
+  assert.equal(asset.visibility, "RESTRICTED");
+
+  const restored = await discovery.restoreUserAsset("user_1", asset.id);
+  assert.equal(restored.ok, true);
+  assert.equal(asset.searchable, true);
+  assert.equal(asset.visibility, "PUBLIC");
+});
+
+test("access: protected asset is forbidden for public viewer", async () => {
+  const getTenantAssetAccess = createGetTenantAssetAccess({
+    prisma: {
+      asset: {
+        findFirst: async () => ({ id: "asset_1", visibility: "PROTECTED" })
+      },
+      uploadBatch: {
+        findFirst: async () => null
+      }
+    } as never,
+    isTenantUserSafe: async () => false,
+    isTenantAdminSafe: async () => false
+  });
+
+  const result = await getTenantAssetAccess("tenant_1", "user_1", "asset_1");
+  assert.equal(result.status, "forbidden");
+});
+
+test("access: restricted asset is forbidden for non-owner tenant user", async () => {
+  const getTenantAssetAccess = createGetTenantAssetAccess({
+    prisma: {
+      asset: {
+        findFirst: async () => ({ id: "asset_1", visibility: "RESTRICTED" })
+      },
+      uploadBatch: {
+        findFirst: async () => null
+      }
+    } as never,
+    isTenantUserSafe: async () => true,
+    isTenantAdminSafe: async () => false
+  });
+
+  const result = await getTenantAssetAccess("tenant_1", "user_1", "asset_1");
+  assert.equal(result.status, "forbidden");
+});
+
+test("access: restricted asset is allowed for owner", async () => {
+  const getTenantAssetAccess = createGetTenantAssetAccess({
+    prisma: {
+      asset: {
+        findFirst: async () => ({ id: "asset_1", visibility: "RESTRICTED" })
+      },
+      uploadBatch: {
+        findFirst: async () => ({ id: "batch_1" })
+      }
+    } as never,
+    isTenantUserSafe: async () => true,
+    isTenantAdminSafe: async () => false
+  });
+
+  const result = await getTenantAssetAccess("tenant_1", "user_1", "asset_1");
+  assert.equal(result.status, "ok");
 });
 
 registerDeliveryModuleTests(test);

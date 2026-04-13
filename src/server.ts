@@ -75,7 +75,6 @@ export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) =
         if (!healthRedisConnection) {
           throw new Error("redis connection missing");
         }
-        await withTimeout(healthRedisConnection.connect(), healthTimeoutMs);
         await withTimeout(healthRedisConnection.ping(), healthTimeoutMs);
         redis = true;
       } catch {

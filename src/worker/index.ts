@@ -6,133 +6,21 @@ import { assertTenantCodeConsistency } from "../infra/persistence/tenant-guard";
 import { createRedisConnection } from "../infra/queue";
 import { copyToVault, withTelegramRetry } from "../infra/telegram";
 import { createDeliveryService } from "../services/use-cases";
+import { startBroadcastScheduler } from "./broadcast-scheduler";
+import {
+  backfillTenantUsers,
+  ensureTenantId,
+  getBroadcastTargetUserIds,
+  parseNumberWithBounds,
+  sendMediaGroupWithRetry,
+  sleep
+} from "./helpers";
 import { startIntervalScheduler } from "./orchestration";
+import { startReplicationScheduler } from "./replication-scheduler";
+import { createReplicateBatch } from "./replication-worker";
 import { createWorkerRoutes } from "./routes";
 import { upsertWorkerProcessHeartbeat, upsertWorkerReplicationHeartbeat } from "./storage";
 import { buildBroadcastKeyboard, escapeHtml, isBlockedError, logWorkerError, stripHtml } from "./strategy";
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const parseNumberWithBounds = (raw: string | undefined, fallback: number, min: number, max: number) => {
-  const value = Number(raw ?? "");
-  if (!Number.isFinite(value)) {
-    return fallback;
-  }
-  return Math.min(max, Math.max(min, Math.trunc(value)));
-};
-
-const sendMediaGroupWithRetry = async (
-  bot: Bot,
-  chatId: string,
-  album: { type: "photo" | "video"; media: string }[],
-  threadId?: number
-) => {
-  const run = () => {
-    if (threadId !== undefined) {
-      return bot.api.sendMediaGroup(chatId, album, { message_thread_id: threadId });
-    }
-    return bot.api.sendMediaGroup(chatId, album);
-  };
-  return withTelegramRetry(run);
-};
-
-const getBroadcastTargetUserIds = async (prisma: PrismaClient, tenantId: string) => {
-  const [users, members] = await Promise.all([
-    prisma.event.groupBy({ by: ["userId"], where: { tenantId } }),
-    prisma.tenantMember.findMany({ where: { tenantId }, select: { tgUserId: true } })
-  ]);
-  const excluded = new Set(members.map((m) => m.tgUserId));
-  return users.map((u) => u.userId).filter((id) => !excluded.has(id));
-};
-
-const ensureTenantId = async (prisma: PrismaClient, config: { tenantCode: string; tenantName: string }) => {
-  const tenant = await prisma.tenant.upsert({
-    where: { code: config.tenantCode },
-    update: { name: config.tenantName },
-    create: { code: config.tenantCode, name: config.tenantName }
-  });
-  return tenant.id;
-};
-
-const isSafeTelegramNumericId = (value: string) => {
-  const numericId = Number(value);
-  if (!Number.isSafeInteger(numericId)) {
-    return null;
-  }
-  if (numericId <= 0) {
-    return null;
-  }
-  return numericId;
-};
-
-const backfillTenantUsers = async (bot: Bot, prisma: PrismaClient, tenantId: string) => {
-  const limit = (() => {
-    const raw = Number(process.env.SYNC_USERS_LIMIT ?? "");
-    if (!Number.isFinite(raw)) {
-      return 300;
-    }
-    return Math.max(1, Math.min(2000, Math.trunc(raw)));
-  })();
-
-  const [eventUsers, commentUsers, batchUsers, members, existingUsers] = await Promise.all([
-    prisma.event.groupBy({ by: ["userId"], where: { tenantId } }),
-    prisma.assetComment.groupBy({ by: ["authorUserId"], where: { tenantId } }),
-    prisma.uploadBatch.groupBy({ by: ["userId"], where: { tenantId } }),
-    prisma.tenantMember.findMany({ where: { tenantId }, select: { tgUserId: true } }),
-    prisma.tenantUser.findMany({ where: { tenantId }, select: { tgUserId: true } })
-  ]);
-
-  const existing = new Set(existingUsers.map((u) => u.tgUserId));
-  const candidates = new Set<string>();
-  for (const row of eventUsers) {
-    candidates.add(row.userId);
-  }
-  for (const row of commentUsers) {
-    candidates.add(row.authorUserId);
-  }
-  for (const row of batchUsers) {
-    candidates.add(row.userId);
-  }
-  for (const row of members) {
-    candidates.add(row.tgUserId);
-  }
-
-  const ids = Array.from(candidates)
-    .filter((id) => id && !existing.has(id))
-    .slice(0, limit);
-
-  if (ids.length === 0) {
-    return;
-  }
-
-  for (const id of ids) {
-    const numericId = isSafeTelegramNumericId(id);
-    if (numericId === null) {
-      continue;
-    }
-    const chat = await withTelegramRetry(() => bot.api.getChat(numericId)).catch(() => null);
-    const username = (chat as { username?: string | null } | null)?.username?.trim().replace(/^@+/, "") || null;
-    const firstName = (chat as { first_name?: string | null } | null)?.first_name?.trim() || null;
-    const lastName = (chat as { last_name?: string | null } | null)?.last_name?.trim() || null;
-    const now = new Date();
-    await prisma.tenantUser
-      .upsert({
-        where: { tenantId_tgUserId: { tenantId, tgUserId: id } },
-        update: { username, firstName, lastName, lastSeenAt: now },
-        create: {
-          tenantId,
-          tgUserId: id,
-          username,
-          firstName,
-          lastName,
-          languageCode: null,
-          isBot: false,
-          lastSeenAt: now
-        }
-      })
-      .catch((error) => logWorkerError({ op: "tenant_user_upsert", tenantId, scope: `tgUserId:${id}` }, error));
-    await sleep(200);
-  }
-};
 
 const start = async () => {
   const config = loadConfig();
@@ -166,7 +54,7 @@ const start = async () => {
   }
   const runtimeTenantId = await ensureTenantId(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
 
-  const replicateBatch = async (batchId: string, options?: { includeOptional?: boolean }) => {
+  const legacyReplicateBatch = async (batchId: string, options?: { includeOptional?: boolean }) => {
     const includeOptional = options?.includeOptional !== false;
     const batch = await prisma.uploadBatch.findUnique({
       where: { id: batchId },
@@ -533,6 +421,13 @@ const start = async () => {
     }
   };
 
+  const replicateBatch = createReplicateBatch({
+    bot,
+    prisma,
+    config,
+    sendMediaGroupWithRetry
+  });
+
   const runBroadcast = async (broadcastId: string, runId: string) => {
     try {
       const broadcast = await prisma.broadcast.findUnique({ where: { id: broadcastId } });
@@ -795,260 +690,26 @@ const start = async () => {
     : null;
 
   let schedulerTimer: NodeJS.Timeout | null = null;
-  let schedulerRunning = false;
-  const startBroadcastScheduler = () => {
-    const tick = async () => {
-      if (schedulerRunning) {
-        return;
-      }
-      schedulerRunning = true;
-      try {
-        const now = new Date();
-        const due = await prisma.broadcast.findMany({
-          where: { status: "SCHEDULED", nextRunAt: { lte: now } },
-          orderBy: { nextRunAt: "asc" },
-          take: 10
-        });
-        for (const item of due) {
-          const run = await prisma.$transaction(async (tx) => {
-            const locked = await tx.broadcast.updateMany({
-              where: { id: item.id, status: "SCHEDULED", nextRunAt: { lte: now } },
-              data: { status: "RUNNING" }
-            });
-            if (locked.count === 0) {
-              return null;
-            }
-            return tx.broadcastRun.create({
-              data: { broadcastId: item.id, targetCount: 0, successCount: 0, failedCount: 0, blockedCount: 0 }
-            });
-          });
-          if (!run) {
-            continue;
-          }
-          try {
-            if (broadcastQueue) {
-              await broadcastQueue.add(
-                "run",
-                { broadcastId: item.id, runId: run.id },
-                { jobId: `broadcast:${item.id}:${run.id}`, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
-              );
-            } else {
-              await runBroadcast(item.id, run.id);
-            }
-          } catch (error) {
-            logWorkerError({ op: "broadcast_schedule_dispatch", broadcastId: item.id, runId: run.id }, error);
-            await prisma.broadcast
-              .update({ where: { id: item.id }, data: { status: "SCHEDULED" } })
-              .catch((dbError) =>
-                logWorkerError({ op: "broadcast_schedule_rollback", broadcastId: item.id, runId: run.id }, dbError)
-              );
-            await prisma.broadcastRun
-              .update({ where: { id: run.id }, data: { failedCount: 1, finishedAt: new Date() } })
-              .catch((dbError) => logWorkerError({ op: "broadcast_run_mark_failed", broadcastId: item.id, runId: run.id }, dbError));
-          }
-        }
-      } finally {
-        schedulerRunning = false;
-      }
-    };
-    schedulerTimer = startIntervalScheduler(5000, tick, (error) => logWorkerError({ op: "broadcast_scheduler_tick" }, error));
-  };
-
-  startBroadcastScheduler();
+  schedulerTimer = startBroadcastScheduler({
+    prisma,
+    broadcastQueue,
+    runBroadcast,
+    logError: (meta, error) => logWorkerError(meta, error)
+  });
   startReplicationBackfillAutoPause();
 
   let replicationTimer: NodeJS.Timeout | null = null;
-  const replicationEnqueuedAt = new Map<string, number>();
-  const replicationEnqueuedTtlMs = parseNumberWithBounds(
-    process.env.REPLICATION_ENQUEUED_TTL_MS,
-    60 * 60 * 1000,
-    60_000,
-    24 * 60 * 60 * 1000
-  );
-  const replicationBackfillEnabled = process.env.REPLICATION_BACKFILL_ENABLED !== "0";
-  const replicationBackfillTake = parseNumberWithBounds(process.env.REPLICATION_BACKFILL_TAKE, 5, 0, 50);
-  const replicationEnqueuedMaxSize = parseNumberWithBounds(
-    process.env.REPLICATION_ENQUEUED_MAX_SIZE,
-    20_000,
-    1000,
-    200_000
-  );
-  const replicationMetricsLogIntervalMs = parseNumberWithBounds(
-    process.env.REPLICATION_METRICS_LOG_INTERVAL_MS,
-    60_000,
-    5_000,
-    3_600_000
-  );
-  let replicationTtlEvictions = 0;
-  let replicationCapEvictions = 0;
-  let lastReplicationMetricsLogAt = Date.now();
-  const flushReplicationMetrics = (now: number) => {
-    if (now - lastReplicationMetricsLogAt < replicationMetricsLogIntervalMs) {
-      return;
-    }
-    const hasChanges = replicationTtlEvictions > 0 || replicationCapEvictions > 0;
-    if (hasChanges) {
-      console.info(
-        JSON.stringify({
-          level: "info",
-          at: new Date(now).toISOString(),
-          component: "worker",
-          op: "replication_enqueued_cleanup",
-          mapSize: replicationEnqueuedAt.size,
-          ttlEvictions: replicationTtlEvictions,
-          capEvictions: replicationCapEvictions
-        })
-      );
-      replicationTtlEvictions = 0;
-      replicationCapEvictions = 0;
-    }
-    lastReplicationMetricsLogAt = now;
-  };
-  const cleanupReplicationEnqueuedAt = (now: number) => {
-    for (const [batchId, ts] of replicationEnqueuedAt) {
-      if (now - ts > replicationEnqueuedTtlMs) {
-        replicationEnqueuedAt.delete(batchId);
-        replicationTtlEvictions += 1;
-      }
-    }
-    while (replicationEnqueuedAt.size > replicationEnqueuedMaxSize) {
-      const oldest = replicationEnqueuedAt.keys().next();
-      if (oldest.done) {
-        break;
-      }
-      replicationEnqueuedAt.delete(oldest.value);
-      replicationCapEvictions += 1;
-    }
-    flushReplicationMetrics(now);
-  };
-  let backfillOffset = 0;
-  const startReplicationScheduler = () => {
-    const tick = async () => {
-      const now = Date.now();
-      cleanupReplicationEnqueuedAt(now);
-      await upsertWorkerProcessHeartbeat(prisma, runtimeTenantId, now).catch((error) =>
-        logWorkerError({ op: "heartbeat_process_upsert", tenantId: runtimeTenantId }, error)
-      );
-      const batches = await prisma.uploadBatch.findMany({
-        where: { status: "COMMITTED", items: { some: { status: { in: ["PENDING", "FAILED"] } } } },
-        take: 10,
-        orderBy: { createdAt: "desc" },
-        select: { id: true, tenantId: true }
-      });
-      const replicationHeartbeatTenantIds = new Set<string>();
-      for (const batch of batches) {
-        const last = replicationEnqueuedAt.get(batch.id) ?? 0;
-        if (now - last < 10_000) {
-          continue;
-        }
-        replicationEnqueuedAt.set(batch.id, now);
-        if (replicationQueue) {
-          const enqueued = await replicationQueue
-            .add(
-              "replicate_required",
-              { batchId: batch.id },
-              { jobId: `replicate:poll:${batch.id}:${now}`, priority: 50, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
-            )
-            .then(() => true)
-            .catch((error) => {
-              logWorkerError({ op: "replication_enqueue_poll", tenantId: batch.tenantId, batchId: batch.id }, error);
-              return false;
-            });
-          if (enqueued) {
-            replicationHeartbeatTenantIds.add(batch.tenantId);
-          }
-        } else {
-          const replicated = await replicateBatch(batch.id, { includeOptional: false })
-            .then(() => true)
-            .catch((error) => {
-              logWorkerError({ op: "replication_direct_poll", tenantId: batch.tenantId, batchId: batch.id }, error);
-              return false;
-            });
-          if (replicated) {
-            replicationHeartbeatTenantIds.add(batch.tenantId);
-          }
-        }
-      }
-
-      if (!replicationBackfillEnabled || replicationBackfillTake <= 0 || batches.length > 0) {
-        for (const tenantId of replicationHeartbeatTenantIds) {
-          await upsertWorkerReplicationHeartbeat(prisma, tenantId, now).catch((error) =>
-            logWorkerError({ op: "heartbeat_replication_upsert", tenantId }, error)
-          );
-        }
-        return;
-      }
-
-      const backfill = await prisma.uploadBatch.findMany({
-        where: { status: "COMMITTED" },
-        orderBy: { createdAt: "desc" },
-        take: replicationBackfillTake,
-        skip: backfillOffset,
-        select: { id: true, tenantId: true }
-      });
-      backfillOffset += backfill.length;
-      if (backfill.length < replicationBackfillTake) {
-        backfillOffset = 0;
-      }
-      for (const batch of backfill) {
-        const last = replicationEnqueuedAt.get(batch.id) ?? 0;
-        if (now - last < 10_000) {
-          continue;
-        }
-        replicationEnqueuedAt.set(batch.id, now);
-        if (replicationBackfillQueue) {
-          const enqueued = await replicationBackfillQueue
-            .add(
-              "replicate_backfill",
-              { batchId: batch.id },
-              { jobId: `replicate:backfill:${batch.id}:${now}`, priority: 100, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
-            )
-            .then(() => true)
-            .catch((error) => {
-              logWorkerError({ op: "replication_enqueue_backfill", tenantId: batch.tenantId, batchId: batch.id }, error);
-              return false;
-            });
-          if (enqueued) {
-            replicationHeartbeatTenantIds.add(batch.tenantId);
-          }
-        } else if (replicationQueue) {
-          const enqueued = await replicationQueue
-            .add(
-              "replicate_backfill",
-              { batchId: batch.id },
-              { jobId: `replicate:backfill:${batch.id}:${now}`, priority: 100, attempts: 1, removeOnComplete: true, removeOnFail: 100 }
-            )
-            .then(() => true)
-            .catch((error) => {
-              logWorkerError({ op: "replication_enqueue_backfill", tenantId: batch.tenantId, batchId: batch.id }, error);
-              return false;
-            });
-          if (enqueued) {
-            replicationHeartbeatTenantIds.add(batch.tenantId);
-          }
-        } else {
-          const replicated = await replicateBatch(batch.id, { includeOptional: true })
-            .then(() => true)
-            .catch((error) => {
-              logWorkerError({ op: "replication_direct_backfill", tenantId: batch.tenantId, batchId: batch.id }, error);
-              return false;
-            });
-          if (replicated) {
-            replicationHeartbeatTenantIds.add(batch.tenantId);
-          }
-        }
-      }
-
-      for (const tenantId of replicationHeartbeatTenantIds) {
-        await upsertWorkerReplicationHeartbeat(prisma, tenantId, now).catch((error) =>
-          logWorkerError({ op: "heartbeat_replication_upsert", tenantId }, error)
-        );
-      }
-    };
-    replicationTimer = startIntervalScheduler(15000, tick, (error) => logWorkerError({ op: "replication_scheduler_tick" }, error));
-  };
-
-  startReplicationScheduler();
+  replicationTimer = startReplicationScheduler({
+    prisma,
+    runtimeTenantId,
+    replicationQueue,
+    replicationBackfillQueue,
+    replicateBatch,
+    upsertWorkerProcessHeartbeat: (tenantId, ts) => upsertWorkerProcessHeartbeat(prisma, tenantId, ts),
+    upsertWorkerReplicationHeartbeat: (tenantId, ts) => upsertWorkerReplicationHeartbeat(prisma, tenantId, ts),
+    parseNumberWithBounds,
+    logError: (meta, error) => logWorkerError(meta, error)
+  });
 
   const shutdown = async () => {
     if (replicationWorker) {

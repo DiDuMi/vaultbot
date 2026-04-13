@@ -13,6 +13,7 @@ type DeliveryUserSummaryDeps = {
 type DeliveryAssetAccessDeps = {
   prisma: PrismaClient;
   isTenantUserSafe: (userId: string) => Promise<boolean>;
+  isTenantAdminSafe: (userId: string) => Promise<boolean>;
 };
 
 type IdentityServiceDeps = {
@@ -64,7 +65,7 @@ export const createGetUserProfileSummary = ({
   };
 };
 
-export const createGetTenantAssetAccess = ({ prisma, isTenantUserSafe }: DeliveryAssetAccessDeps) => {
+export const createGetTenantAssetAccess = ({ prisma, isTenantUserSafe, isTenantAdminSafe }: DeliveryAssetAccessDeps) => {
   return async (tenantId: string, userId: string, assetId: string) => {
     const asset = await prisma.asset.findFirst({
       where: { id: assetId, tenantId },
@@ -73,11 +74,24 @@ export const createGetTenantAssetAccess = ({ prisma, isTenantUserSafe }: Deliver
     if (!asset) {
       return { status: "missing" as const };
     }
-    if (asset.visibility !== "RESTRICTED") {
+    if (asset.visibility === "PUBLIC") {
       return { status: "ok" as const, asset };
     }
     const isTenant = await isTenantUserSafe(userId);
     if (!isTenant) {
+      return { status: "forbidden" as const };
+    }
+    if (asset.visibility === "PROTECTED") {
+      return { status: "ok" as const, asset };
+    }
+    const [isAdmin, owned] = await Promise.all([
+      isTenantAdminSafe(userId),
+      prisma.uploadBatch.findFirst({
+        where: { tenantId, assetId, userId, status: "COMMITTED" },
+        select: { id: true }
+      })
+    ]);
+    if (!isAdmin && !owned) {
       return { status: "forbidden" as const };
     }
     return { status: "ok" as const, asset };
