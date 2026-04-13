@@ -34,6 +34,8 @@ import { createOpenHandler } from "./open";
 import { createTenantSession, type MetaState } from "./session";
 import { createTenantSocial } from "./social";
 import { createTenantAdminInput } from "./admin-input";
+import { registerTenantCommands } from "./register-commands";
+import { registerTenantMessageHandlers } from "./register-messages";
 import {
   actionKeyboard,
   buildAdKeyboard,
@@ -892,40 +894,6 @@ export const registerTenantBot = (
     return true;
   };
 
-  bot.command("start", async (ctx) => {
-    await resetSessionForCommand(ctx);
-    const payload = ctx.match?.trim();
-    if (payload) {
-      await trackStartPayloadVisit(ctx, payload, "command", "received");
-      await handleStartPayloadEntry(ctx, payload, "command");
-      return;
-    }
-    if (deliveryService && ctx.from) {
-      await deliveryService
-        .trackVisit(String(ctx.from.id), "start")
-        .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "start" }, error, { intervalMs: 30_000 })
-        );
-    }
-    await renderStartHome(ctx);
-  });
-
-  bot.command("help", async (ctx) => {
-    await resetSessionForCommand(ctx);
-    if (deliveryService && ctx.from) {
-      await deliveryService
-        .trackVisit(String(ctx.from.id), "help")
-        .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "help" }, error, { intervalMs: 30_000 })
-        );
-    }
-    await renderHelp(ctx);
-  });
-
-  bot.command("cancel", async (ctx) => {
-    await exitCurrentInputState(ctx);
-  });
-
   registerMediaHandlers(bot, store, isActive, {
     shouldSkipInactiveHint: (userId, chatId, kind) => {
       const key = toMetaKey(userId, chatId);
@@ -1105,8 +1073,15 @@ export const registerTenantBot = (
     );
   };
 
-  bot.command("history", async (ctx) => {
-    await renderFootprint(ctx, "open", "30d", 1, "reply");
+  registerTenantCommands(bot, {
+    deliveryService,
+    resetSessionForCommand,
+    trackStartPayloadVisit,
+    handleStartPayloadEntry,
+    renderStartHome,
+    renderHelp,
+    exitCurrentInputState,
+    renderFootprint
   });
 
   const renderHistory = async (ctx: Context, page: number, scope?: "community" | "mine", showMoreActions = false) => {
@@ -1513,390 +1488,44 @@ export const registerTenantBot = (
     }
   });
 
-  bot.on("message:photo", async (ctx) => {
-    await handleBroadcastPhoto(ctx);
-  });
-
-  bot.on("message:video", async (ctx) => {
-    await handleBroadcastVideo(ctx);
-  });
-
-  bot.on("message:document", async (ctx) => {
-    await handleBroadcastDocument(ctx);
-  });
-
-  bot.on("message:text", async (ctx) => {
-    const text = ctx.message.text.trim();
-    if (isCancelText(text)) {
-      await exitCurrentInputState(ctx);
-      return;
-    }
-    if (await handleMetaInput(ctx, text)) {
-      return;
-    }
-    if (ctx.from && ctx.chat && ctx.message.reply_to_message) {
-      const replied = ctx.message.reply_to_message;
-      const replyFromBot =
-        Boolean(replied?.from?.is_bot) && (ctx.me?.username ? replied?.from?.username === ctx.me.username : true);
-      if (replyFromBot) {
-        const entities = Array.isArray(replied?.entities) ? replied.entities : [];
-        const urls: string[] = [];
-        for (const entity of entities) {
-          if (entity?.type === "text_link" && typeof entity.url === "string") {
-            urls.push(entity.url);
-          }
-          if (entity?.type === "url" && typeof replied?.text === "string") {
-            const raw = replied.text.slice(entity.offset ?? 0, (entity.offset ?? 0) + (entity.length ?? 0));
-            if (raw) {
-              urls.push(raw);
-            }
-          }
-        }
-        const commentId = (() => {
-          for (const url of urls) {
-            try {
-              const parsed = new URL(url);
-              const start = parsed.searchParams.get("start") ?? "";
-              if (start.startsWith("cv_") || start.startsWith("cr_") || start.startsWith("ct_")) {
-                const id = start.slice(3).trim();
-                if (id) {
-                  return id;
-                }
-              }
-            } catch {
-              continue;
-            }
-          }
-          return null;
-        })();
-        if (commentId) {
-          if (!deliveryService) {
-            await replyHtml(ctx, buildDbDisabledHint("回复"), { reply_markup: mainKeyboard });
-            return;
-          }
-          const userId = String(ctx.from.id);
-          const context = await deliveryService.getAssetCommentContext(userId, commentId);
-          if (!context) {
-            await replyHtml(ctx, "⚠️ 评论不存在或无权限。", { reply_markup: mainKeyboard });
-            return;
-          }
-          const key = toMetaKey(ctx.from.id, ctx.chat.id);
-          setSessionMode(key, "commentInput");
-          commentInputStates.set(key, { assetId: context.assetId, replyToCommentId: commentId, replyToLabel: "该评论" });
-          const authorName = ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name?.trim() || null;
-          const result = await deliveryService.addAssetComment(userId, context.assetId, {
-            authorName,
-            content: text,
-            replyToCommentId: commentId
-          });
-          if (result.ok && result.notify && result.commentId) {
-            await notifyCommentTargets(ctx, { content: text, commentId: result.commentId, notify: result.notify }).catch((error) =>
-              logErrorThrottled(
-                { component: "tenant", op: "comment_notify_targets", scope: "reply_comment", commentId: result.commentId, assetId: context.assetId },
-                error,
-                { intervalMs: 30_000 }
-              )
-            );
-          }
-          await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
-          const located = await deliveryService.locateAssetComment(userId, commentId, 8).catch(() => null);
-          await renderComments(ctx, context.assetId, located?.page ?? 1, "reply");
-          return;
-        }
-      }
-    }
-    if (await handleCommentInputText(ctx, text)) {
-      return;
-    }
-    if (ctx.from && ctx.chat) {
-      const key = toMetaKey(ctx.from.id, ctx.chat.id);
-      const mode = getSessionMode(key);
-      if (mode === "followInput") {
-        const command = normalizeButtonText(text);
-        if (
-          command === "分享" ||
-          command === "储存" ||
-          command === "完成" ||
-          command === "列表" ||
-          command === "搜索" ||
-          command === "足迹" ||
-          command === "我的" ||
-          command === "设置"
-        ) {
-          await replyHtml(ctx, buildInputExitHint("添加关注关键词"), { reply_markup: buildFollowInputKeyboard() });
-          return;
-        }
-        if (!deliveryService) {
-          setSessionMode(key, "idle");
-          await replyHtml(ctx, buildDbDisabledHint("保存关注关键词"), { reply_markup: mainKeyboard });
-          return;
-        }
-        const userId = String(ctx.from.id);
-        const isClear = text.trim() === "清空" || text.trim() === "清除";
-        const current = await deliveryService.getUserFollowKeywords(userId).catch(() => []);
-        const added = isClear
-          ? []
-          : text
-              .split(/[,\n，；;]+/g)
-              .map((s) => s.trim())
-              .filter(Boolean);
-        const next = isClear ? [] : [...current, ...added];
-        const result = await deliveryService.setUserFollowKeywords(userId, next);
-        setSessionMode(key, "idle");
-        await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
-        await renderFollow(ctx);
-        return;
-      }
-    }
-    if (await handleBroadcastText(ctx, text)) {
-      return;
-    }
-    if (await handleSettingsText(ctx, text)) {
-      return;
-    }
-    if (ctx.from && ctx.chat) {
-      const key = toMetaKey(ctx.from.id, ctx.chat.id);
-      const mode = getSessionMode(key);
-      const inputState = mode === "collectionInput" ? collectionInputStates.get(key) : undefined;
-      if (mode === "collectionInput" && (inputState?.mode === "createCollection" || inputState?.mode === "renameCollection")) {
-        const command = normalizeButtonText(text);
-        if (
-          command === "分享" ||
-          command === "储存" ||
-          command === "完成" ||
-          command === "列表" ||
-          command === "搜索" ||
-          command === "足迹" ||
-          command === "我的" ||
-          command === "关注" ||
-          command === "设置"
-        ) {
-          await replyHtml(ctx, buildInputExitHint("编辑分类"), { reply_markup: buildCollectionInputKeyboard() });
-          return;
-        }
-        if (!deliveryService) {
-          setSessionMode(key, "idle");
-          await replyHtml(ctx, buildDbDisabledHint(`${inputState.mode === "renameCollection" ? "重命名" : "创建"}分类`), {
-            reply_markup: mainKeyboard
-          });
-          return;
-        }
-        if (inputState.mode === "renameCollection") {
-          const result = await deliveryService.updateCollection(String(ctx.from.id), inputState.collectionId, text);
-          if (result.ok) {
-            const normalizedTitle = text.trim().replace(/\s+/g, " ") || "未分类";
-            void updateVaultTopicIndexByCollection(ctx, inputState.collectionId, normalizedTitle).catch((error) =>
-              logError(
-                { component: "tenant", op: "update_vault_topic_index", scope: "rename_collection", collectionId: inputState.collectionId },
-                error
-              )
-            );
-            setSessionMode(key, "idle");
-            await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
-            await renderCollections(ctx, { returnTo: "settings" });
-            return;
-          }
-          await replyHtml(ctx, result.message, { reply_markup: buildCollectionInputKeyboard() });
-          return;
-        }
-        const result = await deliveryService.createCollection(String(ctx.from.id), text);
-        if (result.ok) {
-          if (result.id) {
-            const normalizedTitle = text.trim().replace(/\s+/g, " ") || "未分类";
-            void updateVaultTopicIndexByCollection(ctx, result.id, normalizedTitle).catch((error) =>
-              logError({ component: "tenant", op: "update_vault_topic_index", scope: "create_collection", collectionId: result.id }, error)
-            );
-          }
-          setSessionMode(key, "idle");
-          await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
-          await renderCollections(ctx, { returnTo: "settings" });
-          return;
-        }
-        await replyHtml(ctx, result.message, { reply_markup: buildCollectionInputKeyboard() });
-        return;
-      }
-    }
-    if (ctx.from && ctx.chat) {
-      const key = toMetaKey(ctx.from.id, ctx.chat.id);
-      const mode = getSessionMode(key);
-      const adminState = mode === "adminInput" ? adminInputStates.get(key) : undefined;
-      if (mode === "adminInput" && adminState?.mode === "addAdmin") {
-        const command = normalizeButtonText(text);
-        if (
-          command === "分享" ||
-          command === "储存" ||
-          command === "完成" ||
-          command === "列表" ||
-          command === "搜索" ||
-          command === "足迹" ||
-          command === "我的" ||
-          command === "关注" ||
-          command === "设置"
-        ) {
-          await replyHtml(ctx, buildInputExitHint("添加管理员"), { reply_markup: buildAdminInputKeyboard() });
-          return;
-        }
-        if (!deliveryService) {
-          setSessionMode(key, "idle");
-          await replyHtml(ctx, buildDbDisabledHint("添加管理员"), { reply_markup: mainKeyboard });
-          return;
-        }
-        const actorUserId = String(ctx.from.id);
-        const canManageAdmins = await deliveryService.canManageAdmins(actorUserId);
-        if (!canManageAdmins) {
-          setSessionMode(key, "idle");
-          await replyHtml(ctx, "🔒 无权限：仅管理员可添加管理员。", { reply_markup: buildHelpKeyboard() });
-          return;
-        }
-        const id = text.replace(/\s+/g, "");
-        if (!/^\d{5,20}$/.test(id)) {
-          await replyHtml(ctx, "⚠️ ID 格式错误：请发送 Telegram 数字 ID，例如 <code>123456</code>。", {
-            reply_markup: buildAdminInputKeyboard()
-          });
-          return;
-        }
-        const result = await deliveryService.addTenantAdmin(actorUserId, id);
-        setSessionMode(key, "idle");
-        await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
-        await renderSettings(ctx);
-        return;
-      }
-    }
-    const normalizedCommand = normalizeButtonText(text);
-    const command = normalizedCommand === "关注" ? "我的" : normalizedCommand;
-    const isTopLevelCommand =
-      command === "分享" ||
-      command === "储存" ||
-      command === "完成" ||
-      command === "列表" ||
-      command === "搜索" ||
-      command === "足迹" ||
-      command === "我的" ||
-      command === "设置" ||
-      command === "标签";
-    if (ctx.from && ctx.chat) {
-      const key = toMetaKey(ctx.from.id, ctx.chat.id);
-      const mode = ensureSessionMode(key);
-      if (mode === "searchInput" && isTopLevelCommand && command !== "搜索") {
-        setSessionMode(key, "idle");
-      }
-      if (mode === "searchInput" && !isTopLevelCommand && !text.startsWith("/") && text.trim().length >= 1) {
-        const query = text.trim();
-        searchStates.set(key, { query });
-        if (query.length >= 2) {
-          setSessionMode(key, "idle");
-        }
-        await renderSearch(ctx, query, 1, "reply");
-        return;
-      }
-    }
-    if (command === "分享" || command === "储存") {
-      if (!ctx.from || !ctx.chat) {
-        return;
-      }
-      setActive(ctx.from.id, ctx.chat.id, true);
-      await renderUploadStatus(ctx);
-      return;
-    }
-    if (command === "完成") {
-      await replyHtml(ctx, "请点击消息里的 <b>✅ 完成</b> 保存。", { reply_markup: actionKeyboard });
-      return;
-    }
-    if (command === "列表") {
-      if (ctx.from && ctx.chat) {
-        const key = toMetaKey(ctx.from.id, ctx.chat.id);
-        historyScopeStates.set(key, "community");
-        if (deliveryService && !historyDateStates.has(key)) {
-          const now = new Date();
-          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          historyDateStates.set(key, today);
-          await deliveryService
-            .setUserHistoryListDate(String(ctx.from.id), today)
-            .catch((error) =>
-              logErrorThrottled(
-                { component: "tenant", op: "set_user_history_list_date", scope: "menu_list", userId: String(ctx.from.id) },
-                error,
-                { intervalMs: 30_000 }
-              )
-            );
-        }
-      }
-      await renderHistory(ctx, 1, "community");
-      return;
-    }
-    if (command === "搜索") {
-      if (ctx.from && ctx.chat) {
-        const key = toMetaKey(ctx.from.id, ctx.chat.id);
-        setSessionMode(key, "searchInput");
-      }
-      const keyboard = await getDefaultKeyboard(ctx);
-      await replyHtml(ctx, ["<b>🔎 搜索</b>", "", "请直接发送关键词开始搜索。", "也可以发送：<code>搜索 关键词</code>。", "例如：<code>搜索 教程</code>。"].join("\n"), {
-        reply_markup: keyboard
-      });
-      return;
-    }
-    if (command === "足迹") {
-      await renderFootprint(ctx, "open", "30d", 1, "reply");
-      return;
-    }
-    if (command === "我的") {
-      await renderMy(ctx);
-      return;
-    }
-    if (command === "设置") {
-      await renderSettings(ctx);
-      return;
-    }
-    const searchMatch = text.match(/^搜索\s+(.+)$/);
-    if (searchMatch) {
-      const query = searchMatch[1].trim();
-      if (ctx.from && ctx.chat) {
-        const key = toMetaKey(ctx.from.id, ctx.chat.id);
-        searchStates.set(key, { query });
-        setSessionMode(key, query.length >= 2 ? "idle" : "searchInput");
-      }
-      await renderSearch(ctx, query, 1, "reply");
-      return;
-    }
-    if (text === "标签") {
-      await renderTagIndex(ctx, "reply");
-      return;
-    }
-    const tagMatch = text.match(/^#([\p{L}\p{N}_-]{1,32})$/u);
-    if (tagMatch) {
-      if (!deliveryService) {
-        await replyHtml(ctx, buildDbDisabledHint("查看标签"), { reply_markup: mainKeyboard });
-        return;
-      }
-      const tagName = tagMatch[1] ?? "";
-      const found = await deliveryService.getTagByName(tagName).catch(() => null);
-      if (!found) {
-        await replyHtml(ctx, `🔎 未找到标签：<code>#${escapeHtml(tagName)}</code>\n发送 <code>标签</code> 查看热门标签。`, {
-          reply_markup: mainKeyboard
-        });
-        return;
-      }
-      await renderTagAssets(ctx, found.tagId, 1, "reply");
-      return;
-    }
-    const match = text.match(/^打开(?:内容)?\s+(.+)$/);
-    if (match) {
-      await openShareCode(ctx, match[1].trim());
-      return;
-    }
-    const payloadFromLink = extractStartPayloadFromText(text);
-    if (payloadFromLink) {
-      await trackStartPayloadVisit(ctx, payloadFromLink, "text_link", "received");
-      await handleStartPayloadEntry(ctx, payloadFromLink, "text_link");
-      return;
-    }
-    if (/^[a-zA-Z0-9_-]{6,16}$/.test(text)) {
-      await openShareCode(ctx, text);
-      return;
-    }
-    const keyboard = await getDefaultKeyboard(ctx);
-    await replyHtml(ctx, buildGuideHint("请使用底部按钮操作。", "搜索请发送：<code>搜索 关键词</code>；我的页可查看足迹/关注/通知。"), {
-      reply_markup: keyboard
-    });
+  registerTenantMessageHandlers(bot, {
+    deliveryService,
+    mainKeyboard,
+    getDefaultKeyboard,
+    isCancelText,
+    exitCurrentInputState,
+    handleMetaInput,
+    handleBroadcastPhoto,
+    handleBroadcastVideo,
+    handleBroadcastDocument,
+    handleBroadcastText,
+    handleSettingsText,
+    handleCommentInputText,
+    notifyCommentTargets,
+    renderComments,
+    renderFollow,
+    renderHistory,
+    renderSearch,
+    renderFootprint,
+    renderMy,
+    renderSettings,
+    renderTagIndex,
+    renderTagAssets,
+    renderUploadStatus,
+    renderCollections,
+    openShareCode,
+    trackStartPayloadVisit,
+    handleStartPayloadEntry,
+    getSessionMode,
+    ensureSessionMode,
+    setSessionMode,
+    setActive,
+    historyScopeStates,
+    historyDateStates,
+    searchStates,
+    collectionInputStates,
+    adminInputStates,
+    commentInputStates,
+    updateVaultTopicIndexByCollection
   });
 };
