@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { logError } from "../../infra/logging";
 
 export const createDeliveryStorage = (prisma: PrismaClient, getTenantId: () => Promise<string>) => {
   const getPreference = async (tgUserId: string, key: string) => {
@@ -25,7 +26,7 @@ export const createDeliveryStorage = (prisma: PrismaClient, getTenantId: () => P
       .delete({
         where: { tenantId_tgUserId_key: { tenantId, tgUserId, key } }
       })
-      .catch(() => undefined);
+      .catch((error) => logError({ component: "delivery_storage", op: "delete_preference", tenantId, tgUserId, key }, error));
   };
 
   const getSetting = async (key: string) => {
@@ -52,7 +53,7 @@ export const createDeliveryStorage = (prisma: PrismaClient, getTenantId: () => P
       .delete({
         where: { tenantId_key: { tenantId, key } }
       })
-      .catch(() => undefined);
+      .catch((error) => logError({ component: "delivery_storage", op: "delete_setting", tenantId, key }, error));
   };
 
   return { getPreference, upsertPreference, deletePreference, getSetting, upsertSetting, deleteSetting };

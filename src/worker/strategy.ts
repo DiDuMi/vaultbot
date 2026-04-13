@@ -17,9 +17,45 @@ export const logWorkerError = (
     batchId?: string;
     broadcastId?: string;
     runId?: string;
+    [key: string]: unknown;
   },
   error: unknown
 ) => {
+  const intervalMs = (() => {
+    const raw = Number(process.env.WORKER_ERROR_LOG_INTERVAL_MS ?? "5000");
+    if (!Number.isFinite(raw)) {
+      return 5000;
+    }
+    return Math.max(0, Math.trunc(raw));
+  })();
+  const maxKeys = (() => {
+    const raw = Number(process.env.WORKER_ERROR_LOG_MAX_KEYS ?? "5000");
+    if (!Number.isFinite(raw)) {
+      return 5000;
+    }
+    return Math.max(100, Math.trunc(raw));
+  })();
+  const shouldThrottle = intervalMs > 0 && fields.op !== "worker_startup";
+  const key = `${fields.op}:${fields.scope ?? ""}`;
+  const state = (globalThis as unknown as { __vaultbotWorkerLogLimiter?: Map<string, number> }).__vaultbotWorkerLogLimiter;
+  const limiter =
+    state ??
+    (() => {
+      const map = new Map<string, number>();
+      (globalThis as unknown as { __vaultbotWorkerLogLimiter?: Map<string, number> }).__vaultbotWorkerLogLimiter = map;
+      return map;
+    })();
+  if (shouldThrottle) {
+    if (limiter.size > maxKeys) {
+      limiter.clear();
+    }
+    const now = Date.now();
+    const last = limiter.get(key) ?? 0;
+    if (now - last < intervalMs) {
+      return;
+    }
+    limiter.set(key, now);
+  }
   const payload = {
     level: "error",
     component: "worker",

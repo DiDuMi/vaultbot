@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeMinReplicas } from "./delivery-strategy";
+import { logError } from "../../infra/logging";
 
 export const createDeliveryCore = (deps: {
   prisma: PrismaClient;
@@ -58,7 +59,9 @@ export const createDeliveryCore = (deps: {
       update: { name: deps.config.tenantName },
       create: { code: deps.config.tenantCode, name: deps.config.tenantName }
     });
-    await bootstrapTenantSettings(tenant.id).catch(() => undefined);
+    await bootstrapTenantSettings(tenant.id).catch((error) =>
+      logError({ component: "delivery_core", op: "bootstrap_tenant_settings", tenantId: tenant.id }, error)
+    );
     return tenant.id;
   };
 

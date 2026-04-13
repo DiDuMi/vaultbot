@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeLimit, normalizePage, normalizePageSize } from "./delivery-strategy";
+import { logError } from "../../infra/logging";
 
 export const createDeliveryDiscovery = (deps: {
   prisma: PrismaClient;
@@ -63,7 +64,9 @@ export const createDeliveryDiscovery = (deps: {
           payload: { q: safeQuery, page: safePage }
         }
       })
-      .catch(() => undefined);
+      .catch((error) =>
+        logError({ component: "delivery_discovery", op: "event_create_search", tenantId, userId, page: safePage }, error)
+      );
     return {
       total,
       items: assets.map((asset) => ({
@@ -163,7 +166,9 @@ export const createDeliveryDiscovery = (deps: {
       .create({
         data: { tenantId, userId, type: "SEARCH", payload: { tagId, page: safePage } }
       })
-      .catch(() => undefined);
+      .catch((error) =>
+        logError({ component: "delivery_discovery", op: "event_create_search_tag", tenantId, userId, tagId, page: safePage }, error)
+      );
     return {
       total,
       items: assets.map((asset) => ({

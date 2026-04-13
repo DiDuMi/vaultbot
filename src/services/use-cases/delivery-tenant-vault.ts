@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeLimit } from "./delivery-strategy";
+import { logError } from "../../infra/logging";
 
 type TelegramUserInput = {
   id: number | string;
@@ -165,7 +166,9 @@ export const createDeliveryTenantVault = (deps: {
       return { ok: false, message: "🔒 无权限：仅管理员可移除备份存储群。" };
     }
     const tenantId = await deps.getTenantId();
-    await deps.prisma.tenantVaultBinding.deleteMany({ where: { tenantId, vaultGroupId, role: "BACKUP" } }).catch(() => undefined);
+    await deps.prisma.tenantVaultBinding
+      .deleteMany({ where: { tenantId, vaultGroupId, role: "BACKUP" } })
+      .catch((error) => logError({ component: "delivery_tenant_vault", op: "remove_backup_binding", tenantId, vaultGroupId }, error));
     return { ok: true, message: "✅ 已移除备份存储群绑定。" };
   };
 
@@ -218,7 +221,14 @@ export const createDeliveryTenantVault = (deps: {
     if (!replica || replica.status !== "ACTIVE") {
       return;
     }
-    await deps.prisma.assetReplica.update({ where: { id: replica.id }, data: { status: "BAD" } }).catch(() => undefined);
+    await deps.prisma.assetReplica
+      .update({ where: { id: replica.id }, data: { status: "BAD" } })
+      .catch((error) =>
+        logError(
+          { component: "delivery_tenant_vault", op: "mark_replica_bad", assetId, chatId: chatIdRaw, messageId, replicaId: replica.id },
+          error
+        )
+      );
   };
 
   const listCollections = async () => {
