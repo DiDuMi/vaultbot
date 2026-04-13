@@ -20,6 +20,7 @@ import { rankMoreCallbackRe } from "../bot/tenant/callbacks/home";
 import { buildWorkerHeartbeatLines, parseHeartbeatAgoMin } from "../services/use-cases/worker-heartbeat";
 import { registerDeliveryModuleTests } from "./use-cases/delivery-modules";
 import { createWorkerRoutes } from "../worker/routes";
+import { startIntervalScheduler } from "../worker/orchestration";
 import { buildAssetActionLine, buildPreviewLinkLine } from "../bot/tenant/index";
 import { buildFootprintKeyboard, buildRankingKeyboard } from "../bot/tenant/keyboards";
 
@@ -410,6 +411,33 @@ test("worker-heartbeat: buildWorkerHeartbeatLines 能区分进程与副本任务
   assert.equal(lines.replicationAgoMin, null);
   assert.ok(lines.processLine.includes("1 分钟前"));
   assert.ok(lines.replicationLine.includes("暂无"));
+});
+
+test("orchestration: interval scheduler 不会在上一次 tick 未结束时重入", async () => {
+  let activeRuns = 0;
+  let maxConcurrentRuns = 0;
+  let totalRuns = 0;
+
+  const timer = startIntervalScheduler(
+    5,
+    async () => {
+      activeRuns += 1;
+      totalRuns += 1;
+      maxConcurrentRuns = Math.max(maxConcurrentRuns, activeRuns);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      activeRuns -= 1;
+    },
+    (error) => {
+      throw error;
+    }
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  clearInterval(timer);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(maxConcurrentRuns, 1);
+  assert.ok(totalRuns >= 2);
 });
 
 test("integration: 上传流程会提交批次并返回资产ID", async () => {

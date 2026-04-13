@@ -3,6 +3,13 @@ import type { UploadMessage } from "./upload";
 import { createDeliveryAdmin } from "./delivery-admin";
 import { createDeliveryCore } from "./delivery-core";
 import { createDeliveryDiscovery } from "./delivery-discovery";
+import {
+  buildDiscoveryService,
+  buildIdentityService,
+  buildSocialService,
+  createGetTenantAssetAccess,
+  createGetUserProfileSummary
+} from "./delivery-factories";
 import { createDeliveryPreferences } from "./delivery-preferences";
 import { createDeliveryReplicaSelection } from "./delivery-replica-selection";
 import { createDeliverySocial } from "./delivery-social";
@@ -40,7 +47,7 @@ export type DeliverySelection =
   | { status: "failed"; message: string }
   | { status: "missing"; message: string };
 
-export type DeliveryService = {
+export type DeliveryIdentityService = {
   selectReplicas: (userId: string, assetId: string) => Promise<DeliverySelection>;
   resolveShareCode: (shareCode: string) => Promise<string | null>;
   upsertTenantUserFromTelegram: (user: TelegramUserInput) => Promise<void>;
@@ -60,6 +67,12 @@ export type DeliveryService = {
     source: "start" | "start_payload" | "home" | "help",
     metadata?: Record<string, unknown>
   ) => Promise<void>;
+  isTenantUser: (userId: string) => Promise<boolean>;
+  canManageAdmins: (userId: string) => Promise<boolean>;
+  canManageCollections: (userId: string) => Promise<boolean>;
+};
+
+export type DeliveryTenantSettingsService = {
   getTenantSearchMode: () => Promise<"OFF" | "ENTITLED_ONLY" | "PUBLIC">;
   setTenantSearchMode: (
     actorUserId: string,
@@ -118,9 +131,9 @@ export type DeliveryService = {
       publisherUserId: string | null;
     }[];
   }>;
-  isTenantUser: (userId: string) => Promise<boolean>;
-  canManageAdmins: (userId: string) => Promise<boolean>;
-  canManageCollections: (userId: string) => Promise<boolean>;
+};
+
+export type DeliveryAdminService = {
   getTenantStartWelcomeHtml: () => Promise<string | null>;
   setTenantStartWelcomeHtml: (actorUserId: string, html: string | null) => Promise<{ ok: boolean; message: string }>;
   getTenantDeliveryAdConfig: () => Promise<{
@@ -210,6 +223,9 @@ export type DeliveryService = {
     collectionId: string | null,
     limit: number
   ) => Promise<{ assetId: string; title: string; description: string | null; shareCode: string | null; updatedAt: Date }[]>;
+};
+
+export type DeliveryPreferencesService = {
   getUserDefaultCollectionId: (userId: string) => Promise<string | null>;
   setUserDefaultCollectionId: (userId: string, collectionId: string | null) => Promise<void>;
   getUserHistoryCollectionFilter: (userId: string) => Promise<string | null | undefined>;
@@ -228,33 +244,9 @@ export type DeliveryService = {
     userId: string,
     input: { type: "follow" | "comment"; uniqueId: string; minIntervalMs: number }
   ) => Promise<boolean>;
-  locateAssetComment: (
-    userId: string,
-    commentId: string,
-    pageSize: number
-  ) => Promise<{ assetId: string; page: number } | null>;
-  getCommentThread: (
-    userId: string,
-    rootCommentId: string
-  ) => Promise<{
-    assetId: string;
-    assetTitle: string;
-    shareCode: string | null;
-    root: {
-      id: string;
-      authorUserId: string | null;
-      authorName: string | null;
-      content: string;
-      createdAt: Date;
-    };
-    replies: Array<{
-      id: string;
-      authorUserId: string | null;
-      authorName: string | null;
-      content: string;
-      createdAt: Date;
-    }>;
-  } | null>;
+};
+
+export type DeliveryStatsService = {
   getTenantHomeStats: () => Promise<{
     asOfDate: string;
     daysRunning: number;
@@ -312,6 +304,9 @@ export type DeliveryService = {
       publisherUserId: string | null;
     }[]
   >;
+};
+
+export type DeliveryDiscoveryService = {
   getUserAssetMeta: (
     userId: string,
     assetId: string
@@ -407,6 +402,9 @@ export type DeliveryService = {
       publisherUserId: string | null;
     }[];
   }>;
+};
+
+export type DeliverySocialService = {
   listUserComments: (
     userId: string,
     kind: "comment" | "reply",
@@ -457,6 +455,33 @@ export type DeliveryService = {
   getAssetLikeCount: (userId: string, assetId: string) => Promise<number>;
   hasAssetLiked: (userId: string, assetId: string) => Promise<boolean>;
   toggleAssetLike: (userId: string, assetId: string) => Promise<{ ok: boolean; message: string; liked?: boolean; count?: number }>;
+  locateAssetComment: (
+    userId: string,
+    commentId: string,
+    pageSize: number
+  ) => Promise<{ assetId: string; page: number } | null>;
+  getCommentThread: (
+    userId: string,
+    rootCommentId: string
+  ) => Promise<{
+    assetId: string;
+    assetTitle: string;
+    shareCode: string | null;
+    root: {
+      id: string;
+      authorUserId: string | null;
+      authorName: string | null;
+      content: string;
+      createdAt: Date;
+    };
+    replies: Array<{
+      id: string;
+      authorUserId: string | null;
+      authorName: string | null;
+      content: string;
+      createdAt: Date;
+    }>;
+  } | null>;
   addAssetComment: (
     userId: string,
     assetId: string,
@@ -474,6 +499,14 @@ export type DeliveryService = {
     };
   }>;
 };
+
+export type DeliveryService = DeliveryIdentityService &
+  DeliveryTenantSettingsService &
+  DeliveryAdminService &
+  DeliveryPreferencesService &
+  DeliveryStatsService &
+  DeliveryDiscoveryService &
+  DeliverySocialService;
 
 export const createDeliveryService = (
   prisma: PrismaClient,
@@ -535,51 +568,8 @@ export const createDeliveryService = (
 
   const isTenantUserSafe = async (userId: string) => isTenantUser(userId).catch(() => false);
 
-  const getUserProfileSummary = async (userId: string) => {
-    const tenantId = await getTenantId();
-    const [row, visitCount, openCount, openedRows] = await Promise.all([
-      prisma.tenantUser.findUnique({
-        where: { tenantId_tgUserId: { tenantId, tgUserId: userId } },
-        select: { username: true, firstName: true, lastName: true, createdAt: true, lastSeenAt: true }
-      }),
-      prisma.event.count({ where: { tenantId, userId, type: "IMPRESSION" } }),
-      prisma.event.count({ where: { tenantId, userId, type: "OPEN", assetId: { not: null } } }),
-      prisma.event.findMany({ where: { tenantId, userId, type: "OPEN", assetId: { not: null } }, distinct: ["assetId"], select: { assetId: true } })
-    ]);
-    const username = row?.username?.trim().replace(/^@+/, "");
-    const fullName = [row?.firstName?.trim(), row?.lastName?.trim()].filter(Boolean).join(" ");
-    const displayName = username ? `@${username}` : fullName || null;
-    const activatedAt = row?.createdAt ?? null;
-    const lastSeenAt = row?.lastSeenAt ?? null;
-    const activeDays = activatedAt ? Math.max(1, Math.floor((Date.now() - activatedAt.getTime()) / (24 * 60 * 60 * 1000)) + 1) : 0;
-    return {
-      displayName,
-      activatedAt,
-      lastSeenAt,
-      activeDays,
-      visitCount,
-      openCount,
-      openedShares: openedRows.length
-    };
-  };
-
-  const getTenantAssetAccess = async (tenantId: string, userId: string, assetId: string) => {
-    const asset = await prisma.asset.findFirst({
-      where: { id: assetId, tenantId },
-      select: { id: true, visibility: true }
-    });
-    if (!asset) {
-      return { status: "missing" as const };
-    }
-    if (asset.visibility !== "RESTRICTED") {
-      return { status: "ok" as const, asset };
-    }
-    const isTenant = await isTenantUserSafe(userId);
-    if (!isTenant) {
-      return { status: "forbidden" as const };
-    }
-    return { status: "ok" as const, asset };
-  };
+  const getUserProfileSummary = createGetUserProfileSummary({ prisma, getTenantId });
+  const getTenantAssetAccess = createGetTenantAssetAccess({ prisma, isTenantUserSafe });
 
 
   const {
@@ -710,7 +700,7 @@ export const createDeliveryService = (
     getTenantAssetAccess
   });
 
-  return {
+  const identityService = buildIdentityService({
     selectReplicas,
     resolveShareCode,
     upsertTenantUserFromTelegram,
@@ -718,6 +708,11 @@ export const createDeliveryService = (
     getUserProfileSummary,
     trackOpen,
     trackVisit,
+    isTenantUser,
+    isTenantAdmin
+  });
+
+  const tenantSettingsService: DeliveryTenantSettingsService = {
     getTenantSearchMode,
     setTenantSearchMode,
     getTenantMinReplicas,
@@ -733,9 +728,9 @@ export const createDeliveryService = (
     getTagByName,
     listTopTags,
     listAssetsByTagId,
-    isTenantUser,
-    canManageAdmins: isTenantAdmin,
-    canManageCollections: isTenantAdmin,
+  };
+
+  const adminService: DeliveryAdminService = {
     getTenantStartWelcomeHtml,
     setTenantStartWelcomeHtml,
     getTenantDeliveryAdConfig,
@@ -771,7 +766,10 @@ export const createDeliveryService = (
     getCollectionTopic,
     setCollectionTopicThreadId,
     setCollectionTopicIndexMessageId,
-    listRecentAssetsInCollection,
+    listRecentAssetsInCollection
+  };
+
+  const preferencesService: DeliveryPreferencesService = {
     getUserDefaultCollectionId,
     setUserDefaultCollectionId,
     getUserHistoryCollectionFilter,
@@ -783,13 +781,19 @@ export const createDeliveryService = (
     listFollowKeywordSubscriptions,
     getUserNotifySettings,
     setUserNotifySettings,
-    checkAndRecordUserNotification,
+    checkAndRecordUserNotification
+  };
+
+  const statsService: DeliveryStatsService = {
     getTenantHomeStats,
     getTenantStats,
     getTenantRanking,
     getTenantLikeRanking,
     getTenantVisitRanking,
-    getTenantCommentRanking,
+    getTenantCommentRanking
+  };
+
+  const discoveryService = buildDiscoveryService({
     getUserAssetMeta,
     setUserAssetSearchable,
     deleteUserAsset,
@@ -800,7 +804,10 @@ export const createDeliveryService = (
     listUserBatches,
     listTenantBatches,
     listUserOpenHistory,
-    listUserLikedAssets,
+    listUserLikedAssets
+  });
+
+  const socialService = buildSocialService({
     listUserComments,
     listAssetComments,
     getAssetCommentCount,
@@ -812,5 +819,15 @@ export const createDeliveryService = (
     locateAssetComment,
     getCommentThread,
     addAssetComment
+  });
+
+  return {
+    ...identityService,
+    ...tenantSettingsService,
+    ...adminService,
+    ...preferencesService,
+    ...statsService,
+    ...discoveryService,
+    ...socialService
   };
 };
