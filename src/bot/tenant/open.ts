@@ -323,9 +323,16 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
               if (code === 400 || code === 403) {
                 await deliveryService.markReplicaBad(assetId, item.fromChatId, item.messageId).catch((markError) =>
                   logErrorThrottled(
-                    { component: "tenant_open", op: "mark_replica_bad", assetId, fromChatId: item.fromChatId, messageId: item.messageId },
+                    {
+                      component: "tenant_open",
+                      op: "mark_replica_bad",
+                      scope: "copy_message_fallback",
+                      assetId,
+                      fromChatId: item.fromChatId,
+                      messageId: item.messageId
+                    },
                     markError,
-                    { key: "mark_replica_bad", intervalMs: 30_000 }
+                    { intervalMs: 30_000 }
                   )
                 );
               }
@@ -432,8 +439,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
       .text(`${liked ? "⭐️ 已收藏" : "⭐️ 收藏"} ${likeHint}`, likeAction)
       .text(`💬 评论 ${commentHint}`, `comment:list:${assetId}:1:${page}`);
     await ctx.editMessageReplyMarkup({ reply_markup: sanitizeInlineKeyboard(keyboard) }).catch((error) =>
-      logErrorThrottled({ component: "tenant_open", op: "edit_message_reply_markup", assetId }, error, {
-        key: "edit_message_reply_markup",
+      logErrorThrottled({ component: "tenant_open", op: "edit_message_reply_markup", scope: "refresh_actions", assetId }, error, {
         intervalMs: 30_000
       })
     );

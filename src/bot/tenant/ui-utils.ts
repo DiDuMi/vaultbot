@@ -231,10 +231,7 @@ export const upsertHtml = async (ctx: Context, html: string, reply_markup?: Inli
   }
   await editHtml(ctx, html).catch(async () => {
     await replyHtml(ctx, html).catch((error) =>
-      logErrorThrottled({ component: "tenant_ui", op: "upsert_html_reply_fallback" }, error, {
-        key: "upsert_html_reply_fallback",
-        intervalMs: 30_000
-      })
+      logErrorThrottled({ component: "tenant_ui", op: "upsert_html_reply_fallback", scope: "fallback" }, error, { intervalMs: 30_000 })
     );
   });
 };

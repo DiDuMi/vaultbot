@@ -1003,7 +1003,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
         logErrorThrottled(
           { component: "tenant_admin", op: "set_user_default_collection_id", scope: "select_none", userId: String(ctx.from.id) },
           error,
-          { key: "set_user_default_collection_id", intervalMs: 30_000 }
+          { intervalMs: 30_000 }
         )
       );
     }
@@ -1032,7 +1032,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
         logErrorThrottled(
           { component: "tenant_admin", op: "set_user_default_collection_id", scope: "select_collection", userId: String(ctx.from.id), collectionId },
           error,
-          { key: "set_user_default_collection_id", intervalMs: 30_000 }
+          { intervalMs: 30_000 }
         )
       );
     }
@@ -1135,7 +1135,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
         logErrorThrottled(
           { component: "tenant_admin", op: "set_user_default_collection_id", scope: "delete_collection_cleanup", userId: String(ctx.from.id) },
           error,
-          { key: "set_user_default_collection_id", intervalMs: 30_000 }
+          { intervalMs: 30_000 }
         )
       );
     }
@@ -1145,7 +1145,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
         logErrorThrottled(
           { component: "tenant_admin", op: "set_user_history_collection_filter", scope: "delete_collection_cleanup", userId: String(ctx.from.id) },
           error,
-          { key: "set_user_history_collection_filter", intervalMs: 30_000 }
+          { intervalMs: 30_000 }
         )
       );
     }

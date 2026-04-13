@@ -265,7 +265,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
         logErrorThrottled(
           { component: "tenant_social_callbacks", op: "get_user_history_list_date", scope: "day_prev", userId: String(ctx.from.id) },
           error,
-          { key: "get_user_history_list_date", intervalMs: 30_000 }
+          { intervalMs: 30_000 }
         );
         return undefined;
       })) ??
@@ -276,7 +276,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
       logErrorThrottled(
         { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "day_prev", userId: String(ctx.from.id) },
         error,
-        { key: "set_user_history_list_date", intervalMs: 30_000 }
+        { intervalMs: 30_000 }
       )
     );
     await ctx.answerCallbackQuery();
@@ -301,7 +301,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
         logErrorThrottled(
           { component: "tenant_social_callbacks", op: "get_user_history_list_date", scope: "day_next", userId: String(ctx.from.id) },
           error,
-          { key: "get_user_history_list_date", intervalMs: 30_000 }
+          { intervalMs: 30_000 }
         );
         return undefined;
       })) ??
@@ -313,7 +313,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
       logErrorThrottled(
         { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "day_next", userId: String(ctx.from.id) },
         error,
-        { key: "set_user_history_list_date", intervalMs: 30_000 }
+        { intervalMs: 30_000 }
       )
     );
     await ctx.answerCallbackQuery();
@@ -337,7 +337,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
       logErrorThrottled(
         { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "day_today", userId: String(ctx.from.id) },
         error,
-        { key: "set_user_history_list_date", intervalMs: 30_000 }
+        { intervalMs: 30_000 }
       )
     );
     await ctx.answerCallbackQuery();
@@ -392,7 +392,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
           logErrorThrottled(
             { component: "tenant_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_all", userId: String(ctx.from.id) },
             error,
-            { key: "set_user_history_collection_filter", intervalMs: 30_000 }
+            { intervalMs: 30_000 }
           )
         );
       }
@@ -410,7 +410,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
           logErrorThrottled(
             { component: "tenant_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_none", userId: String(ctx.from.id) },
             error,
-            { key: "set_user_history_collection_filter", intervalMs: 30_000 }
+            { intervalMs: 30_000 }
           )
         );
       }
@@ -429,7 +429,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
           logErrorThrottled(
             { component: "tenant_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_collection", userId: String(ctx.from.id), collectionId },
             error,
-            { key: "set_user_history_collection_filter", intervalMs: 30_000 }
+            { intervalMs: 30_000 }
           )
         );
       }
@@ -575,7 +575,7 @@ export const registerHelpCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
           logErrorThrottled(
             { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "help_list", userId: String(ctx.from.id) },
             error,
-            { key: "set_user_history_list_date", intervalMs: 30_000 }
+            { intervalMs: 30_000 }
           )
         );
       }

@@ -49,7 +49,7 @@ const safeAnswerCallbackQuery = async (
     logErrorThrottled(
       { component: "tenant_assets", op: "answer_callback_query", scope: meta?.scope, assetId: meta?.assetId },
       error,
-      { key: "answer_callback_query", intervalMs: 30_000 }
+      { intervalMs: 30_000 }
     );
   });
 };
@@ -62,7 +62,7 @@ const safeEditReplyMarkup = async (ctx: Context, meta?: { scope?: string; assetI
     logErrorThrottled(
       { component: "tenant_assets", op: "edit_message_reply_markup", scope: meta?.scope, assetId: meta?.assetId },
       error,
-      { key: "edit_message_reply_markup", intervalMs: 30_000 }
+      { intervalMs: 30_000 }
     );
   });
 };

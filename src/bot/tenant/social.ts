@@ -379,7 +379,7 @@ export const createTenantSocial = (deps: {
             logErrorThrottled(
               { component: "tenant_social", op: "comment_notify_send", scope: "reply_to" },
               error,
-              { key: "comment_notify_send", intervalMs: 30_000 }
+              { intervalMs: 30_000 }
             )
           );
         }
@@ -400,7 +400,7 @@ export const createTenantSocial = (deps: {
             logErrorThrottled(
               { component: "tenant_social", op: "comment_notify_send", scope: "publisher" },
               error,
-              { key: "comment_notify_send", intervalMs: 30_000 }
+              { intervalMs: 30_000 }
             )
           );
         }
@@ -461,7 +461,7 @@ export const createTenantSocial = (deps: {
         logErrorThrottled(
           { component: "tenant_social", op: "comment_notify_targets", commentId: result.commentId, assetId: state.assetId },
           error,
-          { key: "comment_notify_targets", intervalMs: 30_000 }
+          { intervalMs: 30_000 }
         )
       );
     }

@@ -318,7 +318,7 @@ export const registerTenantBot = (
           language_code: ctx.from.language_code
         })
         .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "upsert_tenant_user" }, error, { key: "upsert_tenant_user", intervalMs: 30_000 })
+          logErrorThrottled({ component: "tenant", op: "upsert_tenant_user" }, error, { intervalMs: 30_000 })
         );
     }
     await next();
@@ -346,7 +346,7 @@ export const registerTenantBot = (
             logErrorThrottled(
               { component: "tenant", op: "hydrate_user_default_collection", userId },
               error,
-              { key: "hydrate_user_preferences", intervalMs: 30_000 }
+              { intervalMs: 30_000 }
             )
           )
       );
@@ -362,7 +362,7 @@ export const registerTenantBot = (
             logErrorThrottled(
               { component: "tenant", op: "hydrate_user_history_filter", userId },
               error,
-              { key: "hydrate_user_preferences", intervalMs: 30_000 }
+              { intervalMs: 30_000 }
             )
           )
       );
@@ -380,7 +380,7 @@ export const registerTenantBot = (
             logErrorThrottled(
               { component: "tenant", op: "hydrate_user_history_date", userId },
               error,
-              { key: "hydrate_user_preferences", intervalMs: 30_000 }
+              { intervalMs: 30_000 }
             )
           )
       );
@@ -809,7 +809,7 @@ export const registerTenantBot = (
         logErrorThrottled(
           { component: "tenant", op: "track_visit", scope: "start_payload" },
           error,
-          { key: "track_visit_start_payload", intervalMs: 30_000 }
+          { intervalMs: 30_000 }
         )
       );
   };
@@ -904,7 +904,7 @@ export const registerTenantBot = (
       await deliveryService
         .trackVisit(String(ctx.from.id), "start")
         .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "start" }, error, { key: "track_visit_start", intervalMs: 30_000 })
+          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "start" }, error, { intervalMs: 30_000 })
         );
     }
     await renderStartHome(ctx);
@@ -916,7 +916,7 @@ export const registerTenantBot = (
       await deliveryService
         .trackVisit(String(ctx.from.id), "help")
         .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "help" }, error, { key: "track_visit_help", intervalMs: 30_000 })
+          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "help" }, error, { intervalMs: 30_000 })
         );
     }
     await renderHelp(ctx);
@@ -1139,7 +1139,7 @@ export const registerTenantBot = (
         logErrorThrottled(
           { component: "tenant", op: "set_user_history_list_date", scope: "render_history", userId: historyUserId },
           error,
-          { key: "set_user_history_list_date", intervalMs: 30_000 }
+          { intervalMs: 30_000 }
         )
       );
     let data =
@@ -1594,7 +1594,7 @@ export const registerTenantBot = (
               logErrorThrottled(
                 { component: "tenant", op: "comment_notify_targets", scope: "reply_comment", commentId: result.commentId, assetId: context.assetId },
                 error,
-                { key: "comment_notify_targets", intervalMs: 30_000 }
+                { intervalMs: 30_000 }
               )
             );
           }
@@ -1816,7 +1816,7 @@ export const registerTenantBot = (
               logErrorThrottled(
                 { component: "tenant", op: "set_user_history_list_date", scope: "menu_list", userId: String(ctx.from.id) },
                 error,
-                { key: "set_user_history_list_date", intervalMs: 30_000 }
+                { intervalMs: 30_000 }
               )
             );
         }
