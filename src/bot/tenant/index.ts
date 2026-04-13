@@ -30,7 +30,10 @@ import {
 import { createTenantRenderers } from "./renderers";
 import { registerTenantCallbackRoutes } from "./callbacks";
 import { createBatchActions } from "./batch-actions";
+import { createFootprintRenderer } from "./footprint";
+import { createHistoryRenderer } from "./history";
 import { createOpenHandler } from "./open";
+import { createSearchRenderer } from "./search";
 import { createTenantSession, type MetaState } from "./session";
 import { createTenantSocial } from "./social";
 import { createTenantAdminInput } from "./admin-input";
@@ -360,6 +363,32 @@ export const registerTenantBot = (
     setSessionMode,
     commentInputStates,
     formatLocalDateTime
+  });
+
+  const renderFootprint = createFootprintRenderer({
+    deliveryService,
+    mainKeyboard,
+    syncSessionForView,
+    formatLocalDateTime,
+    buildStartLink
+  });
+
+  const renderHistory = createHistoryRenderer({
+    deliveryService,
+    mainKeyboard,
+    syncSessionForView,
+    hydrateUserPreferences,
+    historyPageSize,
+    historyFilterStates,
+    historyDateStates,
+    historyScopeStates,
+    buildAssetActionLine
+  });
+
+  const renderSearch = createSearchRenderer({
+    deliveryService,
+    mainKeyboard,
+    buildAssetActionLine
   });
 
   const parseLocalDateTime = (value: string) => {
@@ -888,114 +917,6 @@ export const registerTenantBot = (
     await upsertHtml(ctx, lines, buildManageKeyboard(meta.assetId, { searchable: meta.searchable, recycled: isRecycled }));
   };
 
-  const renderFootprint = async (
-    ctx: Context,
-    tab: "open" | "like" | "comment" | "reply",
-    range: "7d" | "30d" | "all",
-    page: number,
-    mode: "reply" | "edit",
-    showMoreActions = false
-  ) => {
-    if (!ctx.from) {
-      return;
-    }
-    syncSessionForView(ctx);
-    if (!deliveryService) {
-      const message = buildDbDisabledHint("查看足迹");
-      if (mode === "edit") {
-        await editHtml(ctx, message).catch(async () => replyHtml(ctx, message));
-      } else {
-        await replyHtml(ctx, message, { reply_markup: mainKeyboard });
-      }
-      return;
-    }
-    const pageSize = 10;
-    const userId = String(ctx.from.id);
-    const username = ctx.me?.username;
-    const since =
-      range === "7d"
-        ? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-        : range === "30d"
-          ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-          : undefined;
-    let data = await (async () => {
-      if (tab === "open") {
-        const result = await deliveryService.listUserOpenHistory(userId, page, pageSize, { since });
-        return { total: result.total, items: result.items.map((i) => ({ ...i, at: i.openedAt })) };
-      }
-      if (tab === "like") {
-        const result = await deliveryService.listUserLikedAssets(userId, page, pageSize, { since });
-        return { total: result.total, items: result.items.map((i) => ({ ...i, at: i.likedAt })) };
-      }
-      const kind = tab === "reply" ? "reply" : "comment";
-      const result = await deliveryService.listUserComments(userId, kind, page, pageSize, { since });
-      return { total: result.total, items: result.items.map((i) => ({ ...i, at: i.createdAt })) };
-    })();
-    const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
-    const currentPage = Math.min(Math.max(page, 1), totalPages);
-    if (data.total > 0 && data.items.length === 0 && currentPage !== page) {
-      data = await (async () => {
-        if (tab === "open") {
-          const result = await deliveryService.listUserOpenHistory(userId, currentPage, pageSize, { since });
-          return { total: result.total, items: result.items.map((i) => ({ ...i, at: i.openedAt })) };
-        }
-        if (tab === "like") {
-          const result = await deliveryService.listUserLikedAssets(userId, currentPage, pageSize, { since });
-          return { total: result.total, items: result.items.map((i) => ({ ...i, at: i.likedAt })) };
-        }
-        const kind = tab === "reply" ? "reply" : "comment";
-        const result = await deliveryService.listUserComments(userId, kind, currentPage, pageSize, { since });
-        return { total: result.total, items: result.items.map((i) => ({ ...i, at: i.createdAt })) };
-      })();
-    }
-    const tabTitle = tab === "open" ? "最近浏览" : tab === "like" ? "收藏" : tab === "comment" ? "评论" : "回复";
-    const rangeTitle = range === "7d" ? "近7天" : range === "30d" ? "近30天" : "全部";
-    if (data.total === 0) {
-      const message =
-        tab === "open"
-          ? "📭 暂无最近浏览。\n可先去 <b>📚 列表</b> 或 <b>🔎 搜索</b> 看看。"
-          : tab === "like"
-            ? "📭 暂无收藏。\n看到喜欢的内容后可点 ⭐️ 收藏。"
-            : tab === "comment"
-              ? "📭 暂无评论。\n打开内容后即可参与评论。"
-              : "📭 暂无回复。\n有评论互动后会显示在这里。";
-      await upsertHtml(
-        ctx,
-        `<b>👣 足迹｜${tabTitle}（${rangeTitle}）</b>\n\n${message}`,
-        buildFootprintKeyboard({ tab, range, page: 1, totalPages: 1 }, showMoreActions)
-      );
-      return;
-    }
-    const slice = data.items.slice(0, pageSize);
-    const content = (
-      await Promise.all(
-        slice.map(async (item, index) => {
-          const order = (currentPage - 1) * pageSize + index + 1;
-          const titleText = escapeHtml(stripHtmlTags((item as { title: string }).title));
-          const shareCode = (item as { shareCode: string | null }).shareCode;
-          const openLink = shareCode && username ? buildStartLink(username, `p_${shareCode}`) : undefined;
-          const titleLine = `<b>${order}. ${titleText}</b>`;
-          const openLine = openLink ? `<a href="${escapeHtml(openLink)}">点击查看</a>` : "";
-          const at = (item as { at: Date }).at;
-          const timeLabel = tab === "open" ? "浏览" : tab === "like" ? "收藏" : tab === "comment" ? "评论" : "回复";
-          const timeLine = `${timeLabel}：<b>${escapeHtml(formatLocalDateTime(at))}</b>`;
-          return [
-            titleLine,
-            openLine,
-            timeLine,
-          ]
-            .filter(Boolean)
-            .join("\n");
-        })
-      )
-    ).join("\n\n");
-    await upsertHtml(
-      ctx,
-      [`<b>👣 足迹｜${tabTitle}（${rangeTitle}，每页 10 条）</b>`, "", content].join("\n"),
-      buildFootprintKeyboard({ tab, range, page: currentPage, totalPages }, showMoreActions)
-    );
-  };
-
   registerTenantCommands(bot, {
     deliveryService,
     resetSessionForCommand,
@@ -1006,207 +927,6 @@ export const registerTenantBot = (
     exitCurrentInputState,
     renderFootprint
   });
-
-  const renderHistory = async (ctx: Context, page: number, scope?: "community" | "mine", showMoreActions = false) => {
-    const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
-    if (!ctx.from || !chatId) {
-      return;
-    }
-    syncSessionForView(ctx);
-    if (!deliveryService) {
-      await replyHtml(ctx, buildDbDisabledHint("查看历史"), { reply_markup: mainKeyboard });
-      return;
-    }
-    await hydrateUserPreferences(ctx);
-    const filterKey = toMetaKey(ctx.from.id, chatId);
-    const filter = historyFilterStates.get(filterKey);
-    const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const pad2 = (value: number) => String(value).padStart(2, "0");
-    const formatLocalDate = (date: Date) =>
-      `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-    const selectedScope = scope ?? historyScopeStates.get(filterKey) ?? "community";
-    historyScopeStates.set(filterKey, selectedScope);
-    const selectedDate = historyDateStates.get(filterKey) ?? startOfLocalDay(new Date());
-    if (!historyDateStates.has(filterKey)) {
-      historyDateStates.set(filterKey, selectedDate);
-    }
-    const historyUserId = String(ctx.from.id);
-    await deliveryService
-      .setUserHistoryListDate(historyUserId, selectedDate)
-      .catch((error) =>
-        logErrorThrottled(
-          { component: "tenant", op: "set_user_history_list_date", scope: "render_history", userId: historyUserId },
-          error,
-          { intervalMs: 30_000 }
-        )
-      );
-    let data =
-      selectedScope === "mine"
-        ? await deliveryService.listUserBatches(historyUserId, page, historyPageSize, {
-            collectionId: filter,
-            date: selectedDate
-          })
-        : await deliveryService.listTenantBatches(historyUserId, page, historyPageSize, {
-            collectionId: filter,
-            date: selectedDate
-          });
-    const totalPages = Math.max(1, Math.ceil(data.total / historyPageSize));
-    const currentPage = Math.min(Math.max(page, 1), totalPages);
-    if (data.total > 0 && data.items.length === 0 && currentPage !== page) {
-      data =
-        selectedScope === "mine"
-          ? await deliveryService.listUserBatches(historyUserId, currentPage, historyPageSize, {
-              collectionId: filter,
-              date: selectedDate
-            })
-          : await deliveryService.listTenantBatches(historyUserId, currentPage, historyPageSize, {
-              collectionId: filter,
-              date: selectedDate
-            });
-    }
-    const username = ctx.me?.username;
-    let filterLabel = "全部";
-    if (filter === null) {
-      filterLabel = "未分类";
-    } else if (typeof filter === "string") {
-      const collections = await deliveryService.listCollections();
-      const found = collections.find((c) => c.id === filter);
-      filterLabel = found ? truncatePlainText(stripHtmlTags(found.title), 10) : "未分类";
-    }
-    const viewerUserId = ctx.from ? String(ctx.from.id) : null;
-    const hidePublisherEnabled = await deliveryService.getTenantHidePublisherEnabled().catch(() => false);
-    const isTenantViewer = viewerUserId ? await deliveryService.isTenantUser(viewerUserId).catch(() => false) : false;
-    const canManageViewer = isTenantViewer && viewerUserId ? await deliveryService.canManageAdmins(viewerUserId).catch(() => false) : false;
-    const content = (
-      await Promise.all(
-        data.items.map(async (item, index) => {
-        const order = (currentPage - 1) * historyPageSize + index + 1;
-        const titleText = escapeHtml(stripHtmlTags(item.title));
-        const titleLine = `<b>${order}. ${titleText}</b>`;
-        const desc = item.description ? sanitizeTelegramHtml(item.description) : "";
-        const descLine = desc ? `<blockquote expandable>${desc}</blockquote>` : "";
-        const actionLine = buildAssetActionLine({
-          username,
-          shareCode: item.shareCode,
-          assetId: item.assetId,
-          canManage: canManageViewer
-        });
-        const publisherLine =
-          !item.publisherUserId
-            ? ""
-            : !hidePublisherEnabled || item.publisherUserId === viewerUserId || isTenantViewer
-              ? await buildPublisherLine(ctx, item.publisherUserId, deliveryService)
-              : "";
-        return [
-          titleLine,
-          publisherLine,
-          actionLine,
-          `条数：<b>${item.count}</b>`,
-          descLine
-        ]
-          .filter(Boolean)
-          .join("\n");
-        })
-      )
-    ).join("\n\n");
-    const scopeLabel = selectedScope === "mine" ? "我的发布" : "社区发布";
-    const title = `📚 列表（${escapeHtml(formatLocalDate(selectedDate))}｜${scopeLabel}，每页 10 条）`;
-    const message = data.total === 0 ? `${title}\n\n📭 当天暂无发布。` : `${title}\n\n${content}`;
-    await upsertHtml(ctx, message, buildHistoryKeyboard(currentPage, totalPages, filterLabel, selectedDate, selectedScope, showMoreActions));
-  };
-
-  const buildSearchKeyboard = (currentPage: number, totalPages: number) => {
-    const keyboard = new InlineKeyboard();
-    if (totalPages > 1) {
-      if (currentPage > 1) {
-        keyboard.text("⬅️ 上一页", `search:page:${currentPage - 1}`);
-      }
-      if (currentPage < totalPages) {
-        keyboard.text("下一页 ➡️", `search:page:${currentPage + 1}`);
-      }
-      keyboard.row().text("🔄 刷新", "search:refresh");
-    }
-    keyboard.row().text("📚 列表", "help:list").text("🏠 首页", "home:back");
-    return keyboard;
-  };
-
-  const renderSearch = async (ctx: Context, query: string, page: number, mode: "reply" | "edit") => {
-    if (!deliveryService) {
-      await replyHtml(ctx, buildDbDisabledHint("搜索"), { reply_markup: mainKeyboard });
-      return;
-    }
-    if (!ctx.from) {
-      await replyHtml(ctx, "⚠️ 无法识别当前用户。", { reply_markup: mainKeyboard });
-      return;
-    }
-    const userId = String(ctx.from.id);
-    const searchMode = await deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
-    if (searchMode === "OFF") {
-      await replyHtml(ctx, "🔒 租户已关闭搜索。", { reply_markup: buildHelpKeyboard() });
-      return;
-    }
-    const isTenant = await deliveryService.isTenantUser(userId).catch(() => false);
-    const canManageViewer = isTenant ? await deliveryService.canManageAdmins(userId).catch(() => false) : false;
-    if (!isTenant) {
-      if (searchMode !== "PUBLIC") {
-        await replyHtml(ctx, "🔒 租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
-        return;
-      }
-    }
-    const safeQuery = query.trim();
-    if (safeQuery.length < 2) {
-      await replyHtml(ctx, "请输入更长的关键词，例如：<code>搜索 教程</code>。", { reply_markup: mainKeyboard });
-      return;
-    }
-    const pageSize = 10;
-    let data = await deliveryService.searchAssets(userId, safeQuery, page, pageSize).catch(() => null);
-    if (!data || data.total === 0) {
-      const text = [`🔍 未找到相关内容：<code>${escapeHtml(safeQuery)}</code>`, "", "你可以尝试：", "1) 更换关键词", "2) 发送 <code>标签</code> 浏览热门标签", "3) 点底部 <b>📚 列表</b> 查看全部"].join("\n");
-      if (mode === "edit") {
-        await editHtml(ctx, text, { reply_markup: buildSearchKeyboard(1, 1) });
-      } else {
-        await replyHtml(ctx, text, { reply_markup: buildSearchKeyboard(1, 1) });
-      }
-      return;
-    }
-    const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
-    const currentPage = Math.min(Math.max(page, 1), totalPages);
-    if (data.items.length === 0 && currentPage !== page) {
-      data = await deliveryService.searchAssets(userId, safeQuery, currentPage, pageSize).catch(() => null);
-      if (!data || data.total === 0) {
-        const text = [`🔍 未找到相关内容：<code>${escapeHtml(safeQuery)}</code>`, "", "你可以尝试：", "1) 更换关键词", "2) 发送 <code>标签</code> 浏览热门标签", "3) 点底部 <b>📚 列表</b> 查看全部"].join("\n");
-        if (mode === "edit") {
-          await editHtml(ctx, text, { reply_markup: buildSearchKeyboard(1, 1) });
-        } else {
-          await replyHtml(ctx, text, { reply_markup: buildSearchKeyboard(1, 1) });
-        }
-        return;
-      }
-    }
-    const username = ctx.me?.username;
-    const content = data.items
-      .map((item, index) => {
-        const order = (currentPage - 1) * pageSize + index + 1;
-        const safeTitle = sanitizeTelegramHtml(item.title);
-        const titleLine = safeTitle ? `<b>${order}. ${safeTitle}</b>` : `<b>${order}.</b>`;
-        const actionLine = buildAssetActionLine({
-          username,
-          shareCode: item.shareCode,
-          assetId: item.assetId,
-          canManage: canManageViewer
-        });
-        return [titleLine, actionLine].filter(Boolean).join("\n");
-      })
-      .filter(Boolean)
-      .join("\n\n");
-    const text = `<b>🔎 搜索结果</b>：<code>${escapeHtml(safeQuery)}</code>\n（第 ${currentPage}/${totalPages} 页，共 ${data.total} 条）\n\n${content}`;
-    const keyboard = buildSearchKeyboard(currentPage, totalPages);
-    if (mode === "edit") {
-      await editHtml(ctx, text, { reply_markup: keyboard });
-    } else {
-      await replyHtml(ctx, text, { reply_markup: keyboard });
-    }
-  };
 
   const buildTagAssetsKeyboard = (tagId: string, currentPage: number, totalPages: number) => {
     const keyboard = new InlineKeyboard();
