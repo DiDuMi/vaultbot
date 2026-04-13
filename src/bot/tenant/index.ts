@@ -27,15 +27,22 @@ import {
   upsertHtml,
   utf8ByteLength
 } from "./ui-utils";
+import {
+  buildAssetActionLine as buildAssetActionLineModule,
+  buildPreviewCopyLines,
+  buildPreviewLinkLine as buildPreviewLinkLineModule
+} from "./builders";
 import { createTenantRenderers } from "./renderers";
 import { registerTenantCallbackRoutes } from "./callbacks";
 import { createBatchActions } from "./batch-actions";
 import { createFootprintRenderer } from "./footprint";
 import { createHistoryRenderer } from "./history";
+import { registerMediaHandlers as registerMediaHandlersModule } from "./media-handlers";
 import { createOpenHandler } from "./open";
 import { createSearchRenderer } from "./search";
 import { createTenantSession, type MetaState } from "./session";
 import { createTenantSocial } from "./social";
+import { createTagRenderers } from "./tags";
 import { createTenantAdminInput } from "./admin-input";
 import { registerTenantCommands } from "./register-commands";
 import { registerTenantMessageHandlers } from "./register-messages";
@@ -72,9 +79,10 @@ import {
   buildWelcomeKeyboard
 } from "./keyboards";
 
+export { buildAssetActionLineModule as buildAssetActionLine, buildPreviewLinkLineModule as buildPreviewLinkLine };
+
 type UploadBatchStore = ReturnType<typeof createUploadBatchStore>;
 type ReplyMarkup = NonNullable<Parameters<Context["reply"]>[1]>["reply_markup"];
-
 const formatReceivedHint = (count: number) => {
   if (count < 10) {
     return String(count);
@@ -82,9 +90,9 @@ const formatReceivedHint = (count: number) => {
   const base = Math.floor(count / 10) * 10;
   return `${base}+`;
 };
-
 const ASSET_ACTION_LABEL = "操作";
 const ASSET_ACTION_SEPARATOR = " ｜ ";
+
 type StartPayloadEntry = "command" | "text_link";
 type StartPayloadStatus = "received" | "routed_social" | "opened" | "failed";
 
@@ -117,11 +125,11 @@ const detectStartPayloadKind = (payload: string) => {
   return "raw_share_code";
 };
 
-export const buildPreviewLinkLine = (openLink?: string) => {
+const legacyBuildPreviewLinkLine = (openLink?: string) => {
   return openLink ? `打开链接：<a href="${escapeHtml(openLink)}">点击预览</a>` : "";
 };
 
-const buildPreviewCopyLines = (openLink?: string, title?: string) => {
+const legacyBuildPreviewCopyLines = (openLink?: string, title?: string) => {
   if (!openLink) {
     return [];
   }
@@ -136,7 +144,7 @@ const buildPreviewCopyLines = (openLink?: string, title?: string) => {
   ];
 };
 
-export const buildAssetActionLine = (options: {
+const legacyBuildAssetActionLine = (options: {
   username?: string;
   shareCode?: string | null;
   assetId: string;
@@ -177,7 +185,7 @@ const toUploadMessage = (message: Message, kind: UploadMessage["kind"]): UploadM
   };
 };
 
-const registerMediaHandlers = (
+const legacyRegisterMediaHandlers = (
   bot: Bot,
   store: UploadBatchStore,
   isActive: (userId: number, chatId: number) => boolean,
@@ -382,13 +390,18 @@ export const registerTenantBot = (
     historyFilterStates,
     historyDateStates,
     historyScopeStates,
-    buildAssetActionLine
+    buildAssetActionLine: buildAssetActionLineModule
   });
 
   const renderSearch = createSearchRenderer({
     deliveryService,
     mainKeyboard,
-    buildAssetActionLine
+    buildAssetActionLine: buildAssetActionLineModule
+  });
+
+  const { renderTagIndex: renderTagIndexModule, renderTagAssets: renderTagAssetsModule } = createTagRenderers({
+    deliveryService,
+    mainKeyboard
   });
 
   const parseLocalDateTime = (value: string) => {
@@ -829,7 +842,7 @@ export const registerTenantBot = (
         safeDesc ? `<blockquote expandable>${safeDesc}</blockquote>` : "",
         manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : "",
         meta.shareCode ? `打开哈希：<code>${escapeHtml(meta.shareCode)}</code>` : "",
-        buildPreviewLinkLine(openLink ?? undefined)
+        buildPreviewLinkLineModule(openLink ?? undefined)
       ]
         .filter(Boolean)
         .join("\n");
@@ -846,7 +859,7 @@ export const registerTenantBot = (
     return true;
   };
 
-  registerMediaHandlers(bot, store, isActive, {
+  registerMediaHandlersModule(bot, store, isActive, {
     shouldSkipInactiveHint: (userId, chatId, kind) => {
       const key = toMetaKey(userId, chatId);
       const mode = ensureSessionMode(key);
@@ -910,7 +923,7 @@ export const registerTenantBot = (
       safeDesc ? `<blockquote expandable>${safeDesc}</blockquote>` : "",
       manageLink ? `管理：<a href="${escapeHtml(manageLink)}">管理</a>` : "",
       meta.shareCode ? `打开哈希：<code>${escapeHtml(meta.shareCode)}</code>` : "",
-      buildPreviewLinkLine(openLink ?? undefined)
+      buildPreviewLinkLineModule(openLink ?? undefined)
     ]
       .filter(Boolean)
       .join("\n");
@@ -1047,7 +1060,7 @@ export const registerTenantBot = (
       .map((item) => {
         const safeTitle = sanitizeTelegramHtml(item.title);
         const titleLine = safeTitle ? `<b>${safeTitle}</b>` : "";
-        const actionLine = buildAssetActionLine({
+        const actionLine = buildAssetActionLineModule({
           username,
           shareCode: item.shareCode,
           assetId: item.assetId,
@@ -1107,8 +1120,8 @@ export const registerTenantBot = (
       renderFootprint,
       renderHistory,
       renderSearch,
-      renderTagIndex,
-      renderTagAssets,
+       renderTagIndex: renderTagIndexModule,
+       renderTagAssets: renderTagAssetsModule,
       renderCollections,
       renderHelp,
       renderMy,
