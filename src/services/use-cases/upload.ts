@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";
 import type { PrismaClient } from "@prisma/client";
+import { logError } from "../../infra/logging";
 
 export type UploadMessage = {
   messageId: number;
@@ -553,7 +554,11 @@ export const createUploadService = (
           const text = normalizeText(title, description);
           const picked = selectCollectionIdByText(plainTitle, text, collections, rules);
           if (picked) {
-            await prisma.asset.update({ where: { id: created.assetId }, data: { collectionId: picked } }).catch(() => undefined);
+            await prisma.asset
+              .update({ where: { id: created.assetId }, data: { collectionId: picked } })
+              .catch((error) =>
+                logError({ component: "upload_service", op: "auto_categorize_set_collection", assetId: created.assetId }, error)
+              );
           }
         }
       }
@@ -576,10 +581,23 @@ export const createUploadService = (
     } catch (error) {
       await prisma
         .$transaction(async (tx) => {
-          await tx.uploadBatch.delete({ where: { id: created.batchId } }).catch(() => undefined);
-          await tx.asset.delete({ where: { id: created.assetId } }).catch(() => undefined);
+          await tx.uploadBatch
+            .delete({ where: { id: created.batchId } })
+            .catch((dbError) =>
+              logError({ component: "upload_service", op: "rollback_delete_upload_batch", batchId: created.batchId }, dbError)
+            );
+          await tx.asset
+            .delete({ where: { id: created.assetId } })
+            .catch((dbError) =>
+              logError({ component: "upload_service", op: "rollback_delete_asset", assetId: created.assetId }, dbError)
+            );
         })
-        .catch(() => undefined);
+        .catch((rollbackError) =>
+          logError(
+            { component: "upload_service", op: "rollback_commit_batch", batchId: created.batchId, assetId: created.assetId },
+            rollbackError
+          )
+        );
       throw error;
     }
 
@@ -631,7 +649,9 @@ export const createUploadService = (
         throw new Error("share code unavailable");
       }
     }
-    await syncAssetTags(assetId, asset.tenantId, input.title, input.description).catch(() => undefined);
+    await syncAssetTags(assetId, asset.tenantId, input.title, input.description).catch((error) =>
+      logError({ component: "upload_service", op: "sync_asset_tags", assetId, tenantId: asset.tenantId }, error)
+    );
     const enabledRaw = await getTenantSetting(asset.tenantId, settingKeys.autoCategorizeEnabled).catch(() => null);
     const enabledValue = enabledRaw?.trim().toLowerCase();
     const enabled = enabledValue === "1" || enabledValue === "true" || enabledValue === "yes" || enabledValue === "on";
@@ -645,7 +665,11 @@ export const createUploadService = (
       const text = normalizeText(input.title, input.description);
       const picked = selectCollectionIdByText(plainTitle, text, collections, rules);
       if (picked) {
-        await prisma.asset.update({ where: { id: assetId }, data: { collectionId: picked } }).catch(() => undefined);
+        await prisma.asset
+          .update({ where: { id: assetId }, data: { collectionId: picked } })
+          .catch((error) =>
+            logError({ component: "upload_service", op: "auto_categorize_set_collection", assetId, tenantId: asset.tenantId }, error)
+          );
       }
     }
     if (isFirstPublish && notifyQueue) {
@@ -661,7 +685,7 @@ export const createUploadService = (
             removeOnFail: 100
           }
         )
-        .catch(() => undefined);
+        .catch((error) => logError({ component: "upload_service", op: "notify_enqueue_follow_keyword", assetId, tenantId: asset.tenantId }, error));
     }
     return { shareCode };
   };

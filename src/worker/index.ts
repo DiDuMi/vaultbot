@@ -129,7 +129,7 @@ const backfillTenantUsers = async (bot: Bot, prisma: PrismaClient, tenantId: str
           lastSeenAt: now
         }
       })
-      .catch(() => undefined);
+      .catch((error) => logWorkerError({ op: "tenant_user_upsert", tenantId, scope: `tgUserId:${id}` }, error));
     await sleep(200);
   }
 };
@@ -150,7 +150,7 @@ const start = async () => {
   if (connection) {
     const redisOk = await Promise.race([connection.ping().then(() => true), sleep(1500).then(() => false)]).catch(() => false);
     if (!redisOk) {
-      await connection.quit().catch(() => undefined);
+      await connection.quit().catch((error) => logWorkerError({ op: "redis_quit_on_fail" }, error));
       throw new Error("Redis 不可用：请先启动 Redis，或设置 REDIS_URL=memory（仅本地轮询模式）");
     }
   }
@@ -159,9 +159,9 @@ const start = async () => {
     const tenantId = await ensureTenantId(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
     await backfillTenantUsers(bot, prisma, tenantId);
     if (connection) {
-      await connection.quit().catch(() => undefined);
+      await connection.quit().catch((error) => logWorkerError({ op: "redis_quit_after_sync_users" }, error));
     }
-    await prisma.$disconnect().catch(() => undefined);
+    await prisma.$disconnect().catch((error) => logWorkerError({ op: "prisma_disconnect_after_sync_users" }, error));
     return;
   }
   const runtimeTenantId = await ensureTenantId(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
@@ -290,7 +290,12 @@ const start = async () => {
                 version: 1
               }
             })
-            .catch(() => undefined);
+            .catch((error) =>
+              logWorkerError(
+                { op: "tenant_topic_upsert", tenantId: batch.tenantId, scope: `vaultGroupId:${vaultGroupId}:collectionId:${collectionId}:v1` },
+                error
+              )
+            );
           return createdThreadId;
         }
         return undefined;
@@ -326,7 +331,10 @@ const start = async () => {
       const vaultChatId = vaultGroup.chatId.toString();
       const chat = await bot.api.getChat(vaultChatId).catch(() => null);
       const isForum = (chat as { is_forum?: boolean } | null)?.is_forum === true;
-      const threadId = await ensureThreadId(vaultGroup.id, vaultChatId, isForum).catch(() => undefined);
+      const threadId = await ensureThreadId(vaultGroup.id, vaultChatId, isForum).catch((error) => {
+        logWorkerError({ op: "ensure_thread_id", tenantId: batch.tenantId, scope: `vaultGroupId:${vaultGroup.id}:chatId:${vaultChatId}` }, error);
+        return undefined;
+      });
 
       type BatchItem = (typeof batch)["items"][number];
       const items: BatchItem[] = batch.items;
@@ -486,18 +494,37 @@ const start = async () => {
       const successCount = countByUploadItemId.get(item.id) ?? 0;
       if (successCount >= minReplicas) {
         if (item.status !== "SUCCESS") {
-          await prisma.uploadItem.update({ where: { id: item.id }, data: { status: "SUCCESS", lastError: null } }).catch(() => undefined);
+          await prisma.uploadItem
+            .update({ where: { id: item.id }, data: { status: "SUCCESS", lastError: null } })
+            .catch((error) =>
+              logWorkerError(
+                { op: "upload_item_status_update", tenantId: batch.tenantId, batchId: batch.id, scope: `uploadItemId:${item.id}:next:SUCCESS` },
+                error
+              )
+            );
         }
         continue;
       }
       if (item.status === "SUCCESS") {
         await prisma.uploadItem
           .update({ where: { id: item.id }, data: { status: "PENDING", lastError: null } })
-          .catch(() => undefined);
+          .catch((error) =>
+            logWorkerError(
+              { op: "upload_item_status_update", tenantId: batch.tenantId, batchId: batch.id, scope: `uploadItemId:${item.id}:next:PENDING` },
+              error
+            )
+          );
       } else if (item.status === "FAILED") {
         continue;
       } else {
-        await prisma.uploadItem.update({ where: { id: item.id }, data: { status: "PENDING" } }).catch(() => undefined);
+        await prisma.uploadItem
+          .update({ where: { id: item.id }, data: { status: "PENDING" } })
+          .catch((error) =>
+            logWorkerError(
+              { op: "upload_item_status_update", tenantId: batch.tenantId, batchId: batch.id, scope: `uploadItemId:${item.id}:next:PENDING` },
+              error
+            )
+          );
       }
     }
 
@@ -592,7 +619,9 @@ const start = async () => {
         where: { id: runId },
         data: { failedCount: 1, errorsSample: [{ userId: "system", message }] as unknown as object, finishedAt: new Date() }
       });
-      await prisma.broadcast.update({ where: { id: broadcastId }, data: { status: "FAILED" } }).catch(() => undefined);
+      await prisma.broadcast
+        .update({ where: { id: broadcastId }, data: { status: "FAILED" } })
+        .catch((dbError) => logWorkerError({ op: "broadcast_mark_failed", broadcastId, runId }, dbError));
       throw error;
     }
   };
@@ -676,14 +705,14 @@ const start = async () => {
   const shouldPurgeReplicationQueue = process.env.REPLICATION_QUEUE_PURGE === "1";
   if (shouldPurgeReplicationQueue) {
     if (replicationQueue) {
-      await replicationQueue.pause().catch(() => undefined);
-      await replicationQueue.obliterate({ force: true }).catch(() => undefined);
-      await replicationQueue.resume().catch(() => undefined);
+      await replicationQueue.pause().catch((error) => logWorkerError({ op: "replication_queue_purge_pause" }, error));
+      await replicationQueue.obliterate({ force: true }).catch((error) => logWorkerError({ op: "replication_queue_purge_obliterate" }, error));
+      await replicationQueue.resume().catch((error) => logWorkerError({ op: "replication_queue_purge_resume" }, error));
     }
     if (replicationBackfillQueue) {
-      await replicationBackfillQueue.pause().catch(() => undefined);
-      await replicationBackfillQueue.obliterate({ force: true }).catch(() => undefined);
-      await replicationBackfillQueue.resume().catch(() => undefined);
+      await replicationBackfillQueue.pause().catch((error) => logWorkerError({ op: "replication_backfill_queue_purge_pause" }, error));
+      await replicationBackfillQueue.obliterate({ force: true }).catch((error) => logWorkerError({ op: "replication_backfill_queue_purge_obliterate" }, error));
+      await replicationBackfillQueue.resume().catch((error) => logWorkerError({ op: "replication_backfill_queue_purge_resume" }, error));
     }
   }
 
@@ -741,10 +770,10 @@ const start = async () => {
       })();
       const shouldPause = shouldPauseBecauseDisabled || hasPendingWork || foregroundQueueHasJobs;
       if (shouldPause) {
-        await replicationBackfillQueue.pause().catch(() => undefined);
+        await replicationBackfillQueue.pause().catch((error) => logWorkerError({ op: "replication_backfill_autopause_pause" }, error));
         return;
       }
-      await replicationBackfillQueue.resume().catch(() => undefined);
+      await replicationBackfillQueue.resume().catch((error) => logWorkerError({ op: "replication_backfill_autopause_resume" }, error));
     };
     replicationBackfillAutoPauseTimer = startIntervalScheduler(replicationBackfillAutoPauseIntervalMs, tick, () => undefined);
   };
