@@ -234,6 +234,33 @@ test("social: 无数据库时发表评论会退出并提示", async () => {
   assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("无法发表评论")));
 });
 
+test("social: 评论输入中发送 /start 会退出评论模式并不发表评论", async () => {
+  const modes = new Map<string, "idle" | "commentInput">();
+  const { store: commentInputStates } = createStore<{ assetId: string; replyToCommentId: string | null; replyToLabel: string | null }>();
+  const { ctx, calls } = createMockCtx();
+  const key = toMetaKey(ctx.from.id, ctx.chat.id);
+  modes.set(key, "commentInput");
+  commentInputStates.set(key, { assetId: "a1", replyToCommentId: null, replyToLabel: null });
+
+  const social = createTenantSocial({
+    deliveryService: {
+      addAssetComment: async () => {
+        throw new Error("should not be called");
+      }
+    } as never,
+    mainKeyboard: new Keyboard().text("菜单"),
+    ensureSessionMode: (k) => (modes.get(k) ?? "idle") as never,
+    setSessionMode: (k, mode) => modes.set(k, mode as never),
+    commentInputStates,
+    formatLocalDateTime: () => "x"
+  });
+
+  const handled = await social.handleCommentInputText(ctx, "/start");
+  assert.equal(handled, true);
+  assert.equal(modes.get(key), "idle");
+  assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("已退出评论模式")));
+});
+
 test("ui-utils: extractStartPayloadFromText 能解析 t.me start 链接", () => {
   assert.equal(extractStartPayloadFromText("https://t.me/ChuYunbot?start=hZ9hyXAf"), "hZ9hyXAf");
   assert.equal(extractStartPayloadFromText("t.me/ChuYunbot?start=p_hZ9hyXAf_2"), "p_hZ9hyXAf_2");

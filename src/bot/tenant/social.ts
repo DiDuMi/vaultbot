@@ -1,7 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 import { buildCommentKeyboard } from "./keyboards";
-import { buildDbDisabledHint, buildInputExitHint, buildStartLink, editHtml, escapeHtml, normalizeButtonText, replyHtml, toMetaKey } from "./ui-utils";
+import { buildDbDisabledHint, buildInputExitHint, buildStartLink, buildSuccessHint, editHtml, escapeHtml, normalizeButtonText, replyHtml, toMetaKey } from "./ui-utils";
 import { withTelegramRetry } from "../../infra/telegram";
 import type { DeliveryService } from "../../services/use-cases";
 import type { SessionMode } from "./session";
@@ -407,6 +407,13 @@ export const createTenantSocial = (deps: {
     }
     if (!state) {
       setSessionMode(key, "idle");
+      return true;
+    }
+    const rawTrimmed = text.trim();
+    if (rawTrimmed.startsWith("/")) {
+      setSessionMode(key, "idle");
+      commentInputStates.delete(key);
+      await replyHtml(ctx, buildSuccessHint("已退出评论模式。"), { reply_markup: mainKeyboard });
       return true;
     }
     const command = normalizeButtonText(text);

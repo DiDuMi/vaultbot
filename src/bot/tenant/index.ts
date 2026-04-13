@@ -241,6 +241,18 @@ export const registerTenantBot = (
     const isTenant = await deliveryService.isTenantUser(String(ctx.from.id)).catch(() => true);
     return isTenant ? mainKeyboard : userKeyboard;
   };
+  const resetSessionForCommand = async (ctx: Context) => {
+    if (!ctx.from || !ctx.chat) {
+      return;
+    }
+    const key = toMetaKey(ctx.from.id, ctx.chat.id);
+    const mode = ensureSessionMode(key);
+    if (mode === "upload") {
+      await cancel(ctx.from.id, ctx.chat.id).catch(() => undefined);
+      setActive(ctx.from.id, ctx.chat.id, false);
+    }
+    setSessionMode(key, "idle");
+  };
   const exitCurrentInputState = async (ctx: Context) => {
     if (!ctx.from || !ctx.chat) {
       return false;
@@ -826,6 +838,7 @@ export const registerTenantBot = (
   };
 
   bot.command("start", async (ctx) => {
+    await resetSessionForCommand(ctx);
     const payload = ctx.match?.trim();
     if (payload) {
       await trackStartPayloadVisit(ctx, payload, "command", "received");
@@ -839,6 +852,7 @@ export const registerTenantBot = (
   });
 
   bot.command("help", async (ctx) => {
+    await resetSessionForCommand(ctx);
     if (deliveryService && ctx.from) {
       await deliveryService.trackVisit(String(ctx.from.id), "help").catch(() => undefined);
     }
