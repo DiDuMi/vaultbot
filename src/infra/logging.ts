@@ -32,13 +32,29 @@ export const logErrorThrottled = (
   error: unknown,
   options?: { key?: string; intervalMs?: number; maxKeys?: number }
 ) => {
-  const intervalMs = options?.intervalMs ?? 10_000;
+  const defaultIntervalMs = (() => {
+    const raw = Number(process.env.LOG_ERROR_THROTTLED_INTERVAL_MS ?? "10000");
+    if (!Number.isFinite(raw)) {
+      return 10_000;
+    }
+    return Math.max(0, Math.trunc(raw));
+  })();
+  const intervalMs = options?.intervalMs ?? defaultIntervalMs;
   if (intervalMs <= 0) {
     logError(fields, error);
     return;
   }
-  const maxKeys = options?.maxKeys ?? 5000;
-  const rawKey = options?.key ?? `${fields.component}:${fields.op}`;
+  const defaultMaxKeys = (() => {
+    const raw = Number(process.env.LOG_ERROR_THROTTLED_MAX_KEYS ?? "5000");
+    if (!Number.isFinite(raw)) {
+      return 5000;
+    }
+    return Math.max(100, Math.trunc(raw));
+  })();
+  const maxKeys = options?.maxKeys ?? defaultMaxKeys;
+  const scope = fields.scope;
+  const scopePart = scope === undefined || scope === null ? "" : String(scope);
+  const rawKey = options?.key ?? `${fields.component}:${fields.op}:${scopePart}`;
   const state = globalThis as unknown as { __vaultbotLogLimiter?: Map<string, number> };
   const limiter =
     state.__vaultbotLogLimiter ??
