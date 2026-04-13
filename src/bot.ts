@@ -39,12 +39,12 @@ export const createBot = (config: Config) => {
     logError({ component: "bot", op: "grammy_catch", ...formatTelegramError(error) }, error);
   });
   const uploadStore = createUploadBatchStore();
-  const queue: UploadQueue =
-    config.redisUrl === "memory"
-      ? { add: async () => ({}) }
-      : createQueue("replication", createRedisConnection(config.redisUrl));
-  const notifyQueue: NotifyQueue | null =
-    config.redisUrl === "memory" ? null : (createQueue("notify", createRedisConnection(config.redisUrl)) as unknown as NotifyQueue);
+  const redisConnection =
+    config.redisUrl === "memory" ? null : createRedisConnection(config.redisUrl, { component: "bot" });
+  const replicationQueue = redisConnection ? createQueue("replication", redisConnection) : null;
+  const notifyBullQueue = redisConnection ? createQueue("notify", redisConnection) : null;
+  const queue: UploadQueue = replicationQueue ?? { add: async () => ({}) };
+  const notifyQueue: NotifyQueue | null = notifyBullQueue ? (notifyBullQueue as unknown as NotifyQueue) : null;
   const uploadService =
     config.databaseUrl === "memory"
       ? createInMemoryUploadService()
@@ -61,5 +61,15 @@ export const createBot = (config: Config) => {
 
   registerTenantBot(bot, uploadStore, uploadService, deliveryService);
 
-  return bot;
+  const shutdown = async () => {
+    await Promise.all([
+      replicationQueue?.close().catch((error) => logError({ component: "bot", op: "replication_queue_close" }, error)),
+      notifyBullQueue?.close().catch((error) => logError({ component: "bot", op: "notify_queue_close" }, error))
+    ]);
+    if (redisConnection) {
+      await redisConnection.quit().catch((error) => logError({ component: "bot", op: "redis_quit" }, error));
+    }
+  };
+
+  return { bot, shutdown };
 };

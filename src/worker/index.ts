@@ -146,7 +146,7 @@ const start = async () => {
   ]).catch(() => null);
   const botUsername = me?.username ?? null;
   const useRedis = config.redisUrl !== "memory";
-  const connection = useRedis ? createRedisConnection(config.redisUrl) : null;
+  const connection = useRedis ? createRedisConnection(config.redisUrl, { component: "worker" }) : null;
   if (connection) {
     const redisOk = await Promise.race([connection.ping().then(() => true), sleep(1500).then(() => false)]).catch(() => false);
     if (!redisOk) {

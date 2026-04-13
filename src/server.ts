@@ -52,7 +52,7 @@ export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) =
   const opsRateLimitMax = parseNumberWithBounds(process.env.OPS_TENANT_CHECK_RATE_LIMIT, 60, 1, 10_000);
   const opsRateLimitStates = new Map<string, { windowStartAt: number; count: number }>();
   let lastOpsRateLimitCleanupAt = 0;
-  const healthRedisConnection = config.redisUrl === "memory" ? null : createRedisConnection(config.redisUrl);
+  const healthRedisConnection = config.redisUrl === "memory" ? null : createRedisConnection(config.redisUrl, { component: "server" });
 
   if (healthRedisConnection) {
     app.addHook("onClose", async () => {

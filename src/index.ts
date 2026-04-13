@@ -8,7 +8,7 @@ import { createServer } from "./server";
 const start = async () => {
   const config = loadConfig();
   await assertTenantCodeConsistency(prisma, config.tenantCode);
-  const bot = createBot(config);
+  const { bot, shutdown: shutdownBotResources } = createBot(config);
   const enableWebhook = Boolean(config.webhookBaseUrl);
   const server = createServer(bot, config, enableWebhook);
   let shuttingDown = false;
@@ -20,6 +20,7 @@ const start = async () => {
     shuttingDown = true;
     await server.close().catch(() => undefined);
     await Promise.resolve(bot.stop()).catch(() => undefined);
+    await shutdownBotResources().catch(() => undefined);
     await prisma.$disconnect().catch(() => undefined);
     process.exit(0);
   };
