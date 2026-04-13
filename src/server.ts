@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import { webhookCallback } from "grammy";
 import type { Bot } from "grammy";
 import type { Config } from "./config";
+import { logError } from "./infra/logging";
 import { prisma } from "./infra/persistence";
 import { getTenantDiagnostics } from "./infra/persistence/tenant-guard";
 import { createRedisConnection } from "./infra/queue";
@@ -56,7 +57,7 @@ export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) =
 
   if (healthRedisConnection) {
     app.addHook("onClose", async () => {
-      await healthRedisConnection.quit().catch(() => undefined);
+      await healthRedisConnection.quit().catch((error) => logError({ component: "server", op: "redis_quit" }, error));
     });
   }
 

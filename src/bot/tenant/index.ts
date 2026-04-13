@@ -1,7 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import type { Bot, Context } from "grammy";
 import type { Message } from "grammy/types";
-import { logError } from "../../infra/logging";
+import { logError, logErrorThrottled } from "../../infra/logging";
 import { withTelegramRetry } from "../../infra/telegram";
 import type { DeliveryService, UploadMessage, UploadService } from "../../services/use-cases";
 import { createUploadBatchStore } from "../../services/use-cases";
@@ -317,7 +317,9 @@ export const registerTenantBot = (
           username: ctx.from.username,
           language_code: ctx.from.language_code
         })
-        .catch(() => undefined);
+        .catch((error) =>
+          logErrorThrottled({ component: "tenant", op: "upsert_tenant_user" }, error, { key: "upsert_tenant_user", intervalMs: 30_000 })
+        );
     }
     await next();
   });
@@ -340,7 +342,13 @@ export const registerTenantBot = (
           .then((value) => {
             collectionStates.set(key, value);
           })
-          .catch(() => undefined)
+          .catch((error) =>
+            logErrorThrottled(
+              { component: "tenant", op: "hydrate_user_default_collection", userId },
+              error,
+              { key: "hydrate_user_preferences", intervalMs: 30_000 }
+            )
+          )
       );
     }
     if (!historyFilterStates.has(key)) {
@@ -350,7 +358,13 @@ export const registerTenantBot = (
           .then((value) => {
             historyFilterStates.set(key, value);
           })
-          .catch(() => undefined)
+          .catch((error) =>
+            logErrorThrottled(
+              { component: "tenant", op: "hydrate_user_history_filter", userId },
+              error,
+              { key: "hydrate_user_preferences", intervalMs: 30_000 }
+            )
+          )
       );
     }
     if (!historyDateStates.has(key)) {
@@ -362,7 +376,13 @@ export const registerTenantBot = (
               historyDateStates.set(key, value);
             }
           })
-          .catch(() => undefined)
+          .catch((error) =>
+            logErrorThrottled(
+              { component: "tenant", op: "hydrate_user_history_date", userId },
+              error,
+              { key: "hydrate_user_preferences", intervalMs: 30_000 }
+            )
+          )
       );
     }
     if (tasks.length > 0) {
@@ -558,13 +578,17 @@ export const registerTenantBot = (
     if (!threadId) {
       const created = await withTelegramRetry(() => ctx.api.createForumTopic(vaultChatId, normalizedTitle));
       threadId = created.message_thread_id;
-      await deliveryService.setCollectionTopicThreadId(collectionId, threadId).catch(() => undefined);
+      await deliveryService
+        .setCollectionTopicThreadId(collectionId, threadId)
+        .catch((error) => logError({ component: "tenant", op: "set_collection_topic_thread_id", collectionId }, error));
       topic = await deliveryService.getCollectionTopic(collectionId).catch(() => null);
     }
     if (!threadId) {
       return;
     }
-    await ctx.api.editForumTopic(vaultChatId, threadId, { name: normalizedTitle }).catch(() => undefined);
+    await ctx.api
+      .editForumTopic(vaultChatId, threadId, { name: normalizedTitle })
+      .catch((error) => logError({ component: "tenant", op: "edit_forum_topic", collectionId, vaultChatId, threadId }, error));
 
     const botUsername = ctx.me?.username ?? null;
     const items = await deliveryService.listRecentAssetsInCollection(collectionId, 20).catch(() => []);
@@ -602,9 +626,17 @@ export const registerTenantBot = (
           link_preview_options: { is_disabled: true }
         })
         .catch(async () => {
-          await deliveryService.setCollectionTopicIndexMessageId(collectionId, null).catch(() => undefined);
+          await deliveryService
+            .setCollectionTopicIndexMessageId(collectionId, null)
+            .catch((error) =>
+              logError({ component: "tenant", op: "set_collection_topic_index_message_id", collectionId, indexMessageId: null }, error)
+            );
         });
-      await ctx.api.pinChatMessage(vaultChatId, currentIndexMessageId, { disable_notification: true }).catch(() => undefined);
+      await ctx.api
+        .pinChatMessage(vaultChatId, currentIndexMessageId, { disable_notification: true })
+        .catch((error) =>
+          logError({ component: "tenant", op: "pin_chat_message", collectionId, vaultChatId, messageId: currentIndexMessageId }, error)
+        );
       return;
     }
 
@@ -618,8 +650,19 @@ export const registerTenantBot = (
     if (!sent) {
       return;
     }
-    await ctx.api.pinChatMessage(vaultChatId, sent.message_id, { disable_notification: true }).catch(() => undefined);
-    await deliveryService.setCollectionTopicIndexMessageId(collectionId, sent.message_id).catch(() => undefined);
+    await ctx.api
+      .pinChatMessage(vaultChatId, sent.message_id, { disable_notification: true })
+      .catch((error) =>
+        logError({ component: "tenant", op: "pin_chat_message", collectionId, vaultChatId, messageId: sent.message_id }, error)
+      );
+    await deliveryService
+      .setCollectionTopicIndexMessageId(collectionId, sent.message_id)
+      .catch((error) =>
+        logError(
+          { component: "tenant", op: "set_collection_topic_index_message_id", collectionId, indexMessageId: sent.message_id },
+          error
+        )
+      );
   };
 
   const updateVaultTopicIndexByAssetId = async (ctx: Context, assetId: string) => {
@@ -694,10 +737,16 @@ export const registerTenantBot = (
             }
             return stripHtmlTags(collections.find((c) => c.id === id)?.title ?? "未分类");
           };
-          void updateVaultTopicIndexByCollection(ctx, prevMeta.collectionId, titleOf(prevMeta.collectionId)).catch(() => undefined);
-          void updateVaultTopicIndexByCollection(ctx, nextMeta.collectionId, titleOf(nextMeta.collectionId)).catch(() => undefined);
+          void updateVaultTopicIndexByCollection(ctx, prevMeta.collectionId, titleOf(prevMeta.collectionId)).catch((error) =>
+            logError({ component: "tenant", op: "update_vault_topic_index", scope: "prev_collection", assetId: state.assetId }, error)
+          );
+          void updateVaultTopicIndexByCollection(ctx, nextMeta.collectionId, titleOf(nextMeta.collectionId)).catch((error) =>
+            logError({ component: "tenant", op: "update_vault_topic_index", scope: "next_collection", assetId: state.assetId }, error)
+          );
         } else {
-          void updateVaultTopicIndexByAssetId(ctx, state.assetId).catch(() => undefined);
+          void updateVaultTopicIndexByAssetId(ctx, state.assetId).catch((error) =>
+            logError({ component: "tenant", op: "update_vault_topic_index", scope: "asset", assetId: state.assetId }, error)
+          );
         }
       }
       const username = ctx.me?.username;
@@ -756,7 +805,13 @@ export const registerTenantBot = (
         status,
         reason: reason ?? null
       })
-      .catch(() => undefined);
+      .catch((error) =>
+        logErrorThrottled(
+          { component: "tenant", op: "track_visit", scope: "start_payload" },
+          error,
+          { key: "track_visit_start_payload", intervalMs: 30_000 }
+        )
+      );
   };
 
   const handleStartPayloadEntry = async (ctx: Context, payload: string, entry: StartPayloadEntry) => {
@@ -846,7 +901,11 @@ export const registerTenantBot = (
       return;
     }
     if (deliveryService && ctx.from) {
-      await deliveryService.trackVisit(String(ctx.from.id), "start").catch(() => undefined);
+      await deliveryService
+        .trackVisit(String(ctx.from.id), "start")
+        .catch((error) =>
+          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "start" }, error, { key: "track_visit_start", intervalMs: 30_000 })
+        );
     }
     await renderStartHome(ctx);
   });
@@ -854,7 +913,11 @@ export const registerTenantBot = (
   bot.command("help", async (ctx) => {
     await resetSessionForCommand(ctx);
     if (deliveryService && ctx.from) {
-      await deliveryService.trackVisit(String(ctx.from.id), "help").catch(() => undefined);
+      await deliveryService
+        .trackVisit(String(ctx.from.id), "help")
+        .catch((error) =>
+          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "help" }, error, { key: "track_visit_help", intervalMs: 30_000 })
+        );
     }
     await renderHelp(ctx);
   });
@@ -1069,14 +1132,23 @@ export const registerTenantBot = (
     if (!historyDateStates.has(filterKey)) {
       historyDateStates.set(filterKey, selectedDate);
     }
-    await deliveryService.setUserHistoryListDate(String(ctx.from.id), selectedDate).catch(() => undefined);
+    const historyUserId = String(ctx.from.id);
+    await deliveryService
+      .setUserHistoryListDate(historyUserId, selectedDate)
+      .catch((error) =>
+        logErrorThrottled(
+          { component: "tenant", op: "set_user_history_list_date", scope: "render_history", userId: historyUserId },
+          error,
+          { key: "set_user_history_list_date", intervalMs: 30_000 }
+        )
+      );
     let data =
       selectedScope === "mine"
-        ? await deliveryService.listUserBatches(String(ctx.from.id), page, historyPageSize, {
+        ? await deliveryService.listUserBatches(historyUserId, page, historyPageSize, {
             collectionId: filter,
             date: selectedDate
           })
-        : await deliveryService.listTenantBatches(String(ctx.from.id), page, historyPageSize, {
+        : await deliveryService.listTenantBatches(historyUserId, page, historyPageSize, {
             collectionId: filter,
             date: selectedDate
           });
@@ -1085,11 +1157,11 @@ export const registerTenantBot = (
     if (data.total > 0 && data.items.length === 0 && currentPage !== page) {
       data =
         selectedScope === "mine"
-          ? await deliveryService.listUserBatches(String(ctx.from.id), currentPage, historyPageSize, {
+          ? await deliveryService.listUserBatches(historyUserId, currentPage, historyPageSize, {
               collectionId: filter,
               date: selectedDate
             })
-          : await deliveryService.listTenantBatches(String(ctx.from.id), currentPage, historyPageSize, {
+          : await deliveryService.listTenantBatches(historyUserId, currentPage, historyPageSize, {
               collectionId: filter,
               date: selectedDate
             });
@@ -1607,7 +1679,12 @@ export const registerTenantBot = (
           const result = await deliveryService.updateCollection(String(ctx.from.id), inputState.collectionId, text);
           if (result.ok) {
             const normalizedTitle = text.trim().replace(/\s+/g, " ") || "未分类";
-            void updateVaultTopicIndexByCollection(ctx, inputState.collectionId, normalizedTitle).catch(() => undefined);
+            void updateVaultTopicIndexByCollection(ctx, inputState.collectionId, normalizedTitle).catch((error) =>
+              logError(
+                { component: "tenant", op: "update_vault_topic_index", scope: "rename_collection", collectionId: inputState.collectionId },
+                error
+              )
+            );
             setSessionMode(key, "idle");
             await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
             await renderCollections(ctx, { returnTo: "settings" });
@@ -1620,7 +1697,9 @@ export const registerTenantBot = (
         if (result.ok) {
           if (result.id) {
             const normalizedTitle = text.trim().replace(/\s+/g, " ") || "未分类";
-            void updateVaultTopicIndexByCollection(ctx, result.id, normalizedTitle).catch(() => undefined);
+            void updateVaultTopicIndexByCollection(ctx, result.id, normalizedTitle).catch((error) =>
+              logError({ component: "tenant", op: "update_vault_topic_index", scope: "create_collection", collectionId: result.id }, error)
+            );
           }
           setSessionMode(key, "idle");
           await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
@@ -1725,7 +1804,15 @@ export const registerTenantBot = (
           const now = new Date();
           const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
           historyDateStates.set(key, today);
-          await deliveryService.setUserHistoryListDate(String(ctx.from.id), today).catch(() => undefined);
+          await deliveryService
+            .setUserHistoryListDate(String(ctx.from.id), today)
+            .catch((error) =>
+              logErrorThrottled(
+                { component: "tenant", op: "set_user_history_list_date", scope: "menu_list", userId: String(ctx.from.id) },
+                error,
+                { key: "set_user_history_list_date", intervalMs: 30_000 }
+              )
+            );
         }
       }
       await renderHistory(ctx, 1, "community");

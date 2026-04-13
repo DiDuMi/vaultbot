@@ -18,10 +18,10 @@ const start = async () => {
       return;
     }
     shuttingDown = true;
-    await server.close().catch(() => undefined);
-    await Promise.resolve(bot.stop()).catch(() => undefined);
-    await shutdownBotResources().catch(() => undefined);
-    await prisma.$disconnect().catch(() => undefined);
+    await server.close().catch((error) => logError({ component: "main", op: "shutdown_server_close" }, error));
+    await Promise.resolve(bot.stop()).catch((error) => logError({ component: "main", op: "shutdown_bot_stop" }, error));
+    await shutdownBotResources().catch((error) => logError({ component: "main", op: "shutdown_bot_resources" }, error));
+    await prisma.$disconnect().catch((error) => logError({ component: "main", op: "shutdown_prisma_disconnect" }, error));
     process.exit(0);
   };
 

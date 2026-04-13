@@ -26,3 +26,35 @@ export const logError = (fields: LogFields, error: unknown) => {
     })
   );
 };
+
+export const logErrorThrottled = (
+  fields: LogFields,
+  error: unknown,
+  options?: { key?: string; intervalMs?: number; maxKeys?: number }
+) => {
+  const intervalMs = options?.intervalMs ?? 10_000;
+  if (intervalMs <= 0) {
+    logError(fields, error);
+    return;
+  }
+  const maxKeys = options?.maxKeys ?? 5000;
+  const rawKey = options?.key ?? `${fields.component}:${fields.op}`;
+  const state = globalThis as unknown as { __vaultbotLogLimiter?: Map<string, number> };
+  const limiter =
+    state.__vaultbotLogLimiter ??
+    (() => {
+      const map = new Map<string, number>();
+      state.__vaultbotLogLimiter = map;
+      return map;
+    })();
+  if (limiter.size > maxKeys) {
+    limiter.clear();
+  }
+  const now = Date.now();
+  const last = limiter.get(rawKey) ?? 0;
+  if (now - last < intervalMs) {
+    return;
+  }
+  limiter.set(rawKey, now);
+  logError(fields, error);
+};
