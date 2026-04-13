@@ -36,6 +36,7 @@ import { createTenantSocial } from "./social";
 import { createTenantAdminInput } from "./admin-input";
 import { registerTenantCommands } from "./register-commands";
 import { registerTenantMessageHandlers } from "./register-messages";
+import { registerTenantMiddlewares } from "./register-middlewares";
 import {
   actionKeyboard,
   buildAdKeyboard,
@@ -307,90 +308,12 @@ export const registerTenantBot = (
   const maxMetaBytes = 1500;
   const maxTitleBytes = 200;
   const maxDescriptionBytes = 1200;
-
-  bot.use(async (ctx, next) => {
-    if (deliveryService && ctx.from) {
-      await deliveryService
-        .upsertTenantUserFromTelegram({
-          id: ctx.from.id,
-          is_bot: ctx.from.is_bot,
-          first_name: ctx.from.first_name,
-          last_name: ctx.from.last_name,
-          username: ctx.from.username,
-          language_code: ctx.from.language_code
-        })
-        .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "upsert_tenant_user" }, error, { intervalMs: 30_000 })
-        );
-    }
-    await next();
+  const { hydrateUserPreferences } = registerTenantMiddlewares(bot, {
+    deliveryService,
+    collectionStates,
+    historyFilterStates,
+    historyDateStates
   });
-
-  const hydrateUserPreferences = async (ctx: Context) => {
-    if (!deliveryService || !ctx.from) {
-      return;
-    }
-    const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
-    if (!chatId) {
-      return;
-    }
-    const key = toMetaKey(ctx.from.id, chatId);
-    const userId = String(ctx.from.id);
-    const tasks: Promise<void>[] = [];
-    if (!collectionStates.has(key)) {
-      tasks.push(
-        deliveryService
-          .getUserDefaultCollectionId(userId)
-          .then((value) => {
-            collectionStates.set(key, value);
-          })
-          .catch((error) =>
-            logErrorThrottled(
-              { component: "tenant", op: "hydrate_user_default_collection", userId },
-              error,
-              { intervalMs: 30_000 }
-            )
-          )
-      );
-    }
-    if (!historyFilterStates.has(key)) {
-      tasks.push(
-        deliveryService
-          .getUserHistoryCollectionFilter(userId)
-          .then((value) => {
-            historyFilterStates.set(key, value);
-          })
-          .catch((error) =>
-            logErrorThrottled(
-              { component: "tenant", op: "hydrate_user_history_filter", userId },
-              error,
-              { intervalMs: 30_000 }
-            )
-          )
-      );
-    }
-    if (!historyDateStates.has(key)) {
-      tasks.push(
-        deliveryService
-          .getUserHistoryListDate(userId)
-          .then((value) => {
-            if (value) {
-              historyDateStates.set(key, value);
-            }
-          })
-          .catch((error) =>
-            logErrorThrottled(
-              { component: "tenant", op: "hydrate_user_history_date", userId },
-              error,
-              { intervalMs: 30_000 }
-            )
-          )
-      );
-    }
-    if (tasks.length > 0) {
-      await Promise.all(tasks);
-    }
-  };
 
   const {
     renderStats,
