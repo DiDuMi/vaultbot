@@ -44,7 +44,7 @@ export const createDeliveryReplicaSelection = (deps: {
     if (!asset) {
       return { status: "missing", message: "内容不存在" };
     }
-    if (asset.visibility !== "PUBLIC") {
+    if (asset.visibility === "RESTRICTED") {
       const isTenant = await deps.isTenantUserSafe(userId);
       if (!isTenant) {
         return { status: "failed", message: "🔒 无权限或内容不存在。" };

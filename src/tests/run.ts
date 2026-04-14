@@ -29,6 +29,7 @@ import { buildFootprintKeyboard, buildRankingKeyboard } from "../bot/tenant/keyb
 import { createDeliveryDiscovery } from "../services/use-cases/delivery-discovery";
 import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
 import { createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
+import { createDeliveryReplicaSelection } from "../services/use-cases/delivery-replica-selection";
 
 type TestCase = { name: string; run: () => Promise<void> | void };
 
@@ -719,6 +720,67 @@ test("access: protected asset is forbidden for public viewer", async () => {
 
   const result = await getTenantAssetAccess("tenant_1", "user_1", "asset_1");
   assert.equal(result.status, "forbidden");
+});
+
+test("replica-selection: protected asset remains accessible by share link for public viewer", async () => {
+  const select = createDeliveryReplicaSelection({
+    prisma: {
+      asset: {
+        findUnique: async () => ({
+          id: "asset_1",
+          tenantId: "tenant_1",
+          visibility: "PROTECTED",
+          title: "Protected asset",
+          description: "Shared by code",
+          replicas: [
+            {
+              uploadItemId: "item_1",
+              createdAt: new Date("2026-04-14T10:00:00.000Z"),
+              messageId: BigInt(101),
+              vaultGroup: { chatId: BigInt(-100123), status: "ACTIVE" }
+            }
+          ]
+        })
+      },
+      uploadBatch: {
+        findFirst: async () => ({
+          userId: "publisher_1",
+          items: [{ id: "item_1", kind: "document", mediaGroupId: null, fileId: "file_1", status: "SUCCESS" }]
+        })
+      }
+    } as never,
+    getTenantId: async () => "tenant_1",
+    isTenantUserSafe: async () => false,
+    getTenantMinReplicas: async () => 1,
+    getSetting: async () => null
+  });
+
+  const result = await select.selectReplicas("user_public", "asset_1");
+  assert.equal(result.status, "ready");
+});
+
+test("replica-selection: restricted asset is still blocked for public viewer", async () => {
+  const select = createDeliveryReplicaSelection({
+    prisma: {
+      asset: {
+        findUnique: async () => ({
+          id: "asset_1",
+          tenantId: "tenant_1",
+          visibility: "RESTRICTED",
+          title: "Restricted asset",
+          description: "Private",
+          replicas: []
+        })
+      }
+    } as never,
+    getTenantId: async () => "tenant_1",
+    isTenantUserSafe: async () => false,
+    getTenantMinReplicas: async () => 1,
+    getSetting: async () => null
+  });
+
+  const result = await select.selectReplicas("user_public", "asset_1");
+  assert.equal(result.status, "failed");
 });
 
 test("access: restricted asset is forbidden for non-owner tenant user", async () => {
