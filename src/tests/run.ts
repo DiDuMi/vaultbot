@@ -710,6 +710,32 @@ test("delivery-core: single owner mode forces min replicas to 1", async () => {
   }
 });
 
+test("delivery-core: single owner mode only grants manage rights to owner", async () => {
+  const previous = process.env.SINGLE_OWNER_MODE;
+  process.env.SINGLE_OWNER_MODE = "1";
+  try {
+    const core = createDeliveryCore({
+      prisma: {
+        tenant: {
+          upsert: async () => ({ id: "tenant_1" })
+        },
+        tenantMember: {
+          findFirst: async () => ({ role: "ADMIN" })
+        },
+        uploadBatch: {
+          findFirst: async () => null
+        }
+      } as never,
+      config: { tenantCode: "demo", tenantName: "demo" }
+    });
+
+    const result = await core.isTenantAdmin("admin_1");
+    assert.equal(result, false);
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previous;
+  }
+});
+
 test("replication-worker: single owner mode ignores optional backup targets", async () => {
   const previous = process.env.SINGLE_OWNER_MODE;
   process.env.SINGLE_OWNER_MODE = "1";

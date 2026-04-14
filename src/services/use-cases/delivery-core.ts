@@ -100,7 +100,10 @@ export const createDeliveryCore = (deps: {
   const isTenantAdmin = async (userId: string) => {
     const tenantId = await getTenantId();
     const member = await deps.prisma.tenantMember.findFirst({ where: { tenantId, tgUserId: userId } });
-    if (member?.role === "OWNER" || member?.role === "ADMIN") {
+    if (member?.role === "OWNER") {
+      return true;
+    }
+    if (!isSingleOwnerModeEnabled() && member?.role === "ADMIN") {
       return true;
     }
     return ensureInitialOwner(tenantId, userId);
