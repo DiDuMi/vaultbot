@@ -75,7 +75,12 @@ export type DeliveryIdentityService = {
 };
 
 export type DeliveryTenantSettingsService = {
+  getProjectSearchMode: () => Promise<"OFF" | "ENTITLED_ONLY" | "PUBLIC">;
   getTenantSearchMode: () => Promise<"OFF" | "ENTITLED_ONLY" | "PUBLIC">;
+  setProjectSearchMode: (
+    actorUserId: string,
+    mode: "OFF" | "ENTITLED_ONLY" | "PUBLIC"
+  ) => Promise<{ ok: boolean; message: string }>;
   setTenantSearchMode: (
     actorUserId: string,
     mode: "OFF" | "ENTITLED_ONLY" | "PUBLIC"
@@ -96,7 +101,9 @@ export type DeliveryTenantSettingsService = {
     vaultGroupId: string,
     status: "ACTIVE" | "DEGRADED" | "BANNED"
   ) => Promise<{ ok: boolean; message: string }>;
+  getProjectMinReplicas: () => Promise<number>;
   getTenantMinReplicas: () => Promise<number>;
+  setProjectMinReplicas: (actorUserId: string, value: number) => Promise<{ ok: boolean; message: string }>;
   setTenantMinReplicas: (actorUserId: string, value: number) => Promise<{ ok: boolean; message: string }>;
   markReplicaBad: (assetId: string, fromChatId: string, messageId: number) => Promise<void>;
   searchAssets: (
@@ -172,30 +179,55 @@ export type DeliveryAdminService = {
     createdAt: Date;
     updatedAt: Date;
   } | null>;
+  getProjectStartWelcomeHtml: () => Promise<string | null>;
   getTenantStartWelcomeHtml: () => Promise<string | null>;
+  setProjectStartWelcomeHtml: (actorUserId: string, html: string | null) => Promise<{ ok: boolean; message: string }>;
   setTenantStartWelcomeHtml: (actorUserId: string, html: string | null) => Promise<{ ok: boolean; message: string }>;
+  getProjectDeliveryAdConfig: () => Promise<{
+    prevText: string;
+    nextText: string;
+    adButtonText: string | null;
+    adButtonUrl: string | null;
+  }>;
   getTenantDeliveryAdConfig: () => Promise<{
     prevText: string;
     nextText: string;
     adButtonText: string | null;
     adButtonUrl: string | null;
   }>;
+  setProjectDeliveryAdConfig: (
+    actorUserId: string,
+    config: { prevText: string; nextText: string; adButtonText: string | null; adButtonUrl: string | null }
+  ) => Promise<{ ok: boolean; message: string }>;
   setTenantDeliveryAdConfig: (
     actorUserId: string,
     config: { prevText: string; nextText: string; adButtonText: string | null; adButtonUrl: string | null }
   ) => Promise<{ ok: boolean; message: string }>;
+  getProjectProtectContentEnabled: () => Promise<boolean>;
   getTenantProtectContentEnabled: () => Promise<boolean>;
+  setProjectProtectContentEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
   setTenantProtectContentEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
+  getProjectHidePublisherEnabled: () => Promise<boolean>;
   getTenantHidePublisherEnabled: () => Promise<boolean>;
+  setProjectHidePublisherEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
   setTenantHidePublisherEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
+  getProjectAutoCategorizeEnabled: () => Promise<boolean>;
   getTenantAutoCategorizeEnabled: () => Promise<boolean>;
+  setProjectAutoCategorizeEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
   setTenantAutoCategorizeEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
+  getProjectAutoCategorizeRules: () => Promise<{ collectionId: string; keywords: string[] }[]>;
   getTenantAutoCategorizeRules: () => Promise<{ collectionId: string; keywords: string[] }[]>;
+  setProjectAutoCategorizeRules: (
+    actorUserId: string,
+    rules: { collectionId: string; keywords: string[] }[]
+  ) => Promise<{ ok: boolean; message: string }>;
   setTenantAutoCategorizeRules: (
     actorUserId: string,
     rules: { collectionId: string; keywords: string[] }[]
   ) => Promise<{ ok: boolean; message: string }>;
+  getProjectPublicRankingEnabled: () => Promise<boolean>;
   getTenantPublicRankingEnabled: () => Promise<boolean>;
+  setProjectPublicRankingEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
   setTenantPublicRankingEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
   createBroadcastDraft: (actorUserId: string, actorChatId: string) => Promise<{ ok: boolean; id?: string; message: string }>;
   getMyBroadcastDraft: (actorUserId: string) => Promise<{
@@ -754,9 +786,13 @@ export const createDeliveryService = (
   });
 
   const tenantSettingsService: DeliveryTenantSettingsService = {
+    getProjectSearchMode: getTenantSearchMode,
     getTenantSearchMode,
+    setProjectSearchMode: setTenantSearchMode,
     setTenantSearchMode,
+    getProjectMinReplicas: getTenantMinReplicas,
     getTenantMinReplicas,
+    setProjectMinReplicas: setTenantMinReplicas,
     setTenantMinReplicas,
     listVaultGroups,
     addBackupVaultGroup,
@@ -774,19 +810,33 @@ export const createDeliveryService = (
   const adminService: DeliveryAdminService = {
     listMyBroadcasts,
     getBroadcastById,
+    getProjectStartWelcomeHtml: getTenantStartWelcomeHtml,
     getTenantStartWelcomeHtml,
+    setProjectStartWelcomeHtml: setTenantStartWelcomeHtml,
     setTenantStartWelcomeHtml,
+    getProjectDeliveryAdConfig: getTenantDeliveryAdConfig,
     getTenantDeliveryAdConfig,
+    setProjectDeliveryAdConfig: setTenantDeliveryAdConfig,
     setTenantDeliveryAdConfig,
+    getProjectProtectContentEnabled: getTenantProtectContentEnabled,
     getTenantProtectContentEnabled,
+    setProjectProtectContentEnabled: setTenantProtectContentEnabled,
     setTenantProtectContentEnabled,
+    getProjectHidePublisherEnabled: getTenantHidePublisherEnabled,
     getTenantHidePublisherEnabled,
+    setProjectHidePublisherEnabled: setTenantHidePublisherEnabled,
     setTenantHidePublisherEnabled,
+    getProjectAutoCategorizeEnabled: getTenantAutoCategorizeEnabled,
     getTenantAutoCategorizeEnabled,
+    setProjectAutoCategorizeEnabled: setTenantAutoCategorizeEnabled,
     setTenantAutoCategorizeEnabled,
+    getProjectAutoCategorizeRules: getTenantAutoCategorizeRules,
     getTenantAutoCategorizeRules,
+    setProjectAutoCategorizeRules: setTenantAutoCategorizeRules,
     setTenantAutoCategorizeRules,
+    getProjectPublicRankingEnabled: getTenantPublicRankingEnabled,
     getTenantPublicRankingEnabled,
+    setProjectPublicRankingEnabled: setTenantPublicRankingEnabled,
     setTenantPublicRankingEnabled,
     createBroadcastDraft,
     getMyBroadcastDraft,
