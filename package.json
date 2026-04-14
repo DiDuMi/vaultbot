@@ -14,7 +14,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "preflight:tenant": "node scripts/preflight-tenant.js"
+    "preflight:tenant": "node scripts/preflight-tenant.js",
+    "tags:diagnose": "node scripts/rebuild-tags.js",
+    "tags:rebuild": "node scripts/rebuild-tags.js --write"
   },
   "dependencies": {
     "@prisma/client": "^5.11.0",
