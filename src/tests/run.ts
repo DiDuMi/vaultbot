@@ -1341,6 +1341,77 @@ test("discovery: public viewer tag assets exclude only restricted assets", async
   assert.deepEqual(result.items.map((item) => item.assetId), ["asset_1"]);
 });
 
+test("discovery: public viewer community list excludes only restricted assets", async () => {
+  const prisma = {
+    uploadBatch: {
+      count: async ({ where }: { where: { asset: { visibility?: { not: "RESTRICTED" } } } }) => {
+        assert.equal(where.asset.visibility?.not, "RESTRICTED");
+        return 1;
+      },
+      findMany: async ({ where }: { where: { asset: { visibility?: { not: "RESTRICTED" } } } }) => {
+        assert.equal(where.asset.visibility?.not, "RESTRICTED");
+        return [
+          {
+            id: "batch_1",
+            assetId: "asset_1",
+            userId: "publisher_1",
+            asset: { shareCode: "share_1", title: "Protected list item", description: "Visible" },
+            items: [{ id: "item_1" }]
+          }
+        ];
+      }
+    }
+  } as never;
+
+  const discovery = createDeliveryDiscovery({
+    prisma,
+    getTenantId: async () => "tenant_1",
+    isTenantUserSafe: async () => false,
+    startOfLocalDay: (date) => date
+  });
+
+  const result = await discovery.listTenantBatches("user_public", 1, 10);
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.items.map((item) => item.assetId), ["asset_1"]);
+});
+
+test("discovery: public viewer likes exclude only restricted assets", async () => {
+  const prisma = {
+    assetLike: {
+      count: async ({ where }: { where: { asset: { visibility?: { not: "RESTRICTED" } } } }) => {
+        assert.equal(where.asset.visibility?.not, "RESTRICTED");
+        return 1;
+      },
+      findMany: async ({ where }: { where: { asset: { visibility?: { not: "RESTRICTED" } } } }) => {
+        assert.equal(where.asset.visibility?.not, "RESTRICTED");
+        return [
+          {
+            assetId: "asset_1",
+            createdAt: new Date("2026-04-15T00:00:00.000Z"),
+            asset: {
+              title: "Protected liked item",
+              description: "Visible",
+              shareCode: "share_1",
+              uploadBatches: [{ userId: "publisher_1" }]
+            }
+          }
+        ];
+      }
+    }
+  } as never;
+
+  const discovery = createDeliveryDiscovery({
+    prisma,
+    getTenantId: async () => "tenant_1",
+    isTenantUserSafe: async () => false,
+    startOfLocalDay: (date) => date
+  });
+
+  const result = await discovery.listUserLikedAssets("user_public", 1, 10);
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.items.map((item) => item.assetId), ["asset_1"]);
+});
+
 test("discovery: listTopTags backfills tags from existing asset metadata when empty", async () => {
   const createdTags = new Map<string, string>();
   const createdLinks: Array<{ tenantId: string; assetId: string; tagId: string }> = [];

@@ -8,6 +8,8 @@ export const createDeliveryDiscovery = (deps: {
   isTenantUserSafe: (userId: string) => Promise<boolean>;
   startOfLocalDay: (date: Date) => Date;
 }) => {
+  const buildPublicAssetVisibilityWhere = (isTenantViewer: boolean) =>
+    isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } };
   const recycledVisibilityKey = (assetId: string) => `recycled_visibility:${assetId}`;
   const stripHtml = (value: string) => value.replace(/<[^>]*>/g, " ");
   const normalizeTagName = (raw: string) => {
@@ -109,7 +111,7 @@ export const createDeliveryDiscovery = (deps: {
         ? {
             tenantId,
             searchable: true,
-            ...(isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } }),
+            ...buildPublicAssetVisibilityWhere(isTenantViewer),
             OR: [
               { title: { contains: safeQuery, mode: "insensitive" as const } },
               { description: { contains: safeQuery, mode: "insensitive" as const } }
@@ -119,7 +121,7 @@ export const createDeliveryDiscovery = (deps: {
             tenantId,
             searchable: true,
             collectionId,
-            ...(isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } }),
+            ...buildPublicAssetVisibilityWhere(isTenantViewer),
             OR: [
               { title: { contains: safeQuery, mode: "insensitive" as const } },
               { description: { contains: safeQuery, mode: "insensitive" as const } }
@@ -201,7 +203,7 @@ export const createDeliveryDiscovery = (deps: {
     const pageSize = typeof pageSizeOrOptions === "number" ? pageSizeOrOptions : undefined;
     const finalOptions = (typeof pageSizeOrOptions === "number" ? options : pageSizeOrOptions) ?? {};
     const isTenantViewer = finalOptions.viewerUserId ? await deps.isTenantUserSafe(finalOptions.viewerUserId) : true;
-    const assetVisibilityWhere = isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } };
+    const assetVisibilityWhere = buildPublicAssetVisibilityWhere(isTenantViewer);
     if (typeof pageSize !== "number") {
       const safeLimit = normalizeLimit(limitOrPage, { defaultLimit: 20, maxLimit: 50 });
       const grouped = await deps.prisma.assetTag.groupBy({
@@ -271,7 +273,7 @@ export const createDeliveryDiscovery = (deps: {
     const where = {
       tenantId,
       searchable: true,
-      ...(isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } }),
+      ...buildPublicAssetVisibilityWhere(isTenantViewer),
       tags: { some: { tagId } }
     };
     const [total, assets] = await Promise.all([
@@ -516,7 +518,7 @@ export const createDeliveryDiscovery = (deps: {
     const isTenantViewer = options.viewerUserId ? await deps.isTenantUserSafe(options.viewerUserId) : true;
     const assetWhere = {
       ...(options.collectionId === undefined ? {} : { collectionId: options.collectionId }),
-      ...(isTenantViewer ? {} : { visibility: "PUBLIC" as const })
+      ...buildPublicAssetVisibilityWhere(isTenantViewer)
     };
     const where = {
       tenantId,
@@ -667,7 +669,7 @@ export const createDeliveryDiscovery = (deps: {
     const safeSize = normalizePageSize(pageSize);
     const isTenant = await deps.isTenantUserSafe(userId);
     const since = options?.since;
-    const where = isTenant ? { tenantId, userId } : { tenantId, userId, asset: { visibility: "PUBLIC" as const } };
+    const where = isTenant ? { tenantId, userId } : { tenantId, userId, asset: buildPublicAssetVisibilityWhere(false) };
     const finalWhere = since ? { ...where, createdAt: { gte: since } } : where;
     const [total, likes] = await Promise.all([
       deps.prisma.assetLike.count({ where: finalWhere }),
