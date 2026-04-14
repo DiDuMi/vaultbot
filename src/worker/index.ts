@@ -9,6 +9,7 @@ import { createDeliveryService } from "../services/use-cases";
 import { startBroadcastScheduler } from "./broadcast-scheduler";
 import {
   backfillTenantUsers,
+  computeNextBroadcastRunAt,
   ensureTenantId,
   getBroadcastTargetUserIds,
   parseNumberWithBounds,
@@ -449,7 +450,7 @@ const start = async () => {
       };
 
       for (let index = 0; index < targetUserIds.length; index += 1) {
-        if (index % 20 === 0 && (await shouldStop())) {
+        if (await shouldStop()) {
           break;
         }
         const chatId = targetUserIds[index];
@@ -504,7 +505,12 @@ const start = async () => {
         return;
       }
       if (latest.repeatEveryMs) {
-        await prisma.broadcast.update({ where: { id: broadcastId }, data: { status: "SCHEDULED", nextRunAt: new Date(Date.now() + latest.repeatEveryMs) } });
+        const nextRunAt = computeNextBroadcastRunAt({
+          previousNextRunAt: latest.nextRunAt ?? null,
+          repeatEveryMs: latest.repeatEveryMs,
+          now: finishedAt
+        });
+        await prisma.broadcast.update({ where: { id: broadcastId }, data: { status: "SCHEDULED", nextRunAt } });
         return;
       }
       await prisma.broadcast.update({ where: { id: broadcastId }, data: { status: "COMPLETED", nextRunAt: null } });

@@ -141,6 +141,35 @@ export type DeliveryTenantSettingsService = {
 };
 
 export type DeliveryAdminService = {
+  listMyBroadcasts: (actorUserId: string, limit: number) => Promise<
+    {
+      id: string;
+      status: "DRAFT" | "SCHEDULED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELED";
+      contentHtml: string;
+      mediaKind: string | null;
+      mediaFileId: string | null;
+      buttons: { text: string; url: string }[];
+      nextRunAt: Date | null;
+      repeatEveryMs: number | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }[]
+  >;
+  getBroadcastById: (
+    actorUserId: string,
+    broadcastId: string
+  ) => Promise<{
+    id: string;
+    status: "DRAFT" | "SCHEDULED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELED";
+    contentHtml: string;
+    mediaKind: string | null;
+    mediaFileId: string | null;
+    buttons: { text: string; url: string }[];
+    nextRunAt: Date | null;
+    repeatEveryMs: number | null;
+    createdAt: Date;
+    updatedAt: Date;
+  } | null>;
   getTenantStartWelcomeHtml: () => Promise<string | null>;
   setTenantStartWelcomeHtml: (actorUserId: string, html: string | null) => Promise<{ ok: boolean; message: string }>;
   getTenantDeliveryAdConfig: () => Promise<{
@@ -605,6 +634,8 @@ export const createDeliveryService = (
   });
 
   const {
+    listMyBroadcasts,
+    getBroadcastById,
     getTenantStartWelcomeHtml,
     setTenantStartWelcomeHtml,
     getTenantDeliveryAdConfig,
@@ -739,6 +770,8 @@ export const createDeliveryService = (
   };
 
   const adminService: DeliveryAdminService = {
+    listMyBroadcasts,
+    getBroadcastById,
     getTenantStartWelcomeHtml,
     setTenantStartWelcomeHtml,
     getTenantDeliveryAdConfig,

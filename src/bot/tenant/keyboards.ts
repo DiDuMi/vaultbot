@@ -364,18 +364,28 @@ export const buildRankingKeyboard = (options: {
   return keyboard;
 };
 
-export const buildBroadcastKeyboard = (options: { canManage: boolean; hasDraft: boolean; canSend: boolean; isScheduled: boolean }) => {
+export const buildBroadcastKeyboard = (options: {
+  canManage: boolean;
+  hasSelection: boolean;
+  isDraft: boolean;
+  canSend: boolean;
+  isScheduled: boolean;
+  showListEntry?: boolean;
+}) => {
   const keyboard = new InlineKeyboard().text("⬅️ 返回设置", "help:settings");
   if (!options.canManage) {
     keyboard.row().text("🔄 刷新", "settings:broadcast");
     return keyboard;
   }
-  if (!options.hasDraft) {
+  if (!options.hasSelection) {
     keyboard.row().text("➕ 新建草稿", "broadcast:create");
+    keyboard.row().text("🗂 推送列表", "broadcast:list");
     keyboard.row().text("🔄 刷新", "settings:broadcast");
     return keyboard;
   }
-  keyboard.row().text("✏️ 编辑内容", "broadcast:edit:content").text("🔗 配置按钮", "broadcast:edit:buttons");
+  if (options.isDraft) {
+    keyboard.row().text("✏️ 编辑内容", "broadcast:edit:content").text("🔗 配置按钮", "broadcast:edit:buttons");
+  }
   keyboard.row().text("👁 预览", "broadcast:preview");
   if (options.canSend) {
     keyboard.row().text("🚀 立即推送", "broadcast:send:now").text("⏰ 定时推送", "broadcast:send:schedule");
@@ -384,8 +394,13 @@ export const buildBroadcastKeyboard = (options: { canManage: boolean; hasDraft: 
   if (options.isScheduled) {
     keyboard.row().text("🛑 取消推送", "broadcast:cancel");
   }
-  keyboard.row().text("🧹 删除草稿", "broadcast:delete");
+  if (options.isDraft) {
+    keyboard.row().text("🧹 删除草稿", "broadcast:delete");
+  }
   keyboard.row().text("📊 最近报告", "broadcast:runs");
+  if (options.showListEntry !== false) {
+    keyboard.row().text("🗂 推送列表", "broadcast:list").text("➕ 新建草稿", "broadcast:create");
+  }
   keyboard.row().text("🔄 刷新", "settings:broadcast");
   return keyboard;
 };

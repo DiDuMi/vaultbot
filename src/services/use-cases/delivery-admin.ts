@@ -71,6 +71,30 @@ export const createDeliveryAdmin = (deps: {
   upsertSetting: (key: string, value: string | null) => Promise<void>;
   deleteSetting: (key: string) => Promise<void>;
 }) => {
+  const toBroadcastSummary = (row: {
+    id: string;
+    status: "DRAFT" | "SCHEDULED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELED";
+    contentHtml: string;
+    mediaKind: string | null;
+    mediaFileId: string | null;
+    buttons: unknown;
+    nextRunAt: Date | null;
+    repeatEveryMs: number | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) => ({
+    id: row.id,
+    status: row.status,
+    contentHtml: row.contentHtml,
+    mediaKind: row.mediaKind ?? null,
+    mediaFileId: row.mediaFileId ?? null,
+    buttons: normalizeBroadcastButtons(row.buttons),
+    nextRunAt: row.nextRunAt ?? null,
+    repeatEveryMs: row.repeatEveryMs ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  });
+
   const getBroadcastTargetUserIds = async () => {
     const tenantId = await deps.getTenantId();
     const [users, members] = await Promise.all([
@@ -272,27 +296,28 @@ export const createDeliveryAdmin = (deps: {
     return { ok: true, id: draft.id, message: "✅ 已创建推送草稿。" };
   };
 
-  const getMyBroadcastDraft = async (actorUserId: string) => {
+  const listMyBroadcasts = async (actorUserId: string, limit: number) => {
+    const tenantId = await deps.getTenantId();
+    const take = normalizeLimit(limit, { defaultLimit: 10, maxLimit: 30 });
+    const rows = await deps.prisma.broadcast.findMany({
+      where: { tenantId, creatorUserId: actorUserId },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      take
+    });
+    return rows.map(toBroadcastSummary);
+  };
+
+  const getBroadcastById = async (actorUserId: string, broadcastId: string) => {
     const tenantId = await deps.getTenantId();
     const row = await deps.prisma.broadcast.findFirst({
-      where: { tenantId, creatorUserId: actorUserId, status: { in: ["DRAFT", "SCHEDULED", "RUNNING"] } },
-      orderBy: { createdAt: "desc" }
+      where: { id: broadcastId, tenantId, creatorUserId: actorUserId }
     });
-    if (!row) {
-      return null;
-    }
-    return {
-      id: row.id,
-      status: row.status,
-      contentHtml: row.contentHtml,
-      mediaKind: row.mediaKind ?? null,
-      mediaFileId: row.mediaFileId ?? null,
-      buttons: normalizeBroadcastButtons(row.buttons),
-      nextRunAt: row.nextRunAt ?? null,
-      repeatEveryMs: row.repeatEveryMs ?? null,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt
-    };
+    return row ? toBroadcastSummary(row) : null;
+  };
+
+  const getMyBroadcastDraft = async (actorUserId: string) => {
+    const rows = await listMyBroadcasts(actorUserId, 20);
+    return rows.find((row) => row.status === "DRAFT" || row.status === "SCHEDULED" || row.status === "RUNNING") ?? null;
   };
 
   const updateBroadcastDraftContent = async (
@@ -447,6 +472,8 @@ export const createDeliveryAdmin = (deps: {
   };
 
   return {
+    listMyBroadcasts,
+    getBroadcastById,
     getTenantStartWelcomeHtml,
     setTenantStartWelcomeHtml,
     getTenantDeliveryAdConfig,

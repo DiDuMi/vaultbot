@@ -8,7 +8,72 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
   const { deliveryService } = deps.services;
   const { setSessionMode, formatLocalDateTime } = deps.session;
   const { broadcastInputStates } = deps.states;
+  const { broadcastDraftStates } = deps.states;
   const { renderBroadcast, renderBroadcastButtons } = deps.renderers;
+
+  const getSelectionKey = (ctx: any) => {
+    const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
+    return ctx.from && chatId ? toMetaKey(ctx.from.id, chatId) : null;
+  };
+
+  const getSelectedBroadcast = async (ctx: any) => {
+    if (!deliveryService || !ctx.from) {
+      return null;
+    }
+    const key = getSelectionKey(ctx);
+    const selectedId = key ? broadcastDraftStates.get(key)?.draftId : undefined;
+    const selected = selectedId ? await deliveryService.getBroadcastById(String(ctx.from.id), selectedId).catch(() => null) : null;
+    if (selected) {
+      return selected;
+    }
+    const fallback = await deliveryService.getMyBroadcastDraft(String(ctx.from.id)).catch(() => null);
+    if (fallback && key) {
+      broadcastDraftStates.set(key, { draftId: fallback.id });
+    }
+    return fallback;
+  };
+
+  const renderBroadcastList = async (ctx: any) => {
+    if (!deliveryService || !ctx.from) {
+      await renderBroadcast(ctx);
+      return;
+    }
+    const key = getSelectionKey(ctx);
+    const selectedId = key ? broadcastDraftStates.get(key)?.draftId : undefined;
+    const rows = await deliveryService.listMyBroadcasts(String(ctx.from.id), 10).catch(() => []);
+    const text = [
+      "<b>🗂 推送列表</b>",
+      "",
+      rows.length === 0
+        ? "暂无推送。"
+        : rows
+            .map((row, index) => {
+              const marker = row.id === selectedId ? "👉 " : "";
+              const status =
+                row.status === "DRAFT"
+                  ? "草稿"
+                  : row.status === "SCHEDULED"
+                    ? "定时中"
+                    : row.status === "RUNNING"
+                      ? "发送中"
+                      : row.status === "COMPLETED"
+                        ? "已完成"
+                        : row.status === "FAILED"
+                          ? "失败"
+                          : "已取消";
+              const nextRun = row.nextRunAt ? ` · ${escapeHtml(formatLocalDateTime(new Date(row.nextRunAt)))}` : "";
+              return `${marker}${index + 1}. <code>${escapeHtml(row.id)}</code>\n${status}${nextRun}`;
+            })
+            .join("\n\n")
+    ].join("\n");
+    const keyboard = new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast");
+    for (const row of rows) {
+      const label = `${row.status === "DRAFT" ? "📝" : row.status === "SCHEDULED" ? "⏰" : row.status === "RUNNING" ? "🚚" : "📄"} ${row.id.slice(0, 8)}`;
+      keyboard.row().text(label, `broadcast:pick:${row.id}`);
+    }
+    keyboard.row().text("➕ 新建草稿", "broadcast:create").text("🔄 刷新", "broadcast:list");
+    await upsertHtml(ctx, text, keyboard);
+  };
 
   bot.callbackQuery("settings:broadcast", async (ctx) => {
     await ctx.answerCallbackQuery();
@@ -24,7 +89,28 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
     const actorUserId = String(ctx.from.id);
     const actorChatId = String(ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id ?? "");
     const result = await deliveryService.createBroadcastDraft(actorUserId, actorChatId);
+    const key = getSelectionKey(ctx);
+    if (result.ok && result.id && key) {
+      broadcastDraftStates.set(key, { draftId: result.id });
+    }
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
+    await renderBroadcast(ctx);
+  });
+
+  bot.callbackQuery("broadcast:list", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await renderBroadcastList(ctx);
+  });
+
+  bot.callbackQuery(/^broadcast:pick:(.+)$/, async (ctx) => {
+    const selectedId = String(ctx.match?.[1] ?? "");
+    const key = getSelectionKey(ctx);
+    if (!selectedId || !key) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    broadcastDraftStates.set(key, { draftId: selectedId });
+    await ctx.answerCallbackQuery({ text: "已切换推送" }).catch(() => ctx.answerCallbackQuery());
     await renderBroadcast(ctx);
   });
 
@@ -44,7 +130,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       await upsertHtml(ctx, "🔒 无权限：仅管理员可编辑推送。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
     }
-    const draft = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const draft = await getSelectedBroadcast(ctx);
     if (!draft || draft.status !== "DRAFT") {
       await upsertHtml(ctx, "⚠️ 未找到可编辑的推送草稿。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
@@ -87,7 +173,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       await upsertHtml(ctx, "🔒 无权限：仅管理员可配置推送按钮。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
     }
-    const draft = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const draft = await getSelectedBroadcast(ctx);
     if (!draft || draft.status !== "DRAFT") {
       await upsertHtml(ctx, "⚠️ 未找到可编辑的推送草稿。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
@@ -111,7 +197,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const draft = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const draft = await getSelectedBroadcast(ctx);
     if (!draft || draft.status !== "DRAFT") {
       await ctx.answerCallbackQuery();
       await upsertHtml(ctx, "⚠️ 未找到可编辑的推送草稿。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
@@ -130,7 +216,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const draft = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const draft = await getSelectedBroadcast(ctx);
     if (!draft) {
       await upsertHtml(ctx, "⚠️ 暂无推送草稿。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
@@ -174,7 +260,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const draft = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const draft = await getSelectedBroadcast(ctx);
     if (!draft || draft.status !== "DRAFT") {
       await ctx.answerCallbackQuery();
       await upsertHtml(ctx, "⚠️ 未找到可发送的推送草稿。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
@@ -201,7 +287,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       await upsertHtml(ctx, "🔒 无权限：仅管理员可发起推送。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
     }
-    const draft = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const draft = await getSelectedBroadcast(ctx);
     if (!draft || draft.status !== "DRAFT") {
       await upsertHtml(ctx, "⚠️ 未找到可发送的推送草稿。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
@@ -234,7 +320,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       await upsertHtml(ctx, "🔒 无权限：仅管理员可发起推送。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
     }
-    const draft = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const draft = await getSelectedBroadcast(ctx);
     if (!draft || draft.status !== "DRAFT") {
       await upsertHtml(ctx, "⚠️ 未找到可发送的推送草稿。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
@@ -252,7 +338,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const current = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const current = await getSelectedBroadcast(ctx);
     if (!current || (current.status !== "SCHEDULED" && current.status !== "RUNNING")) {
       await ctx.answerCallbackQuery();
       await upsertHtml(ctx, "⚠️ 当前没有可取消的推送。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
@@ -270,7 +356,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const current = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const current = await getSelectedBroadcast(ctx);
     if (!current || current.status !== "DRAFT") {
       await ctx.answerCallbackQuery();
       await upsertHtml(ctx, "⚠️ 仅可删除草稿状态的推送。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
@@ -288,7 +374,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const current = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
+    const current = await getSelectedBroadcast(ctx);
     if (!current) {
       await upsertHtml(ctx, "⚠️ 暂无推送。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;

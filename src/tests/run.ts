@@ -23,9 +23,11 @@ import { buildWorkerHeartbeatLines, parseHeartbeatAgoMin } from "../services/use
 import { registerDeliveryModuleTests } from "./use-cases/delivery-modules";
 import { createWorkerRoutes } from "../worker/routes";
 import { startIntervalScheduler } from "../worker/orchestration";
+import { computeNextBroadcastRunAt } from "../worker/helpers";
 import { buildAssetActionLine, buildPreviewLinkLine } from "../bot/tenant/index";
 import { buildFootprintKeyboard, buildRankingKeyboard } from "../bot/tenant/keyboards";
 import { createDeliveryDiscovery } from "../services/use-cases/delivery-discovery";
+import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
 import { createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
 
 type TestCase = { name: string; run: () => Promise<void> | void };
@@ -146,6 +148,54 @@ test("admin-input: broadcastScheduleAt 时间格式错误会提示", async () =>
   const handled = await admin.handleBroadcastText(ctx, "bad");
   assert.equal(handled, true);
   assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("时间格式错误")));
+});
+
+test("admin-input: broadcastScheduleAt 过去时间不会立即发送", async () => {
+  const modes = new Map<string, "idle" | "broadcastInput">();
+  const { store: broadcastInputStates } = createStore<
+    | { mode: "broadcastScheduleAt"; draftId: string }
+    | { mode: "broadcastRepeatEvery"; draftId: string }
+    | { mode: "broadcastContent"; draftId: string }
+    | { mode: "broadcastButtonText"; draftId: string }
+    | { mode: "broadcastButtonUrl"; draftId: string; text: string }
+  >();
+  const { store: settingsInputStates } = createStore<any>();
+  const { ctx, calls } = createMockCtx();
+  const key = toMetaKey(ctx.from.id, ctx.chat.id);
+  modes.set(key, "broadcastInput");
+  broadcastInputStates.set(key, { mode: "broadcastScheduleAt", draftId: "d1" });
+
+  let scheduled = false;
+  const deliveryService = {
+    canManageAdmins: async () => true,
+    scheduleBroadcast: async () => {
+      scheduled = true;
+      return { message: "ok" };
+    }
+  } as never;
+
+  const admin = createTenantAdminInput({
+    deliveryService,
+    mainKeyboard: new Keyboard().text("菜单"),
+    isActive: () => false,
+    getSessionMode: (k) => (modes.get(k) ?? "idle") as never,
+    setSessionMode: (k, mode) => modes.set(k, mode as never),
+    broadcastInputStates,
+    settingsInputStates,
+    parseLocalDateTime: () => new Date(Date.now() - 60_000),
+    renderBroadcast: async () => undefined,
+    renderBroadcastButtons: async () => undefined,
+    renderWelcomeSettings: async () => undefined,
+    renderAdSettings: async () => undefined,
+    renderAutoCategorizeSettings: async () => undefined,
+    renderVaultSettings: async () => undefined
+  });
+
+  const handled = await admin.handleBroadcastText(ctx, "2026-01-01 00:00");
+  assert.equal(handled, true);
+  assert.equal(scheduled, false);
+  assert.equal(modes.get(key), "broadcastInput");
+  assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("不能早于当前时间")));
 });
 
 test("admin-input: welcome 清除会写入 null", async () => {
@@ -431,6 +481,15 @@ test("worker-heartbeat: buildWorkerHeartbeatLines 能区分进程与副本任务
   assert.ok(lines.replicationLine.includes("暂无"));
 });
 
+test("worker: computeNextBroadcastRunAt keeps cadence without drift", () => {
+  const next = computeNextBroadcastRunAt({
+    previousNextRunAt: new Date("2026-04-14T10:00:00.000Z"),
+    repeatEveryMs: 60 * 60 * 1000,
+    now: new Date("2026-04-14T12:20:00.000Z")
+  });
+  assert.equal(next.toISOString(), "2026-04-14T13:00:00.000Z");
+});
+
 test("orchestration: interval scheduler 不会在上一次 tick 未结束时重入", async () => {
   let activeRuns = 0;
   let maxConcurrentRuns = 0;
@@ -505,6 +564,68 @@ test("integration: 副本路由会把任务转发给编排层", async () => {
     "broadcast:b1:r1",
     "notify:a1"
   ]);
+});
+
+test("delivery-admin: can list and fetch multiple broadcasts by id", async () => {
+  const rows = [
+    {
+      id: "b_new",
+      tenantId: "tenant_1",
+      creatorUserId: "u1",
+      status: "DRAFT" as const,
+      contentHtml: "draft",
+      mediaKind: null,
+      mediaFileId: null,
+      buttons: [],
+      nextRunAt: null,
+      repeatEveryMs: null,
+      createdAt: new Date("2026-04-14T10:00:00.000Z"),
+      updatedAt: new Date("2026-04-14T12:00:00.000Z")
+    },
+    {
+      id: "b_old",
+      tenantId: "tenant_1",
+      creatorUserId: "u1",
+      status: "SCHEDULED" as const,
+      contentHtml: "scheduled",
+      mediaKind: "photo",
+      mediaFileId: "file_1",
+      buttons: [{ text: "打开", url: "https://example.com" }],
+      nextRunAt: new Date("2026-04-15T10:00:00.000Z"),
+      repeatEveryMs: 3_600_000,
+      createdAt: new Date("2026-04-13T10:00:00.000Z"),
+      updatedAt: new Date("2026-04-13T12:00:00.000Z")
+    }
+  ];
+
+  const admin = createDeliveryAdmin({
+    prisma: {
+      broadcast: {
+        findMany: async () => rows,
+        findFirst: async ({ where }: { where: { id: string } }) => rows.find((row) => row.id === where.id) ?? null
+      }
+    } as never,
+    settingKeys: {
+      startWelcomeHtml: "a",
+      deliveryAdConfig: "b",
+      protectContentEnabled: "c",
+      hidePublisherEnabled: "d",
+      publicRankingEnabled: "e",
+      autoCategorizeEnabled: "f",
+      autoCategorizeRules: "g"
+    },
+    getTenantId: async () => "tenant_1",
+    isTenantAdmin: async () => true,
+    getSetting: async () => null,
+    upsertSetting: async () => undefined,
+    deleteSetting: async () => undefined
+  });
+
+  const list = await admin.listMyBroadcasts("u1", 10);
+  assert.deepEqual(list.map((item) => item.id), ["b_new", "b_old"]);
+  const selected = await admin.getBroadcastById("u1", "b_old");
+  assert.equal(selected?.id, "b_old");
+  assert.equal(selected?.buttons.length, 1);
 });
 
 test("integration: 交付流程在副本未就绪时返回提示", async () => {

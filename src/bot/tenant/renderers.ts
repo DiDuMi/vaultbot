@@ -703,14 +703,21 @@ export const createTenantRenderers = (deps: {
     }
     const canManage = await deps.deliveryService.canManageAdmins(userId);
     const key = toMetaKey(ctx.from.id, chatId);
-    const draft = await deps.deliveryService.getMyBroadcastDraft(userId).catch(() => null);
+    const selectedId = deps.broadcastDraftStates.get(key)?.draftId;
+    const broadcasts = await deps.deliveryService.listMyBroadcasts(userId, 10).catch(() => []);
+    const draft =
+      (selectedId ? broadcasts.find((item) => item.id === selectedId) : null) ??
+      broadcasts.find((item) => item.status === "DRAFT" || item.status === "SCHEDULED" || item.status === "RUNNING") ??
+      broadcasts[0] ??
+      null;
     if (draft) {
       deps.broadcastDraftStates.set(key, { draftId: draft.id });
     } else {
       deps.broadcastDraftStates.delete(key);
     }
     const targetCount = canManage ? await deps.deliveryService.getBroadcastTargetCount(userId).catch(() => 0) : 0;
-    const hasDraft = Boolean(draft);
+    const hasSelection = Boolean(draft);
+    const isDraft = draft?.status === "DRAFT";
     const isScheduled = draft?.status === "SCHEDULED" || draft?.status === "RUNNING";
     const canSend = Boolean(draft && draft.status === "DRAFT" && (draft.contentHtml.trim() || draft.mediaFileId));
     const statusText =
@@ -727,23 +734,49 @@ export const createTenantRenderers = (deps: {
     const contentPreview = draft?.contentHtml?.trim() ? sanitizeTelegramHtml(draft.contentHtml.trim()) : "（尚未设置文案）";
     const mediaLine = draft?.mediaKind ? `媒体：${escapeHtml(draft.mediaKind)}` : "媒体：—";
     const buttonsCount = draft ? draft.buttons.length : 0;
+    const listPreview =
+      broadcasts.length === 0
+        ? "暂无推送。"
+        : broadcasts
+            .slice(0, 5)
+            .map((item, index) => {
+              const marker = draft?.id === item.id ? "👉 " : "";
+              const summary =
+                item.status === "DRAFT"
+                  ? "草稿"
+                  : item.status === "SCHEDULED"
+                    ? "定时中"
+                    : item.status === "RUNNING"
+                      ? "发送中"
+                      : item.status === "COMPLETED"
+                        ? "已完成"
+                        : item.status === "FAILED"
+                          ? "失败"
+                          : "已取消";
+              return `${marker}${index + 1}. ${summary} · ${escapeHtml(item.id.slice(0, 8))}`;
+            })
+            .join("\n");
     const text = [
       "📢 全员推送",
       "",
       canManage ? `目标用户数：${targetCount}` : "🔒 仅管理员可创建与发送推送。",
+      `活动/历史：${broadcasts.length}`,
+      "",
+      "最近推送：",
+      listPreview,
       "",
       `状态：${statusText}`,
-      hasDraft ? nextRun : "",
-      hasDraft ? repeat : "",
-      hasDraft ? mediaLine : "",
-      hasDraft ? `按钮数：${buttonsCount}` : "",
+      hasSelection ? nextRun : "",
+      hasSelection ? repeat : "",
+      hasSelection ? mediaLine : "",
+      hasSelection ? `按钮数：${buttonsCount}` : "",
       "",
       "文案预览：",
       contentPreview
     ]
       .filter(Boolean)
       .join("\n");
-    await upsertHtml(ctx, text, buildBroadcastKeyboard({ canManage, hasDraft, canSend, isScheduled }));
+    await upsertHtml(ctx, text, buildBroadcastKeyboard({ canManage, hasSelection, isDraft, canSend, isScheduled }));
   };
 
   const renderBroadcastButtons = async (ctx: Context) => {
@@ -762,7 +795,11 @@ export const createTenantRenderers = (deps: {
       await upsertHtml(ctx, "🔒 仅管理员可配置推送按钮。", buildHelpKeyboard());
       return;
     }
-    const draft = await deps.deliveryService.getMyBroadcastDraft(userId).catch(() => null);
+    const key = toMetaKey(ctx.from.id, chatId);
+    const selectedId = deps.broadcastDraftStates.get(key)?.draftId;
+    const draft =
+      (selectedId ? await deps.deliveryService.getBroadcastById(userId, selectedId).catch(() => null) : null) ??
+      (await deps.deliveryService.getMyBroadcastDraft(userId).catch(() => null));
     if (!draft || draft.status !== "DRAFT") {
       await upsertHtml(ctx, "⚠️ 未找到可编辑的推送草稿。", buildHelpKeyboard());
       return;

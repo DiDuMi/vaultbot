@@ -37,6 +37,16 @@ export const getBroadcastTargetUserIds = async (prisma: PrismaClient, tenantId: 
   return users.map((u) => u.userId).filter((id) => !excluded.has(id));
 };
 
+export const computeNextBroadcastRunAt = (input: { previousNextRunAt: Date | null; repeatEveryMs: number; now?: Date }) => {
+  const nowMs = (input.now ?? new Date()).getTime();
+  const baseMs = input.previousNextRunAt?.getTime() ?? nowMs;
+  let nextMs = baseMs + input.repeatEveryMs;
+  while (nextMs <= nowMs) {
+    nextMs += input.repeatEveryMs;
+  }
+  return new Date(nextMs);
+};
+
 export const ensureTenantId = async (prisma: PrismaClient, config: { tenantCode: string; tenantName: string }) => {
   const tenant = await prisma.tenant.upsert({
     where: { code: config.tenantCode },

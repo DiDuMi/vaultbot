@@ -344,7 +344,13 @@ export const createTenantAdminInput = (deps: {
         await replyHtml(ctx, "⚠️ 时间格式错误，请使用 <code>YYYY-MM-DD HH:mm</code>。", { reply_markup: buildSettingsInputKeyboard() });
         return true;
       }
-      const nextRunAt = date.getTime() < Date.now() ? new Date() : date;
+      if (date.getTime() < Date.now()) {
+        await replyHtml(ctx, "⚠️ 定时时间不能早于当前时间，请重新输入未来时间。", {
+          reply_markup: buildSettingsInputKeyboard()
+        });
+        return true;
+      }
+      const nextRunAt = date;
       const result = await deliveryService.scheduleBroadcast(actorUserId, inputState.draftId, { nextRunAt });
       setSessionMode(key, "idle");
       await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
