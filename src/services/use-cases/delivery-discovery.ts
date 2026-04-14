@@ -18,6 +18,7 @@ export const createDeliveryDiscovery = (deps: {
     options?: { collectionId?: string | null }
   ) => {
     const tenantId = await deps.getTenantId();
+    const isTenantViewer = await deps.isTenantUserSafe(userId);
     const safeQuery = query.trim().slice(0, 100);
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize, { maxSize: 50 });
@@ -27,6 +28,7 @@ export const createDeliveryDiscovery = (deps: {
         ? {
             tenantId,
             searchable: true,
+            ...(isTenantViewer ? {} : { visibility: "PUBLIC" as const }),
             OR: [
               { title: { contains: safeQuery, mode: "insensitive" as const } },
               { description: { contains: safeQuery, mode: "insensitive" as const } }
@@ -36,6 +38,7 @@ export const createDeliveryDiscovery = (deps: {
             tenantId,
             searchable: true,
             collectionId,
+            ...(isTenantViewer ? {} : { visibility: "PUBLIC" as const }),
             OR: [
               { title: { contains: safeQuery, mode: "insensitive" as const } },
               { description: { contains: safeQuery, mode: "insensitive" as const } }
@@ -115,18 +118,26 @@ export const createDeliveryDiscovery = (deps: {
     return tag ? { tagId: tag.id, name: tag.name } : null;
   };
 
-  async function listTopTags(limit: number): Promise<{ tagId: string; name: string; count: number }[]>;
+  async function listTopTags(
+    limit: number,
+    options?: { viewerUserId?: string }
+  ): Promise<{ tagId: string; name: string; count: number }[]>;
   async function listTopTags(
     page: number,
-    pageSize: number
+    pageSize: number,
+    options?: { viewerUserId?: string }
   ): Promise<{ total: number; items: { tagId: string; name: string; count: number }[] }>;
-  async function listTopTags(limitOrPage: number, pageSize?: number) {
+  async function listTopTags(limitOrPage: number, pageSizeOrOptions?: number | { viewerUserId?: string }, options?: { viewerUserId?: string }) {
     const tenantId = await deps.getTenantId();
+    const pageSize = typeof pageSizeOrOptions === "number" ? pageSizeOrOptions : undefined;
+    const finalOptions = (typeof pageSizeOrOptions === "number" ? options : pageSizeOrOptions) ?? {};
+    const isTenantViewer = finalOptions.viewerUserId ? await deps.isTenantUserSafe(finalOptions.viewerUserId) : true;
+    const assetVisibilityWhere = isTenantViewer ? {} : { visibility: "PUBLIC" as const };
     if (typeof pageSize !== "number") {
       const safeLimit = normalizeLimit(limitOrPage, { defaultLimit: 20, maxLimit: 50 });
       const grouped = await deps.prisma.assetTag.groupBy({
         by: ["tagId"],
-        where: { tenantId, asset: { searchable: true } },
+        where: { tenantId, asset: { searchable: true, ...assetVisibilityWhere } },
         _count: { tagId: true },
         orderBy: [{ _count: { tagId: "desc" } }, { tagId: "asc" }],
         take: safeLimit
@@ -150,10 +161,10 @@ export const createDeliveryDiscovery = (deps: {
     }
     const safePage = normalizePage(limitOrPage);
     const safePageSize = normalizePageSize(pageSize, { defaultSize: 20, maxSize: 50 });
-    const where = { tenantId, asset: { searchable: true } };
+    const where = { tenantId, asset: { searchable: true, ...assetVisibilityWhere } };
     const [total, grouped] = await Promise.all([
       deps.prisma.tag.count({
-        where: { tenantId, assets: { some: { asset: { searchable: true } } } }
+        where: { tenantId, assets: { some: { asset: { searchable: true, ...assetVisibilityWhere } } } }
       }),
       deps.prisma.assetTag.groupBy({
         by: ["tagId"],
@@ -185,9 +196,15 @@ export const createDeliveryDiscovery = (deps: {
 
   const listAssetsByTagId = async (userId: string, tagId: string, page: number, pageSize: number) => {
     const tenantId = await deps.getTenantId();
+    const isTenantViewer = await deps.isTenantUserSafe(userId);
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize, { maxSize: 50 });
-    const where = { tenantId, searchable: true, tags: { some: { tagId } } };
+    const where = {
+      tenantId,
+      searchable: true,
+      ...(isTenantViewer ? {} : { visibility: "PUBLIC" as const }),
+      tags: { some: { tagId } }
+    };
     const [total, assets] = await Promise.all([
       deps.prisma.asset.count({ where }),
       deps.prisma.asset.findMany({

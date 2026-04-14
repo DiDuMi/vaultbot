@@ -75,11 +75,15 @@ export const createTagRenderers = (deps: {
     }
 
     const safePage = Number.isFinite(page) ? Math.max(1, Math.trunc(page)) : 1;
-    let data = await deps.deliveryService.listTopTags(safePage, TAG_INDEX_PAGE_SIZE).catch(() => ({ total: 0, items: [] }));
+    let data = await deps.deliveryService
+      .listTopTags(safePage, TAG_INDEX_PAGE_SIZE, { viewerUserId: userId })
+      .catch(() => ({ total: 0, items: [] }));
     const totalPages = Math.max(1, Math.ceil(data.total / TAG_INDEX_PAGE_SIZE));
     const currentPage = Math.min(safePage, totalPages);
     if (currentPage !== safePage) {
-      data = await deps.deliveryService.listTopTags(currentPage, TAG_INDEX_PAGE_SIZE).catch(() => ({ total: 0, items: [] }));
+      data = await deps.deliveryService
+        .listTopTags(currentPage, TAG_INDEX_PAGE_SIZE, { viewerUserId: userId })
+        .catch(() => ({ total: 0, items: [] }));
     }
 
     const content =

@@ -636,6 +636,72 @@ test("access: restricted asset is allowed for owner", async () => {
   assert.equal(result.status, "ok");
 });
 
+test("discovery: public viewer search only returns public assets", async () => {
+  const prisma = {
+    asset: {
+      count: async ({ where }: { where: { visibility?: "PUBLIC" } }) => {
+        assert.equal(where.visibility, "PUBLIC");
+        return 1;
+      },
+      findMany: async ({ where }: { where: { visibility?: "PUBLIC" } }) => {
+        assert.equal(where.visibility, "PUBLIC");
+        return [
+          {
+            id: "asset_public",
+            title: "Public title",
+            description: "Visible",
+            shareCode: "public-code",
+            uploadBatches: [{ userId: "publisher_1" }]
+          }
+        ];
+      }
+    },
+    event: {
+      create: async () => undefined
+    }
+  } as never;
+
+  const discovery = createDeliveryDiscovery({
+    prisma,
+    getTenantId: async () => "tenant_1",
+    isTenantUserSafe: async () => false,
+    startOfLocalDay: (date) => date
+  });
+
+  const result = await discovery.searchAssets("user_public", "title", 1, 10);
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.items.map((item) => item.assetId), ["asset_public"]);
+});
+
+test("discovery: public viewer tag index only counts public assets", async () => {
+  const prisma = {
+    assetTag: {
+      groupBy: async ({ where }: { where: { asset: { visibility?: "PUBLIC"; searchable: boolean } } }) => {
+        assert.equal(where.asset.visibility, "PUBLIC");
+        return [{ tagId: "tag_public", _count: { tagId: 2 } }];
+      }
+    },
+    tag: {
+      count: async ({ where }: { where: { assets: { some: { asset: { visibility?: "PUBLIC"; searchable: boolean } } } } }) => {
+        assert.equal(where.assets.some.asset.visibility, "PUBLIC");
+        return 1;
+      },
+      findMany: async () => [{ id: "tag_public", name: "公开" }]
+    }
+  } as never;
+
+  const discovery = createDeliveryDiscovery({
+    prisma,
+    getTenantId: async () => "tenant_1",
+    isTenantUserSafe: async () => false,
+    startOfLocalDay: (date) => date
+  });
+
+  const result = await discovery.listTopTags(1, 20, { viewerUserId: "user_public" });
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.items, [{ tagId: "tag_public", name: "公开", count: 2 }]);
+});
+
 registerDeliveryModuleTests(test);
 
 const main = async () => {

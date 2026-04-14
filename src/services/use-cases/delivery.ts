@@ -116,8 +116,12 @@ export type DeliveryTenantSettingsService = {
   getTagById: (tagId: string) => Promise<{ tagId: string; name: string } | null>;
   getTagByName: (name: string) => Promise<{ tagId: string; name: string } | null>;
   listTopTags: {
-    (limit: number): Promise<{ tagId: string; name: string; count: number }[]>;
-    (page: number, pageSize: number): Promise<{ total: number; items: { tagId: string; name: string; count: number }[] }>;
+    (limit: number, options?: { viewerUserId?: string }): Promise<{ tagId: string; name: string; count: number }[]>;
+    (
+      page: number,
+      pageSize: number,
+      options?: { viewerUserId?: string }
+    ): Promise<{ total: number; items: { tagId: string; name: string; count: number }[] }>;
   };
   listAssetsByTagId: (
     userId: string,
