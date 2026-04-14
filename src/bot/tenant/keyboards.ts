@@ -3,6 +3,14 @@ import { safeCallbackData, stripHtmlTags, truncatePlainText } from "./ui-utils";
 
 export const actionKeyboard = new InlineKeyboard().text("✅ 完成", "upload:commit").text("❌ 取消", "upload:cancel");
 
+const addBackHomeRow = (keyboard: InlineKeyboard, backText: string, backCallback: string) => {
+  return keyboard.text(backText, backCallback).text("🏠 首页", "home:back");
+};
+
+const addRefreshRow = (keyboard: InlineKeyboard, refreshCallback: string) => {
+  return keyboard.row().text("🔄 刷新", refreshCallback);
+};
+
 export const buildMainKeyboard = () => {
   return new Keyboard().text("分享").text("列表").text("搜索").row().text("足迹").text("我的").text("设置").resized();
 };
@@ -37,7 +45,7 @@ export const buildManageRecycleConfirmKeyboard = (assetId: string) => {
 
 export const buildRecycleBinKeyboard = (items: { assetId: string; title: string }[], page: number, totalPages: number) => {
   const current = Math.min(Math.max(page, 1), Math.max(totalPages, 1));
-  const keyboard = new InlineKeyboard().text("⬅️ 返回管理", "help:show").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回管理", "help:show");
   if (items.length > 0) {
     keyboard.row().text("♻️ 恢复本页", `asset:recycle:restore_page:${current}`);
   }
@@ -54,7 +62,7 @@ export const buildRecycleBinKeyboard = (items: { assetId: string; title: string 
       .text(`${current}/${totalPages}`, "asset:noop")
       .text("下一页 ➡️", current < totalPages ? `asset:recycle:list:${next}` : "asset:noop");
   }
-  keyboard.row().text("🔄 刷新", `asset:recycle:list:${current}`);
+  addRefreshRow(keyboard, `asset:recycle:list:${current}`);
   return keyboard;
 };
 
@@ -88,13 +96,13 @@ export const buildHelpKeyboard = () => {
     .row()
     .text("📊 统计", "home:stats")
     .text("🏆 排行", "home:rank")
-    .text("� 我的", "my:show")
+    .text("👤 我的", "my:show")
     .row()
     .text("🔕 通知", "notify:show");
 };
 
 export const buildFollowKeyboard = (options: { keywords: string[] }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "my:show").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "my:show");
   if (options.keywords.length >= 5) {
     keyboard.row().text("➕ 添加（已满）", "follow:noop");
   } else {
@@ -107,7 +115,7 @@ export const buildFollowKeyboard = (options: { keywords: string[] }) => {
   if (options.keywords.length > 0) {
     keyboard.row().text("🧹 清空", "follow:clear");
   }
-  keyboard.row().text("🔄 刷新", "follow:show");
+  addRefreshRow(keyboard, "follow:show");
   return keyboard;
 };
 
@@ -116,9 +124,7 @@ export const buildFollowInputKeyboard = () => {
 };
 
 export const buildNotifyKeyboard = (options: { followEnabled: boolean; commentEnabled: boolean }) => {
-  return new InlineKeyboard()
-    .text("⬅️ 返回", "my:show")
-    .text("🏠 首页", "home:back")
+  return addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "my:show")
     .row()
     .text(`关注通知：${options.followEnabled ? "开" : "关"}`, "notify:noop")
     .text(options.followEnabled ? "关闭" : "开启", options.followEnabled ? "notify:toggle:follow:0" : "notify:toggle:follow:1")
@@ -144,7 +150,7 @@ export const buildSettingsKeyboard = (
   options: { canManageAdmins: boolean; adminIds: string[]; canManageCollections: boolean },
   showMoreActions = false
 ) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:show").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:show");
   keyboard.row().text("🔎 搜索开放", "settings:search_mode").text("🙈 隐藏发布者", "settings:hide_publisher");
   keyboard.row().text("📁 分类", "settings:collections").text("📢 推送", "settings:broadcast");
   const sortedAdminIds = [...options.adminIds].sort((a, b) => {
@@ -205,7 +211,7 @@ export const buildAdminManageKeyboard = (options: { adminIds: string[]; page: nu
     }
   });
   const visible = sortedAdminIds.slice(offset, offset + pageSize);
-  const keyboard = new InlineKeyboard().text("⬅️ 返回设置", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回设置", "help:settings");
   keyboard.row().text("➕ 添加管理员", "settings:admin:add");
   for (const adminId of visible) {
     keyboard.row().text(`🗑 移除 ${adminId}`, `settings:admin:remove:${adminId}:${current}`);
@@ -217,7 +223,7 @@ export const buildAdminManageKeyboard = (options: { adminIds: string[]; page: nu
     const nextAction = current < totalPages ? `settings:admin:list:${next}` : "settings:admin:noop";
     keyboard.row().text("⬅️ 上一页", prevAction).text(`${current}/${totalPages}`, "settings:admin:noop").text("下一页 ➡️", nextAction);
   }
-  keyboard.row().text("🔄 刷新", `settings:admin:list:${current}`);
+  addRefreshRow(keyboard, `settings:admin:list:${current}`);
   return keyboard;
 };
 
@@ -239,7 +245,7 @@ export const buildVaultKeyboard = (options: {
     status: "ACTIVE" | "DEGRADED" | "BANNED";
   }>;
 }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:settings");
   if (options.canManage) {
     keyboard
       .row()
@@ -263,36 +269,36 @@ export const buildVaultKeyboard = (options: {
       }
     }
   }
-  keyboard.row().text("🔄 刷新", "settings:vault");
+  addRefreshRow(keyboard, "settings:vault");
   return keyboard;
 };
 
 export const buildProtectKeyboard = (options: { canManage: boolean; enabled: boolean }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:settings");
   if (options.canManage) {
     keyboard
       .row()
       .text(options.enabled ? "✅ 已开启" : "❌ 未开启", "protect:noop")
       .text(options.enabled ? "关闭" : "开启", options.enabled ? "protect:set:0" : "protect:set:1");
   }
-  keyboard.row().text("🔄 刷新", "settings:protect");
+  addRefreshRow(keyboard, "settings:protect");
   return keyboard;
 };
 
 export const buildHidePublisherKeyboard = (options: { canManage: boolean; enabled: boolean }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:settings");
   if (options.canManage) {
     keyboard
       .row()
       .text(options.enabled ? "✅ 已开启" : "❌ 未开启", "hide_publisher:noop")
       .text(options.enabled ? "关闭" : "开启", options.enabled ? "hide_publisher:set:0" : "hide_publisher:set:1");
   }
-  keyboard.row().text("🔄 刷新", "settings:hide_publisher");
+  addRefreshRow(keyboard, "settings:hide_publisher");
   return keyboard;
 };
 
 export const buildAutoCategorizeKeyboard = (options: { canManage: boolean; enabled: boolean }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:settings");
   if (options.canManage) {
     keyboard
       .row()
@@ -301,24 +307,24 @@ export const buildAutoCategorizeKeyboard = (options: { canManage: boolean; enabl
     keyboard.row().text("✏️ 设置关键词", "auto_categorize:rules:edit");
     keyboard.row().text("🧹 清空关键词", "auto_categorize:rules:clear");
   }
-  keyboard.row().text("🔄 刷新", "settings:auto_categorize");
+  addRefreshRow(keyboard, "settings:auto_categorize");
   return keyboard;
 };
 
 export const buildRankPublicKeyboard = (options: { canManage: boolean; enabled: boolean }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:settings");
   if (options.canManage) {
     keyboard
       .row()
       .text(options.enabled ? "✅ 已开启" : "❌ 未开启", "rank_public:noop")
       .text(options.enabled ? "关闭" : "开启", options.enabled ? "rank_public:set:0" : "rank_public:set:1");
   }
-  keyboard.row().text("🔄 刷新", "settings:rank_public");
+  addRefreshRow(keyboard, "settings:rank_public");
   return keyboard;
 };
 
 export const buildSearchModeKeyboard = (options: { canManage: boolean; mode: "OFF" | "ENTITLED_ONLY" | "PUBLIC" }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:settings");
   if (options.canManage) {
     keyboard.row().text("当前模式", "search_mode:noop");
     keyboard
@@ -327,7 +333,7 @@ export const buildSearchModeKeyboard = (options: { canManage: boolean; mode: "OF
       .text(options.mode === "ENTITLED_ONLY" ? "✅ 仅租户可见" : "仅租户可见", "search_mode:set:ENTITLED_ONLY")
       .text(options.mode === "OFF" ? "✅ 关闭" : "关闭", "search_mode:set:OFF");
   }
-  keyboard.row().text("🔄 刷新", "settings:search_mode");
+  addRefreshRow(keyboard, "settings:search_mode");
   return keyboard;
 };
 
@@ -372,15 +378,15 @@ export const buildBroadcastKeyboard = (options: {
   isScheduled: boolean;
   showListEntry?: boolean;
 }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回设置", "help:settings");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回设置", "help:settings");
   if (!options.canManage) {
-    keyboard.row().text("🔄 刷新", "settings:broadcast");
+    addRefreshRow(keyboard, "settings:broadcast");
     return keyboard;
   }
   if (!options.hasSelection) {
     keyboard.row().text("➕ 新建草稿", "broadcast:create");
     keyboard.row().text("🗂 推送列表", "broadcast:list");
-    keyboard.row().text("🔄 刷新", "settings:broadcast");
+    addRefreshRow(keyboard, "settings:broadcast");
     return keyboard;
   }
   if (options.isDraft) {
@@ -401,23 +407,23 @@ export const buildBroadcastKeyboard = (options: {
   if (options.showListEntry !== false) {
     keyboard.row().text("🗂 推送列表", "broadcast:list").text("➕ 新建草稿", "broadcast:create");
   }
-  keyboard.row().text("🔄 刷新", "settings:broadcast");
+  addRefreshRow(keyboard, "settings:broadcast");
   return keyboard;
 };
 
 export const buildBroadcastButtonsKeyboard = (options: { buttons: { text: string; url: string }[] }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "settings:broadcast").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "settings:broadcast");
   keyboard.row().text("➕ 添加按钮", "broadcast:buttons:add");
   options.buttons.forEach((b, index) => {
     const title = truncatePlainText(b.text, 16);
     keyboard.row().text(`🗑 ${title}`, `broadcast:buttons:remove:${index}`);
   });
-  keyboard.row().text("🔄 刷新", "broadcast:edit:buttons");
+  addRefreshRow(keyboard, "broadcast:edit:buttons");
   return keyboard;
 };
 
 export const buildBroadcastPreviewKeyboard = (options: { buttons: { text: string; url: string }[] }) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "settings:broadcast").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "settings:broadcast");
   if (options.buttons.length > 0) {
     for (const b of options.buttons) {
       keyboard.row().url(b.text, b.url);
@@ -427,16 +433,16 @@ export const buildBroadcastPreviewKeyboard = (options: { buttons: { text: string
 };
 
 export const buildWelcomeKeyboard = (canManage: boolean) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:settings");
   if (canManage) {
     keyboard.row().text("✏️ 修改", "welcome:edit").text("↩️ 重置", "welcome:reset");
   }
-  keyboard.row().text("🔄 刷新", "settings:welcome");
+  addRefreshRow(keyboard, "settings:welcome");
   return keyboard;
 };
 
 export const buildAdKeyboard = (canManage: boolean, hasAdButton: boolean) => {
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:settings");
   if (canManage) {
     keyboard
       .row()
@@ -449,7 +455,7 @@ export const buildAdKeyboard = (canManage: boolean, hasAdButton: boolean) => {
     }
     keyboard.row().text("↩️ 重置默认", "ads:reset");
   }
-  keyboard.row().text("🔄 刷新", "settings:ads");
+  addRefreshRow(keyboard, "settings:ads");
   return keyboard;
 };
 
@@ -476,7 +482,7 @@ export const buildCollectionsKeyboard = (options: {
   const current = Math.min(Math.max(options.page, 1), totalPages);
   const offset = (current - 1) * pageSize;
   const visible = options.collections.slice(offset, offset + pageSize);
-  const keyboard = new InlineKeyboard().text("⬅️ 返回", "help:settings").text("🏠 首页", "home:back");
+  const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:settings");
   if (options.canManage) {
     keyboard.row().text("➕ 新建分类", "collections:create");
   }
@@ -501,7 +507,7 @@ export const buildCollectionsKeyboard = (options: {
     const nextAction = current < totalPages ? `collections:page:${next}` : "collections:noop";
     keyboard.row().text("⬅️ 上一页", prevAction).text(`${current}/${totalPages}`, "collections:noop").text("下一页 ➡️", nextAction);
   }
-  keyboard.row().text("🔄 刷新", `collections:page:${current}`);
+  addRefreshRow(keyboard, `collections:page:${current}`);
   return keyboard;
 };
 
