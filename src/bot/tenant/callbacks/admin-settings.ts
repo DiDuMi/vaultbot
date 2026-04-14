@@ -68,7 +68,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可修改欢迎词。", buildHelpKeyboard());
       return;
     }
@@ -169,7 +169,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可修改自动归类规则。", buildHelpKeyboard());
       return;
     }
@@ -273,7 +273,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可添加备份存储群。", new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
       return;
     }

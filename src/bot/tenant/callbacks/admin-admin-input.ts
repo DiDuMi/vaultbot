@@ -24,7 +24,7 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const canManageAdmins = await deliveryService.canManageAdmins(actorUserId);
+    const canManageAdmins = await deliveryService.canManageProject(actorUserId);
     if (!canManageAdmins) {
       await upsertHtml(ctx, buildBlockingHint("无权限：仅管理员可管理管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
       return;
@@ -97,7 +97,7 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const canManageAdmins = await deliveryService.canManageAdmins(actorUserId);
+    const canManageAdmins = await deliveryService.canManageProject(actorUserId);
     if (!canManageAdmins) {
       await upsertHtml(ctx, buildBlockingHint("无权限：仅管理员可添加管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
       return;
@@ -181,7 +181,7 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const canManageAdmins = await deliveryService.canManageAdmins(actorUserId);
+    const canManageAdmins = await deliveryService.canManageProject(actorUserId);
     if (!canManageAdmins) {
       await ctx.answerCallbackQuery();
       await upsertHtml(ctx, buildBlockingHint("无权限：仅管理员可移除管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
@@ -217,7 +217,7 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const canManageAdmins = await deliveryService.canManageAdmins(actorUserId);
+    const canManageAdmins = await deliveryService.canManageProject(actorUserId);
     if (!canManageAdmins) {
       await ctx.answerCallbackQuery();
       await upsertHtml(ctx, buildBlockingHint("无权限：仅管理员可移除管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));

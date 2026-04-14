@@ -130,6 +130,7 @@ test("admin-input: broadcastScheduleAt 时间格式错误会提示", async () =>
   broadcastInputStates.set(key, { mode: "broadcastScheduleAt", draftId: "d1" });
 
   const deliveryService = {
+    canManageProject: async () => true,
     canManageAdmins: async () => true,
     scheduleBroadcast: async () => ({ message: "ok" })
   } as never;
@@ -173,6 +174,7 @@ test("admin-input: broadcastScheduleAt 过去时间不会立即发送", async ()
 
   let scheduled = false;
   const deliveryService = {
+    canManageProject: async () => true,
     canManageAdmins: async () => true,
     scheduleBroadcast: async () => {
       scheduled = true;
@@ -215,6 +217,7 @@ test("admin-input: welcome 清除会写入 null", async () => {
 
   const welcomeCalls: Array<unknown[]> = [];
   const deliveryService = {
+    canManageProject: async () => true,
     canManageAdmins: async () => true,
     setTenantStartWelcomeHtml: async (...args: unknown[]) => {
       welcomeCalls.push(args);

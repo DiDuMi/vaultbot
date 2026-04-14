@@ -85,7 +85,7 @@ export const createTenantAdminInput = (deps: {
       return true;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
@@ -141,7 +141,7 @@ export const createTenantAdminInput = (deps: {
       return true;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
@@ -197,7 +197,7 @@ export const createTenantAdminInput = (deps: {
       return true;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
@@ -266,7 +266,7 @@ export const createTenantAdminInput = (deps: {
       return true;
     }
     const actorUserId = String(ctx.from.id);
-    const canManage = await deliveryService.canManageAdmins(actorUserId);
+    const canManage = await deliveryService.canManageProject(actorUserId);
     if (!canManage) {
       setSessionMode(key, "idle");
       await replyHtml(ctx, "🔒 无权限：仅管理员可编辑推送。", { reply_markup: buildHelpKeyboard() });
@@ -404,7 +404,7 @@ export const createTenantAdminInput = (deps: {
       return true;
     }
     const actorUserId = String(ctx.from.id);
-    const canManage = await deliveryService.canManageAdmins(actorUserId);
+    const canManage = await deliveryService.canManageProject(actorUserId);
     if (!canManage) {
       setSessionMode(key, "idle");
       await replyHtml(ctx, "🔒 无权限：仅管理员可修改设置。", { reply_markup: buildHelpKeyboard() });

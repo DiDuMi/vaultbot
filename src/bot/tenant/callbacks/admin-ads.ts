@@ -23,7 +23,7 @@ export const registerAdsCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
       return;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可配置广告。", new InlineKeyboard().text("⬅️ 返回广告配置", "settings:ads"));
       return;
     }

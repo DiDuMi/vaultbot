@@ -126,7 +126,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可编辑推送。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
     }
@@ -169,7 +169,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可配置推送按钮。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
     }
@@ -283,7 +283,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可发起推送。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
     }
@@ -316,7 +316,7 @@ export const registerBroadcastCallbacks = (bot: Bot, deps: TenantCallbackDeps) =
       return;
     }
     const actorUserId = String(ctx.from.id);
-    if (!(await deliveryService.canManageAdmins(actorUserId))) {
+    if (!(await deliveryService.canManageProject(actorUserId))) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可发起推送。", new InlineKeyboard().text("⬅️ 返回推送", "settings:broadcast"));
       return;
     }
