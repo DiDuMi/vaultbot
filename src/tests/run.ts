@@ -27,6 +27,7 @@ import { computeNextBroadcastRunAt } from "../worker/helpers";
 import { buildAssetActionLine, buildPreviewLinkLine } from "../bot/tenant/index";
 import { buildFootprintKeyboard, buildRankingKeyboard } from "../bot/tenant/keyboards";
 import { createTenantRenderers } from "../bot/tenant/renderers";
+import { registerTenantMessageHandlers } from "../bot/tenant/register-messages";
 import { createDeliveryDiscovery } from "../services/use-cases/delivery-discovery";
 import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
 import { createDeliveryCore } from "../services/use-cases/delivery-core";
@@ -328,6 +329,91 @@ test("social: 评论输入中发送 /start 会退出评论模式并不发表评�
   assert.equal(handled, true);
   assert.equal(modes.get(key), "idle");
   assert.ok(calls.some((c) => c.method === "reply" && String(c.args[0]).includes("已退出评论模式")));
+});
+
+test("messages: search mode remains active after consecutive queries", async () => {
+  const textHandlers: Array<(ctx: any) => Promise<void>> = [];
+  const bot = {
+    on: (event: string, handler: (ctx: any) => Promise<void>) => {
+      if (event === "message:text") {
+        textHandlers.push(handler);
+      }
+    }
+  } as any;
+
+  const sessionModes = new Map<string, string>();
+  const { store: historyScopeStates } = createStore<"community" | "mine">();
+  const { store: historyDateStates } = createStore<Date>();
+  const { store: searchStates } = createStore<{ query: string }>();
+  const { store: collectionInputStates } = createStore<any>();
+  const { store: adminInputStates } = createStore<any>();
+  const { store: commentInputStates } = createStore<any>();
+  const searchCalls: string[] = [];
+
+  registerTenantMessageHandlers(bot, {
+    deliveryService: null,
+    mainKeyboard: new Keyboard().text("菜单"),
+    getDefaultKeyboard: async () => new Keyboard().text("菜单"),
+    isCancelText: () => false,
+    exitCurrentInputState: async () => undefined,
+    handleMetaInput: async () => false,
+    handleBroadcastPhoto: async () => undefined,
+    handleBroadcastVideo: async () => undefined,
+    handleBroadcastDocument: async () => undefined,
+    handleBroadcastText: async () => false,
+    handleSettingsText: async () => false,
+    handleCommentInputText: async () => false,
+    notifyCommentTargets: async () => undefined,
+    renderComments: async () => undefined,
+    renderFollow: async () => undefined,
+    renderHistory: async () => undefined,
+    renderSearch: async (_ctx, query) => {
+      searchCalls.push(query);
+    },
+    renderFootprint: async () => undefined,
+    renderMy: async () => undefined,
+    renderSettings: async () => undefined,
+    renderTagIndex: async () => undefined,
+    renderTagAssets: async () => undefined,
+    renderUploadStatus: async () => undefined,
+    renderCollections: async () => undefined,
+    openShareCode: async () => undefined,
+    trackStartPayloadVisit: async () => undefined,
+    handleStartPayloadEntry: async () => false,
+    getSessionMode: (key: string) => sessionModes.get(key) ?? "idle",
+    ensureSessionMode: (key: string) => sessionModes.get(key) ?? "idle",
+    setSessionMode: (key: string, mode: string) => {
+      sessionModes.set(key, mode);
+    },
+    setActive: () => undefined,
+    historyScopeStates,
+    historyDateStates,
+    searchStates,
+    collectionInputStates,
+    adminInputStates,
+    commentInputStates,
+    updateVaultTopicIndexByCollection: async () => undefined
+  });
+
+  const textHandler = textHandlers[0];
+  assert.ok(textHandler);
+
+  const key = toMetaKey(1, 2);
+  sessionModes.set(key, "searchInput");
+  const ctx = {
+    from: { id: 1, first_name: "U" },
+    chat: { id: 2 },
+    me: { username: "bot" },
+    message: { text: "原神" },
+    reply: async () => ({ message_id: 1 })
+  } as any;
+
+  await textHandler(ctx);
+  ctx.message.text = "鸭鸭幼稚园";
+  await textHandler(ctx);
+
+  assert.deepEqual(searchCalls, ["原神", "鸭鸭幼稚园"]);
+  assert.equal(sessionModes.get(key), "searchInput");
 });
 
 test("ui-utils: extractStartPayloadFromText 能解析 t.me start 链接", () => {

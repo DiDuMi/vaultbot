@@ -354,9 +354,6 @@ export const registerTenantMessageHandlers = (
       if (mode === "searchInput" && !isTopLevelCommand && !text.startsWith("/") && text.trim().length >= 1) {
         const query = text.trim();
         deps.searchStates.set(key, { query });
-        if (query.length >= 2) {
-          deps.setSessionMode(key, "idle");
-        }
         await deps.renderSearch(ctx, query, 1, "reply");
         return;
       }
@@ -424,7 +421,7 @@ export const registerTenantMessageHandlers = (
       if (ctx.from && ctx.chat) {
         const key = toMetaKey(ctx.from.id, ctx.chat.id);
         deps.searchStates.set(key, { query });
-        deps.setSessionMode(key, query.length >= 2 ? "idle" : "searchInput");
+        deps.setSessionMode(key, "searchInput");
       }
       await deps.renderSearch(ctx, query, 1, "reply");
       return;
