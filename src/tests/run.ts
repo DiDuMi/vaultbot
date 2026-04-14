@@ -858,6 +858,35 @@ test("renderers: vault settings become overview-only in single-owner mode", asyn
   }
 });
 
+test("renderers: help copy uses project-member wording in single-owner mode", async () => {
+  const previous = process.env.SINGLE_OWNER_MODE;
+  process.env.SINGLE_OWNER_MODE = "1";
+  try {
+    const { ctx, calls } = createMockCtx();
+    const { store: broadcastDraftStates } = createStore<{ draftId: string }>();
+    const { store: rankingViewStates } = createStore<{ range: "today" | "week" | "month"; metric: "open" | "visit" | "like" | "comment" }>();
+    const renderers = createTenantRenderers({
+      deliveryService: {
+        isTenantUser: async () => true,
+        getTenantSearchMode: async () => "ENTITLED_ONLY",
+        getTenantPublicRankingEnabled: async () => false
+      } as never,
+      mainKeyboard: new Keyboard().text("菜单"),
+      syncSessionForView: () => undefined,
+      broadcastDraftStates,
+      rankingViewStates,
+      formatLocalDateTime: () => "x"
+    });
+
+    await renderers.renderHelp(ctx);
+    const text = String(calls.at(-1)?.args[0] ?? "");
+    assert.ok(text.includes("项目成员"));
+    assert.equal(text.includes("租户）"), false);
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previous;
+  }
+});
+
 test("integration: 交付流程在副本未就绪时返回提示", async () => {
   const { ctx, calls } = createMockCtx();
   const open = createOpenHandler({

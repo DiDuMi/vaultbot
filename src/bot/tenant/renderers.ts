@@ -53,6 +53,7 @@ export const createTenantRenderers = (deps: {
 
   const getManagerLabel = () => (isSingleOwnerModeEnabled() ? "项目拥有者" : "管理员");
   const getMemberLabel = () => (isSingleOwnerModeEnabled() ? "项目成员" : "租户成员");
+  const getMemberScopeLabel = () => (isSingleOwnerModeEnabled() ? "项目成员" : "租户");
 
   const renderStats = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
@@ -61,7 +62,7 @@ export const createTenantRenderers = (deps: {
       return;
     }
     if (!ctx.from || !(await deps.deliveryService.isTenantUser(String(ctx.from.id)))) {
-      await upsertHtml(ctx, "🔒 仅租户可查看统计。", buildHomeKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可查看统计。`, buildHomeKeyboard());
       return;
     }
     const stats = await deps.deliveryService.getTenantStats();
@@ -103,7 +104,7 @@ export const createTenantRenderers = (deps: {
     if (!isTenant) {
       const enabled = await deps.deliveryService.getTenantPublicRankingEnabled().catch(() => false);
       if (!enabled) {
-        await upsertHtml(ctx, "🔒 租户未开放排行。", new InlineKeyboard().text("👣 足迹", "user:history"));
+        await upsertHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放排行。`, new InlineKeyboard().text("👣 足迹", "user:history"));
         return;
       }
     }
@@ -203,12 +204,12 @@ export const createTenantRenderers = (deps: {
         isSingleOwnerModeEnabled()
           ? "在 ⚙️ 设置 管理分类、欢迎词、广告和内容开关；多人治理入口已收起。"
           : "在 ⚙️ 设置 管理管理员/分类/欢迎词/广告等；统计与排行可在设置页查看或点按钮进入。",
-        rankPublic ? "提示：当前已对用户开放 🏆 排行。" : "提示：当前 🏆 排行 仅租户可见。",
+        rankPublic ? "提示：当前已对用户开放 🏆 排行。" : `提示：当前 🏆 排行 仅${getMemberScopeLabel()}可见。`,
         searchMode === "PUBLIC"
           ? "提示：当前已对用户开放 🔎 搜索。"
           : searchMode === "OFF"
             ? "提示：当前已关闭 🔎 搜索。"
-            : "提示：当前 🔎 搜索 仅租户可用。"
+            : `提示：当前 🔎 搜索 仅${getMemberScopeLabel()}可用。`
       ]
         .filter(Boolean)
         .join("\n");
@@ -221,7 +222,7 @@ export const createTenantRenderers = (deps: {
         ? ["可直接发送关键词搜索，或发送：搜索 关键词。", "例如：搜索 教程。"].join("\n")
         : searchMode === "OFF"
           ? "当前未开放搜索；你可以用 📚 列表 或发送 #标签 浏览内容。"
-          : "搜索仅对租户开放；你可以用 📚 列表 或发送 #标签 浏览内容。";
+          : `搜索仅对${getMemberScopeLabel()}开放；你可以用 📚 列表 或发送 #标签 浏览内容。`;
     const text = [
       `📖 ${escapeHtml(botName)} 使用说明`,
       "",
@@ -355,7 +356,7 @@ export const createTenantRenderers = (deps: {
     const userId = String(ctx.from.id);
     const isTenant = await deps.deliveryService.isTenantUser(userId);
     if (!isTenant) {
-      await upsertHtml(ctx, "🔒 仅租户可打开设置。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可打开设置。`, buildHelpKeyboard());
       return;
     }
     const canManageAdmins = await deps.deliveryService.canManageAdmins(userId);
@@ -427,7 +428,7 @@ export const createTenantRenderers = (deps: {
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isTenantUser(userId))) {
-      await upsertHtml(ctx, "🔒 仅租户可配置存储群。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置存储群。`, buildHelpKeyboard());
       return;
     }
     const singleOwnerMode = isSingleOwnerModeEnabled();
@@ -480,7 +481,7 @@ export const createTenantRenderers = (deps: {
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isTenantUser(userId))) {
-      await upsertHtml(ctx, "🔒 仅租户可配置欢迎词。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置欢迎词。`, buildHelpKeyboard());
       return;
     }
     const canManage = await deps.deliveryService.canManageAdmins(userId);
@@ -509,7 +510,7 @@ export const createTenantRenderers = (deps: {
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isTenantUser(userId))) {
-      await upsertHtml(ctx, "🔒 仅租户可配置广告。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置广告。`, buildHelpKeyboard());
       return;
     }
     const canManage = await deps.deliveryService.canManageAdmins(userId);
@@ -547,7 +548,7 @@ export const createTenantRenderers = (deps: {
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isTenantUser(userId))) {
-      await upsertHtml(ctx, "🔒 仅租户可配置内容保护。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置内容保护。`, buildHelpKeyboard());
       return;
     }
     const canManage = await deps.deliveryService.canManageAdmins(userId);
@@ -576,7 +577,7 @@ export const createTenantRenderers = (deps: {
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isTenantUser(userId))) {
-      await upsertHtml(ctx, "🔒 仅租户可配置隐藏发布者。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置隐藏发布者。`, buildHelpKeyboard());
       return;
     }
     const canManage = await deps.deliveryService.canManageAdmins(userId);
@@ -586,7 +587,7 @@ export const createTenantRenderers = (deps: {
       "",
       `当前状态：${enabled ? "已开启" : "未开启"}`,
       "",
-      "开启后：访客与普通用户打开/搜索/查看列表时不展示“发布者”信息；租户管理员与发布者本人仍可见。",
+      `开启后：访客与普通用户打开/搜索/查看列表时不展示“发布者”信息；${getManagerLabel()}与发布者本人仍可见。`,
       "",
       canManage ? "点击按钮开启/关闭。" : "🔒 仅管理员可修改。"
     ].join("\n");
@@ -605,7 +606,7 @@ export const createTenantRenderers = (deps: {
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isTenantUser(userId))) {
-      await upsertHtml(ctx, "🔒 仅租户可配置自动归类。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置自动归类。`, buildHelpKeyboard());
       return;
     }
     const canManage = await deps.deliveryService.canManageAdmins(userId);
@@ -653,7 +654,7 @@ export const createTenantRenderers = (deps: {
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isTenantUser(userId))) {
-      await upsertHtml(ctx, "🔒 仅租户可配置排行开放。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置排行开放。`, buildHelpKeyboard());
       return;
     }
     const canManage = await deps.deliveryService.canManageAdmins(userId);
@@ -661,9 +662,9 @@ export const createTenantRenderers = (deps: {
     const text = [
       "🏆 排行开放",
       "",
-      `当前状态：${enabled ? "已对用户开放" : "仅租户可见"}`,
+      `当前状态：${enabled ? "已对用户开放" : `仅${getMemberScopeLabel()}可见`}`,
       "",
-      "开启后：非租户用户也可以查看“🏆 排行”（今日/本周/本月），并可点击查看内容。",
+      `开启后：非${getMemberScopeLabel()}用户也可以查看“🏆 排行”（今日/本周/本月），并可点击查看内容。`,
       "",
       canManage ? "点击按钮开启/关闭。" : "🔒 仅管理员可修改。"
     ].join("\n");
@@ -682,19 +683,19 @@ export const createTenantRenderers = (deps: {
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isTenantUser(userId))) {
-      await upsertHtml(ctx, "🔒 仅租户可配置搜索开放。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置搜索开放。`, buildHelpKeyboard());
       return;
     }
     const canManage = await deps.deliveryService.canManageAdmins(userId);
     const mode = await deps.deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
     const statusText =
-      mode === "PUBLIC" ? "已对用户开放" : mode === "OFF" ? "已关闭" : "仅租户可见";
+      mode === "PUBLIC" ? "已对用户开放" : mode === "OFF" ? "已关闭" : `仅${getMemberScopeLabel()}可见`;
     const text = [
       "🔎 搜索开放",
       "",
       `当前状态：${statusText}`,
       "",
-      "对用户开放后：非租户用户可以直接发送关键词搜索内容，也可以发送 #标签 查看合集。",
+      `对用户开放后：非${getMemberScopeLabel()}用户可以直接发送关键词搜索内容，也可以发送 #标签 查看合集。`,
       "",
       canManage ? "点击按钮切换模式。" : "🔒 仅管理员可修改。"
     ].join("\n");
@@ -718,7 +719,7 @@ export const createTenantRenderers = (deps: {
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isTenantUser(userId))) {
-      await upsertHtml(ctx, "🔒 仅租户可使用推送。", buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可使用推送。`, buildHelpKeyboard());
       return;
     }
     const canManage = await deps.deliveryService.canManageAdmins(userId);
