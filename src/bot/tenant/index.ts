@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import type { Bot, Context } from "grammy";
 import type { Message } from "grammy/types";
 import { logError, logErrorThrottled } from "../../infra/logging";
+import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
 import { withTelegramRetry } from "../../infra/telegram";
 import type { DeliveryService, UploadMessage, UploadService } from "../../services/use-cases";
 import { createUploadBatchStore } from "../../services/use-cases";
@@ -245,6 +246,7 @@ export const registerTenantBot = (
   service: UploadService,
   deliveryService: DeliveryService | null
 ) => {
+  const getMemberScopeLabel = () => (isSingleOwnerModeEnabled() ? "项目成员" : "租户");
   const mainKeyboard = buildMainKeyboard();
   const userKeyboard = buildUserKeyboard();
   const isCancelText = (value: string) => {
@@ -476,7 +478,7 @@ export const registerTenantBot = (
     }
     const userId = String(ctx.from.id);
     if (!(await deliveryService.isTenantUser(userId))) {
-      await replyHtml(ctx, "🔒 仅租户可使用分类。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, `🔒 仅${getMemberScopeLabel()}可使用分类。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
     const key = toMetaKey(ctx.from.id, chatId);
@@ -994,14 +996,14 @@ export const registerTenantBot = (
     const userId = String(ctx.from.id);
     const searchMode = await deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
     if (searchMode === "OFF") {
-      await replyHtml(ctx, "🔒 租户已关闭搜索。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}已关闭搜索。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
     const isTenant = await deliveryService.isTenantUser(userId).catch(() => false);
     const canManageViewer = isTenant ? await deliveryService.canManageAdmins(userId).catch(() => false) : false;
     if (!isTenant) {
       if (searchMode !== "PUBLIC") {
-        await replyHtml(ctx, "🔒 租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
+        await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放搜索。`, { reply_markup: buildHelpKeyboard() });
         return;
       }
     }
@@ -1034,14 +1036,14 @@ export const registerTenantBot = (
     const userId = String(ctx.from.id);
     const searchMode = await deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
     if (searchMode === "OFF") {
-      await replyHtml(ctx, "🔒 租户已关闭搜索。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}已关闭搜索。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
     const isTenant = await deliveryService.isTenantUser(userId).catch(() => false);
     const canManageViewer = isTenant ? await deliveryService.canManageAdmins(userId).catch(() => false) : false;
     if (!isTenant) {
       if (searchMode !== "PUBLIC") {
-        await replyHtml(ctx, "🔒 租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
+        await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放搜索。`, { reply_markup: buildHelpKeyboard() });
         return;
       }
     }

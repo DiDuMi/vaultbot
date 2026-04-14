@@ -1,5 +1,6 @@
 import type { Bot, Context } from "grammy";
 import { logError, logErrorThrottled } from "../../infra/logging";
+import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
 import type { DeliveryService } from "../../services/use-cases";
 import {
   buildDbDisabledHint,
@@ -85,6 +86,8 @@ export const registerTenantMessageHandlers = (
     updateVaultTopicIndexByCollection: (ctx: Context, collectionId: string, title: string) => Promise<void>;
   }
 ) => {
+  const getMemberScopeLabel = () => (isSingleOwnerModeEnabled() ? "项目成员" : "租户");
+  const getManagerLabel = () => (isSingleOwnerModeEnabled() ? "项目拥有者" : "管理员");
   bot.on("message:photo", async (ctx) => {
     await deps.handleBroadcastPhoto(ctx);
   });
@@ -313,7 +316,7 @@ export const registerTenantMessageHandlers = (
         const canManageAdmins = await deps.deliveryService.canManageAdmins(actorUserId);
         if (!canManageAdmins) {
           deps.setSessionMode(key, "idle");
-          await replyHtml(ctx, "🔒 无权限：仅管理员可添加管理员。", { reply_markup: buildHelpKeyboard() });
+          await replyHtml(ctx, `🔒 无权限：仅${getManagerLabel()}可添加管理员。`, { reply_markup: buildHelpKeyboard() });
           return;
         }
         const id = text.replace(/\s+/g, "");
