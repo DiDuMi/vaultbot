@@ -960,6 +960,7 @@ test("renderers: help copy uses project-member wording in single-owner mode", as
 test("integration: 交付流程在副本未就绪时返回提示", async () => {
   const { ctx, calls } = createMockCtx();
   const open = createOpenHandler({
+    getProjectProtectContentEnabled: async () => false,
     getTenantProtectContentEnabled: async () => false,
     selectReplicas: async () => ({ status: "pending", message: "副本写入中" }),
     resolveShareCode: async () => null

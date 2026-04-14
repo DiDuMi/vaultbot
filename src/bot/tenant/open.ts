@@ -201,7 +201,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
       return "db_disabled" as const;
     }
     try {
-      const protectContent = await deliveryService.getTenantProtectContentEnabled().catch(() => false);
+      const protectContent = await deliveryService.getProjectProtectContentEnabled().catch(() => false);
       const selection = await deliveryService.selectReplicas(String(ctx.from.id), assetId);
       if (selection.status !== "ready") {
         await replyHtml(ctx, escapeHtml(selection.message));
@@ -370,7 +370,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
         .join("\n");
       const adConfig =
         totalPages > 1
-          ? await deliveryService.getTenantDeliveryAdConfig().catch(() => ({
+          ? await deliveryService.getProjectDeliveryAdConfig().catch(() => ({
               prevText: "⬅️ 上一页",
               nextText: "下一组 ➡️",
               adButtonText: null,

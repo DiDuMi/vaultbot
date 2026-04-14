@@ -370,7 +370,7 @@ export const shouldShowPublisherLine = async (options: {
   if (!options.deliveryService || !options.viewerUserId) {
     return true;
   }
-  const enabled = await options.deliveryService.getTenantHidePublisherEnabled().catch(() => false);
+  const enabled = await options.deliveryService.getProjectHidePublisherEnabled().catch(() => false);
   if (!enabled) {
     return true;
   }
