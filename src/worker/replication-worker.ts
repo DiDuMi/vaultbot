@@ -14,8 +14,12 @@ export const createReplicateBatch = (deps: {
     threadId?: number
   ) => Promise<Array<{ message_id: number }>>;
 }) => {
+  const isSingleOwnerModeEnabled = () => {
+    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  };
   return async (batchId: string, options?: { includeOptional?: boolean }) => {
-    const includeOptional = options?.includeOptional !== false;
+    const includeOptional = isSingleOwnerModeEnabled() ? false : options?.includeOptional !== false;
     const batch = await deps.prisma.uploadBatch.findUnique({
       where: { id: batchId },
       include: { items: { orderBy: { createdAt: "asc" } } }
@@ -84,7 +88,11 @@ export const createReplicateBatch = (deps: {
       .then((row) => row?.value ?? null)
       .catch(() => null);
     const parsedMin = rawMinReplicas ? Number(rawMinReplicas) : 1;
-    const minReplicas = !Number.isFinite(parsedMin) ? 1 : Math.min(3, Math.max(1, Math.trunc(parsedMin)));
+    const minReplicas = isSingleOwnerModeEnabled()
+      ? 1
+      : !Number.isFinite(parsedMin)
+        ? 1
+        : Math.min(3, Math.max(1, Math.trunc(parsedMin)));
 
     if (targets.length < minReplicas) {
       const message = `鍙敤瀛樺偍缇や笉瓒筹細褰撳墠 ${targets.length} 涓紝瑕佹眰鏈€灏?${minReplicas} 涓€俙`;

@@ -29,9 +29,11 @@ import { buildFootprintKeyboard, buildRankingKeyboard } from "../bot/tenant/keyb
 import { createTenantRenderers } from "../bot/tenant/renderers";
 import { createDeliveryDiscovery } from "../services/use-cases/delivery-discovery";
 import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
+import { createDeliveryCore } from "../services/use-cases/delivery-core";
 import { createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
 import { createDeliveryReplicaSelection } from "../services/use-cases/delivery-replica-selection";
 import { createDeliveryTenantVault } from "../services/use-cases/delivery-tenant-vault";
+import { createReplicateBatch } from "../worker/replication-worker";
 
 type TestCase = { name: string; run: () => Promise<void> | void };
 
@@ -670,6 +672,87 @@ test("tenant-vault: single owner mode blocks backup vault changes", async () => 
     const result = await tenantVault.addBackupVaultGroup("owner_1", "-100123456");
     assert.equal(result.ok, false);
     assert.ok(result.message.includes("单人项目模式"));
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previous;
+  }
+});
+
+test("delivery-core: single owner mode forces min replicas to 1", async () => {
+  const previous = process.env.SINGLE_OWNER_MODE;
+  process.env.SINGLE_OWNER_MODE = "1";
+  try {
+    const core = createDeliveryCore({
+      prisma: {
+        tenant: {
+          upsert: async () => ({ id: "tenant_1" })
+        }
+      } as never,
+      config: { tenantCode: "demo", tenantName: "demo" }
+    });
+
+    const result = await core.getTenantMinReplicas();
+    assert.equal(result, 1);
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previous;
+  }
+});
+
+test("replication-worker: single owner mode ignores optional backup targets", async () => {
+  const previous = process.env.SINGLE_OWNER_MODE;
+  process.env.SINGLE_OWNER_MODE = "1";
+  try {
+    const capturedVaultGroupIds: string[][] = [];
+    const replicateBatch = createReplicateBatch({
+      bot: {
+        api: {
+          getChat: async () => ({ is_forum: false })
+        }
+      } as never,
+      prisma: {
+        uploadBatch: {
+          findUnique: async () => ({
+            id: "batch_1",
+            tenantId: "tenant_1",
+            assetId: "asset_1",
+            items: []
+          })
+        },
+        asset: {
+          findUnique: async () => ({
+            collectionId: null,
+            collection: null
+          })
+        },
+        tenantVaultBinding: {
+          findMany: async () => [
+            { role: "PRIMARY", vaultGroupId: "vg_primary", createdAt: new Date(), vaultGroup: { id: "vg_primary", chatId: BigInt(-1001), status: "ACTIVE" } },
+            { role: "BACKUP", vaultGroupId: "vg_backup", createdAt: new Date(), vaultGroup: { id: "vg_backup", chatId: BigInt(-1002), status: "ACTIVE" } }
+          ]
+        },
+        tenantSetting: {
+          findUnique: async () => ({ value: "3" })
+        },
+        assetReplica: {
+          findMany: async ({ where }: { where: { vaultGroupId: { in: string[] } } }) => {
+            capturedVaultGroupIds.push(where.vaultGroupId.in);
+            return [];
+          },
+          groupBy: async ({ where }: { where: { vaultGroupId: { in: string[] } } }) => {
+            capturedVaultGroupIds.push(where.vaultGroupId.in);
+            return [];
+          }
+        },
+        uploadItem: {
+          updateMany: async () => ({ count: 0 }),
+          update: async () => ({})
+        }
+      } as never,
+      config: { vaultChatId: "-1001" },
+      sendMediaGroupWithRetry: async () => []
+    });
+
+    await replicateBatch("batch_1", { includeOptional: true });
+    assert.deepEqual(capturedVaultGroupIds, [["vg_primary"], ["vg_primary"]]);
   } finally {
     process.env.SINGLE_OWNER_MODE = previous;
   }

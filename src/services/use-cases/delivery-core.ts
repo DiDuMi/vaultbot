@@ -6,6 +6,10 @@ export const createDeliveryCore = (deps: {
   prisma: PrismaClient;
   config: { tenantCode: string; tenantName: string };
 }) => {
+  const isSingleOwnerModeEnabled = () => {
+    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  };
   const pad2 = (value: number) => String(value).padStart(2, "0");
   const formatLocalDate = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -129,6 +133,9 @@ export const createDeliveryCore = (deps: {
   };
 
   const getTenantMinReplicas = async () => {
+    if (isSingleOwnerModeEnabled()) {
+      return 1;
+    }
     const tenantId = await getTenantId();
     const row = await deps.prisma.tenantSetting
       .findUnique({
@@ -144,6 +151,9 @@ export const createDeliveryCore = (deps: {
   const setTenantMinReplicas = async (actorUserId: string, value: number) => {
     if (!(await isTenantAdmin(actorUserId))) {
       return { ok: false, message: "🔒 无权限：仅管理员可修改副本最小成功数。" };
+    }
+    if (isSingleOwnerModeEnabled()) {
+      return { ok: false, message: "当前为单人项目模式，副本最小成功数固定为 1。" };
     }
     const tenantId = await getTenantId();
     const next = normalizeMinReplicas(value);
