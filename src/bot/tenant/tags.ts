@@ -61,7 +61,7 @@ export const createTagRenderers = (deps: {
       return;
     }
 
-    const isTenant = await deps.deliveryService.isTenantUser(userId).catch(() => false);
+    const isTenant = await deps.deliveryService.isProjectMember(userId).catch(() => false);
     if (!isTenant && searchMode !== "PUBLIC") {
       await replyHtml(ctx, "租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
       return;
@@ -127,8 +127,8 @@ export const createTagRenderers = (deps: {
       return;
     }
 
-    const isTenant = await deps.deliveryService.isTenantUser(userId).catch(() => false);
-    const canManageViewer = isTenant ? await deps.deliveryService.canManageAdmins(userId).catch(() => false) : false;
+    const isTenant = await deps.deliveryService.isProjectMember(userId).catch(() => false);
+    const canManageViewer = isTenant ? await deps.deliveryService.canManageProject(userId).catch(() => false) : false;
     if (!isTenant && searchMode !== "PUBLIC") {
       await replyHtml(ctx, "租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
       return;

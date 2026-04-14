@@ -377,5 +377,5 @@ export const shouldShowPublisherLine = async (options: {
   if (options.viewerUserId === options.publisherUserId) {
     return true;
   }
-  return options.deliveryService.isTenantUser(options.viewerUserId).catch(() => false);
+  return options.deliveryService.isProjectMember(options.viewerUserId).catch(() => false);
 };

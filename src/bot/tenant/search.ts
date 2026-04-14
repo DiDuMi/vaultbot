@@ -39,8 +39,8 @@ export const createSearchRenderer = (deps: {
       await replyHtml(ctx, "🔒 租户已关闭搜索。", { reply_markup: buildHelpKeyboard() });
       return;
     }
-    const isTenant = await deps.deliveryService.isTenantUser(userId).catch(() => false);
-    const canManageViewer = isTenant ? await deps.deliveryService.canManageAdmins(userId).catch(() => false) : false;
+    const isTenant = await deps.deliveryService.isProjectMember(userId).catch(() => false);
+    const canManageViewer = isTenant ? await deps.deliveryService.canManageProject(userId).catch(() => false) : false;
     if (!isTenant && searchMode !== "PUBLIC") {
       await replyHtml(ctx, "🔒 租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
       return;

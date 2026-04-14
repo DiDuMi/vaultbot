@@ -389,7 +389,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
         .row()
         .text(`${liked ? "⭐️ 已收藏" : "⭐️ 收藏"} ${likeHint}`, likeAction)
         .text(`💬 评论 ${commentHint}`, `comment:list:${assetId}:1:${currentPage}`);
-      const isTenant = await deliveryService.isTenantUser(String(ctx.from.id)).catch(() => false);
+      const isTenant = await deliveryService.isProjectMember(String(ctx.from.id)).catch(() => false);
       assetViewStates.set(toMetaKey(ctx.from.id, chatId), {
         assetId,
         page: currentPage,
@@ -425,7 +425,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
     const page = view?.assetId === assetId ? view.page : 1;
     const totalPages = view?.assetId === assetId ? view.totalPages : 1;
     const isTenant =
-      view?.assetId === assetId ? view.isTenant : await deliveryService.isTenantUser(String(ctx.from.id)).catch(() => false);
+      view?.assetId === assetId ? view.isTenant : await deliveryService.isProjectMember(String(ctx.from.id)).catch(() => false);
     const adConfig = view?.assetId === assetId ? view.adConfig : null;
     const keyboard = totalPages > 1 ? buildAssetPageKeyboard(assetId, page, totalPages, adConfig ?? undefined) : new InlineKeyboard();
     const commentCount = await deliveryService.getAssetCommentCount(String(ctx.from.id), assetId).catch(() => 0);

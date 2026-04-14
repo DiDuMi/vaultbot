@@ -77,8 +77,8 @@ export const createHistoryRenderer = (deps: {
 
     const viewerUserId = String(ctx.from.id);
     const hidePublisherEnabled = await deps.deliveryService.getTenantHidePublisherEnabled().catch(() => false);
-    const isTenantViewer = await deps.deliveryService.isTenantUser(viewerUserId).catch(() => false);
-    const canManageViewer = isTenantViewer ? await deps.deliveryService.canManageAdmins(viewerUserId).catch(() => false) : false;
+    const isTenantViewer = await deps.deliveryService.isProjectMember(viewerUserId).catch(() => false);
+    const canManageViewer = isTenantViewer ? await deps.deliveryService.canManageProject(viewerUserId).catch(() => false) : false;
 
     const content = (
       await Promise.all(

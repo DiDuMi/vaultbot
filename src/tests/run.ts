@@ -694,6 +694,8 @@ test("identity-service: exposes project-oriented aliases", async () => {
 
   assert.equal(await identity.isProjectMember("u1"), true);
   assert.equal(await identity.canManageProject("u1"), true);
+  assert.equal(await identity.isTenantUser("u1"), true);
+  assert.equal(await identity.canManageAdmins("u1"), true);
 });
 
 test("tenant-vault: single owner mode blocks backup vault changes", async () => {
