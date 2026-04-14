@@ -17,6 +17,13 @@ export const createDeliveryTenantVault = (deps: {
   isTenantAdmin: (userId: string) => Promise<boolean>;
   ensureInitialOwner: (tenantId: string, userId: string) => Promise<boolean>;
 }) => {
+  const isSingleOwnerModeEnabled = () => {
+    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  };
+
+  const buildSingleOwnerBlockedMessage = (subject: string) => `当前为单人项目模式，已关闭${subject}。`;
+
   const upsertTenantUserFromTelegram = async (user: TelegramUserInput) => {
     const tenantId = await deps.getTenantId();
     const tgUserId = String(user.id);
@@ -66,6 +73,11 @@ export const createDeliveryTenantVault = (deps: {
       orderBy: [{ role: "asc" }, { createdAt: "asc" }],
       select: { tgUserId: true, role: true }
     });
+    if (isSingleOwnerModeEnabled()) {
+      return members
+        .filter((member) => member.role === "OWNER")
+        .map((member) => ({ tgUserId: member.tgUserId, role: "OWNER" as const }));
+    }
     return members.map((member) => {
       const role: "OWNER" | "ADMIN" = member.role === "OWNER" ? "OWNER" : "ADMIN";
       return { tgUserId: member.tgUserId, role };
@@ -73,6 +85,9 @@ export const createDeliveryTenantVault = (deps: {
   };
 
   const addTenantAdmin = async (actorUserId: string, tgUserId: string) => {
+    if (isSingleOwnerModeEnabled()) {
+      return { ok: false, message: buildSingleOwnerBlockedMessage("多管理员设置") };
+    }
     if (!(await deps.isTenantAdmin(actorUserId))) {
       return { ok: false, message: "🔒 无权限：仅管理员可添加管理员。" };
     }
@@ -90,6 +105,9 @@ export const createDeliveryTenantVault = (deps: {
   };
 
   const removeTenantAdmin = async (actorUserId: string, tgUserId: string) => {
+    if (isSingleOwnerModeEnabled()) {
+      return { ok: false, message: buildSingleOwnerBlockedMessage("多管理员设置") };
+    }
     if (!(await deps.isTenantAdmin(actorUserId))) {
       return { ok: false, message: "🔒 无权限：仅管理员可移除管理员。" };
     }
@@ -127,12 +145,19 @@ export const createDeliveryTenantVault = (deps: {
         map.set(binding.vaultGroupId, next);
       }
     }
-    return Array.from(map.values()).sort((a, b) => roleRank(a.role) - roleRank(b.role));
+    const items = Array.from(map.values()).sort((a, b) => roleRank(a.role) - roleRank(b.role));
+    if (isSingleOwnerModeEnabled()) {
+      return items.filter((item) => item.role === "PRIMARY").slice(0, 1);
+    }
+    return items;
   };
 
   const normalizeTelegramChatId = (raw: string) => (/^-?\d+$/.test(raw.trim()) ? raw.trim() : null);
 
   const addBackupVaultGroup = async (actorUserId: string, chatId: string) => {
+    if (isSingleOwnerModeEnabled()) {
+      return { ok: false, message: buildSingleOwnerBlockedMessage("多存储群管理") };
+    }
     if (!(await deps.isTenantAdmin(actorUserId))) {
       return { ok: false, message: "🔒 无权限：仅管理员可添加备份存储群。" };
     }
@@ -162,6 +187,9 @@ export const createDeliveryTenantVault = (deps: {
   };
 
   const removeBackupVaultGroup = async (actorUserId: string, vaultGroupId: string) => {
+    if (isSingleOwnerModeEnabled()) {
+      return { ok: false, message: buildSingleOwnerBlockedMessage("多存储群管理") };
+    }
     if (!(await deps.isTenantAdmin(actorUserId))) {
       return { ok: false, message: "🔒 无权限：仅管理员可移除备份存储群。" };
     }
@@ -173,6 +201,9 @@ export const createDeliveryTenantVault = (deps: {
   };
 
   const setPrimaryVaultGroup = async (actorUserId: string, vaultGroupId: string) => {
+    if (isSingleOwnerModeEnabled()) {
+      return { ok: false, message: buildSingleOwnerBlockedMessage("多存储群切换") };
+    }
     if (!(await deps.isTenantAdmin(actorUserId))) {
       return { ok: false, message: "🔒 无权限：仅管理员可切换主存储群。" };
     }
@@ -194,6 +225,9 @@ export const createDeliveryTenantVault = (deps: {
   };
 
   const setVaultGroupStatus = async (actorUserId: string, vaultGroupId: string, status: "ACTIVE" | "DEGRADED" | "BANNED") => {
+    if (isSingleOwnerModeEnabled()) {
+      return { ok: false, message: buildSingleOwnerBlockedMessage("多存储群状态管理") };
+    }
     if (!(await deps.isTenantAdmin(actorUserId))) {
       return { ok: false, message: "🔒 无权限：仅管理员可修改存储群状态。" };
     }

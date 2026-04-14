@@ -30,6 +30,7 @@ import { createDeliveryDiscovery } from "../services/use-cases/delivery-discover
 import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
 import { createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
 import { createDeliveryReplicaSelection } from "../services/use-cases/delivery-replica-selection";
+import { createDeliveryTenantVault } from "../services/use-cases/delivery-tenant-vault";
 
 type TestCase = { name: string; run: () => Promise<void> | void };
 
@@ -627,6 +628,50 @@ test("delivery-admin: can list and fetch multiple broadcasts by id", async () =>
   const selected = await admin.getBroadcastById("u1", "b_old");
   assert.equal(selected?.id, "b_old");
   assert.equal(selected?.buttons.length, 1);
+});
+
+test("tenant-vault: single owner mode hides extra admins", async () => {
+  const previous = process.env.SINGLE_OWNER_MODE;
+  process.env.SINGLE_OWNER_MODE = "1";
+  try {
+    const tenantVault = createDeliveryTenantVault({
+      prisma: {
+        tenantMember: {
+          findMany: async () => [
+            { tgUserId: "owner_1", role: "OWNER", createdAt: new Date("2026-04-14T10:00:00.000Z") },
+            { tgUserId: "admin_1", role: "ADMIN", createdAt: new Date("2026-04-14T11:00:00.000Z") }
+          ]
+        }
+      } as never,
+      getTenantId: async () => "tenant_1",
+      isTenantAdmin: async () => true,
+      ensureInitialOwner: async () => false
+    });
+
+    const result = await tenantVault.listTenantAdmins();
+    assert.deepEqual(result, [{ tgUserId: "owner_1", role: "OWNER" }]);
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previous;
+  }
+});
+
+test("tenant-vault: single owner mode blocks backup vault changes", async () => {
+  const previous = process.env.SINGLE_OWNER_MODE;
+  process.env.SINGLE_OWNER_MODE = "1";
+  try {
+    const tenantVault = createDeliveryTenantVault({
+      prisma: {} as never,
+      getTenantId: async () => "tenant_1",
+      isTenantAdmin: async () => true,
+      ensureInitialOwner: async () => false
+    });
+
+    const result = await tenantVault.addBackupVaultGroup("owner_1", "-100123456");
+    assert.equal(result.ok, false);
+    assert.ok(result.message.includes("单人项目模式"));
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previous;
+  }
 });
 
 test("integration: 交付流程在副本未就绪时返回提示", async () => {
