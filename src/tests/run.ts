@@ -14,6 +14,8 @@ import {
   historyMoreCallbackRe,
   historyScopeCallbackRe,
   historySetFilterCollectionCallbackRe,
+  tagIndexPageCallbackRe,
+  tagIndexRefreshCallbackRe,
   tagOpenCallbackRe
 } from "../bot/tenant/callbacks/social";
 import { rankMoreCallbackRe } from "../bot/tenant/callbacks/home";
@@ -394,6 +396,20 @@ test("callbacks: tag:open 回调能正确解析 tagId 与页码", () => {
   assert.ok(match);
   assert.equal(match?.[1], "tag_123");
   assert.equal(match?.[2], "12");
+});
+
+test("callbacks: tags:page 回调能正确解析热门标签页码", () => {
+  const data = "tags:page:3";
+  const match = data.match(tagIndexPageCallbackRe);
+  assert.ok(match);
+  assert.equal(match?.[1], "3");
+});
+
+test("callbacks: tags:refresh 回调能正确解析热门标签刷新页码", () => {
+  const data = "tags:refresh:5";
+  const match = data.match(tagIndexRefreshCallbackRe);
+  assert.ok(match);
+  assert.equal(match?.[1], "5");
 });
 
 test("worker-heartbeat: parseHeartbeatAgoMin 能正确计算分钟", () => {

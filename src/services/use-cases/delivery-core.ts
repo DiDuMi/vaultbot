@@ -166,7 +166,7 @@ export const createDeliveryCore = (deps: {
 
   const trackVisit = async (
     userId: string,
-    source: "start" | "start_payload" | "home" | "help",
+    source: "start" | "start_payload" | "home" | "help" | "tag",
     metadata?: Record<string, unknown>
   ) => {
     const tenantId = await getTenantId();

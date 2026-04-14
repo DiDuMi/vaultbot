@@ -37,7 +37,9 @@ const start = async () => {
   try {
     await bot.api.setMyCommands([
       { command: "start", description: "开始" },
-      { command: "help", description: "帮助" }
+      { command: "help", description: "帮助" },
+      { command: "tag", description: "热门标签" },
+      { command: "history", description: "浏览足迹" }
     ]);
   } catch (error) {
     logError({ component: "main", op: "set_my_commands" }, error);

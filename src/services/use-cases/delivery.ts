@@ -64,7 +64,7 @@ export type DeliveryIdentityService = {
   trackOpen: (tenantId: string, userId: string, assetId: string) => Promise<void>;
   trackVisit: (
     userId: string,
-    source: "start" | "start_payload" | "home" | "help",
+    source: "start" | "start_payload" | "home" | "help" | "tag",
     metadata?: Record<string, unknown>
   ) => Promise<void>;
   isTenantUser: (userId: string) => Promise<boolean>;
@@ -115,7 +115,10 @@ export type DeliveryTenantSettingsService = {
   }>;
   getTagById: (tagId: string) => Promise<{ tagId: string; name: string } | null>;
   getTagByName: (name: string) => Promise<{ tagId: string; name: string } | null>;
-  listTopTags: (limit: number) => Promise<{ tagId: string; name: string; count: number }[]>;
+  listTopTags: {
+    (limit: number): Promise<{ tagId: string; name: string; count: number }[]>;
+    (page: number, pageSize: number): Promise<{ total: number; items: { tagId: string; name: string; count: number }[] }>;
+  };
   listAssetsByTagId: (
     userId: string,
     tagId: string,

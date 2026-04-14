@@ -12,6 +12,8 @@ export const footMoreCallbackRe = /^foot:(more|less):(open|like|comment|reply):(
 export const tagOpenCallbackRe = /^tag:open:([^:]+):(\d+)$/;
 export const tagPageCallbackRe = /^tag:page:([^:]+):(\d+)$/;
 export const tagRefreshCallbackRe = /^tag:refresh:([^:]+):(\d+)$/;
+export const tagIndexPageCallbackRe = /^tags:page:(\d+)$/;
+export const tagIndexRefreshCallbackRe = /^tags:refresh:(\d+)$/;
 
 export const registerCommentCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
   const { setSessionMode } = deps.session;
@@ -630,6 +632,18 @@ export const registerTagCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
   bot.callbackQuery("tags:refresh", async (ctx) => {
     await ctx.answerCallbackQuery();
     await renderTagIndex(ctx, "edit");
+  });
+
+  bot.callbackQuery(tagIndexPageCallbackRe, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const page = Number(ctx.match?.[1] ?? "1");
+    await renderTagIndex(ctx, "edit", Number.isFinite(page) ? page : 1);
+  });
+
+  bot.callbackQuery(tagIndexRefreshCallbackRe, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const page = Number(ctx.match?.[1] ?? "1");
+    await renderTagIndex(ctx, "edit", Number.isFinite(page) ? page : 1);
   });
 
   bot.callbackQuery(tagOpenCallbackRe, async (ctx) => {

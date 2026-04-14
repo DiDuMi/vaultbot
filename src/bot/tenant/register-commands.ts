@@ -18,6 +18,7 @@ export const registerTenantCommands = (
     renderStartHome: (ctx: Context) => Promise<void>;
     renderHelp: (ctx: Context) => Promise<void>;
     exitCurrentInputState: (ctx: Context) => Promise<boolean>;
+    renderTagIndex: (ctx: Context, mode: "reply" | "edit", page?: number) => Promise<void>;
     renderFootprint: (ctx: Context, tab: "open" | "like" | "comment" | "reply", range: "7d" | "30d" | "all", page: number, mode: "reply" | "edit") => Promise<void>;
   }
 ) => {
@@ -57,5 +58,17 @@ export const registerTenantCommands = (
 
   bot.command("history", async (ctx) => {
     await deps.renderFootprint(ctx, "open", "30d", 1, "reply");
+  });
+
+  bot.command("tag", async (ctx) => {
+    await deps.resetSessionForCommand(ctx);
+    if (deps.deliveryService && ctx.from) {
+      await deps.deliveryService
+        .trackVisit(String(ctx.from.id), "tag")
+        .catch((error) =>
+          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "tag" }, error, { intervalMs: 30_000 })
+        );
+    }
+    await deps.renderTagIndex(ctx, "reply");
   });
 };

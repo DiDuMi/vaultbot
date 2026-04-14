@@ -938,6 +938,7 @@ export const registerTenantBot = (
     renderStartHome,
     renderHelp,
     exitCurrentInputState,
+    renderTagIndex: renderTagIndexModule,
     renderFootprint
   });
 

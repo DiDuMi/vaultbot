@@ -115,23 +115,62 @@ export const createDeliveryDiscovery = (deps: {
     return tag ? { tagId: tag.id, name: tag.name } : null;
   };
 
-  const listTopTags = async (limit: number) => {
+  async function listTopTags(limit: number): Promise<{ tagId: string; name: string; count: number }[]>;
+  async function listTopTags(
+    page: number,
+    pageSize: number
+  ): Promise<{ total: number; items: { tagId: string; name: string; count: number }[] }>;
+  async function listTopTags(limitOrPage: number, pageSize?: number) {
     const tenantId = await deps.getTenantId();
-    const safeLimit = normalizeLimit(limit, { defaultLimit: 20, maxLimit: 50 });
-    const grouped = await deps.prisma.assetTag.groupBy({
-      by: ["tagId"],
-      where: { tenantId, asset: { searchable: true } },
-      _count: { tagId: true },
-      orderBy: { _count: { tagId: "desc" } },
-      take: safeLimit
-    });
+    if (typeof pageSize !== "number") {
+      const safeLimit = normalizeLimit(limitOrPage, { defaultLimit: 20, maxLimit: 50 });
+      const grouped = await deps.prisma.assetTag.groupBy({
+        by: ["tagId"],
+        where: { tenantId, asset: { searchable: true } },
+        _count: { tagId: true },
+        orderBy: [{ _count: { tagId: "desc" } }, { tagId: "asc" }],
+        take: safeLimit
+      });
+      const tagIds = grouped.map((g) => g.tagId);
+      if (tagIds.length === 0) {
+        return [];
+      }
+      const tags = await deps.prisma.tag.findMany({ where: { id: { in: tagIds }, tenantId }, select: { id: true, name: true } });
+      const nameById = new Map(tags.map((t) => [t.id, t.name]));
+      return grouped
+        .map((g) => {
+          const name = nameById.get(g.tagId);
+          if (!name) {
+            return null;
+          }
+          return { tagId: g.tagId, name, count: g._count.tagId };
+        })
+        .filter((row): row is { tagId: string; name: string; count: number } => Boolean(row))
+        .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.name.localeCompare(b.name)));
+    }
+    const safePage = normalizePage(limitOrPage);
+    const safePageSize = normalizePageSize(pageSize, { defaultSize: 20, maxSize: 50 });
+    const where = { tenantId, asset: { searchable: true } };
+    const [total, grouped] = await Promise.all([
+      deps.prisma.tag.count({
+        where: { tenantId, assets: { some: { asset: { searchable: true } } } }
+      }),
+      deps.prisma.assetTag.groupBy({
+        by: ["tagId"],
+        where,
+        _count: { tagId: true },
+        orderBy: [{ _count: { tagId: "desc" } }, { tagId: "asc" }],
+        skip: (safePage - 1) * safePageSize,
+        take: safePageSize
+      })
+    ]);
     const tagIds = grouped.map((g) => g.tagId);
     if (tagIds.length === 0) {
-      return [];
+      return { total, items: [] };
     }
     const tags = await deps.prisma.tag.findMany({ where: { id: { in: tagIds }, tenantId }, select: { id: true, name: true } });
     const nameById = new Map(tags.map((t) => [t.id, t.name]));
-    return grouped
+    const items = grouped
       .map((g) => {
         const name = nameById.get(g.tagId);
         if (!name) {
@@ -141,6 +180,7 @@ export const createDeliveryDiscovery = (deps: {
       })
       .filter((row): row is { tagId: string; name: string; count: number } => Boolean(row))
       .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.name.localeCompare(b.name)));
+    return { total, items };
   };
 
   const listAssetsByTagId = async (userId: string, tagId: string, page: number, pageSize: number) => {
