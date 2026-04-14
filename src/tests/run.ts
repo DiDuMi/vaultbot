@@ -856,17 +856,21 @@ test("discovery: public viewer search only returns public assets", async () => {
   assert.deepEqual(result.items.map((item) => item.assetId), ["asset_public"]);
 });
 
-test("discovery: public viewer tag index only counts public assets", async () => {
+test("discovery: public viewer tag index excludes only restricted assets", async () => {
   const prisma = {
     assetTag: {
-      groupBy: async ({ where }: { where: { asset: { visibility?: "PUBLIC"; searchable: boolean } } }) => {
-        assert.equal(where.asset.visibility, "PUBLIC");
+      groupBy: async ({ where }: { where: { asset: { visibility?: { not: "RESTRICTED" }; searchable: boolean } } }) => {
+        assert.equal(where.asset.visibility?.not, "RESTRICTED");
         return [{ tagId: "tag_public", _count: { tagId: 2 } }];
       }
     },
     tag: {
-      count: async ({ where }: { where: { assets: { some: { asset: { visibility?: "PUBLIC"; searchable: boolean } } } } }) => {
-        assert.equal(where.assets.some.asset.visibility, "PUBLIC");
+      count: async ({
+        where
+      }: {
+        where: { assets: { some: { asset: { visibility?: { not: "RESTRICTED" }; searchable: boolean } } } };
+      }) => {
+        assert.equal(where.assets.some.asset.visibility?.not, "RESTRICTED");
         return 1;
       },
       findMany: async () => [{ id: "tag_public", name: "公开" }]
@@ -883,6 +887,43 @@ test("discovery: public viewer tag index only counts public assets", async () =>
   const result = await discovery.listTopTags(1, 20, { viewerUserId: "user_public" });
   assert.equal(result.total, 1);
   assert.deepEqual(result.items, [{ tagId: "tag_public", name: "公开", count: 2 }]);
+});
+
+test("discovery: public viewer tag assets exclude only restricted assets", async () => {
+  const prisma = {
+    asset: {
+      count: async ({ where }: { where: { visibility?: { not: "RESTRICTED" } } }) => {
+        assert.equal(where.visibility?.not, "RESTRICTED");
+        return 1;
+      },
+      findMany: async ({ where }: { where: { visibility?: { not: "RESTRICTED" } } }) => {
+        assert.equal(where.visibility?.not, "RESTRICTED");
+        return [
+          {
+            id: "asset_1",
+            title: "Protected via tag",
+            description: "Visible",
+            shareCode: "share_1",
+            uploadBatches: [{ userId: "publisher_1" }]
+          }
+        ];
+      }
+    },
+    event: {
+      create: async () => undefined
+    }
+  } as never;
+
+  const discovery = createDeliveryDiscovery({
+    prisma,
+    getTenantId: async () => "tenant_1",
+    isTenantUserSafe: async () => false,
+    startOfLocalDay: (date) => date
+  });
+
+  const result = await discovery.listAssetsByTagId("user_public", "tag_1", 1, 10);
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.items.map((item) => item.assetId), ["asset_1"]);
 });
 
 test("discovery: listTopTags backfills tags from existing asset metadata when empty", async () => {

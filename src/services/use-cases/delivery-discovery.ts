@@ -201,7 +201,7 @@ export const createDeliveryDiscovery = (deps: {
     const pageSize = typeof pageSizeOrOptions === "number" ? pageSizeOrOptions : undefined;
     const finalOptions = (typeof pageSizeOrOptions === "number" ? options : pageSizeOrOptions) ?? {};
     const isTenantViewer = finalOptions.viewerUserId ? await deps.isTenantUserSafe(finalOptions.viewerUserId) : true;
-    const assetVisibilityWhere = isTenantViewer ? {} : { visibility: "PUBLIC" as const };
+    const assetVisibilityWhere = isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } };
     if (typeof pageSize !== "number") {
       const safeLimit = normalizeLimit(limitOrPage, { defaultLimit: 20, maxLimit: 50 });
       const grouped = await deps.prisma.assetTag.groupBy({
@@ -271,7 +271,7 @@ export const createDeliveryDiscovery = (deps: {
     const where = {
       tenantId,
       searchable: true,
-      ...(isTenantViewer ? {} : { visibility: "PUBLIC" as const }),
+      ...(isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } }),
       tags: { some: { tagId } }
     };
     const [total, assets] = await Promise.all([

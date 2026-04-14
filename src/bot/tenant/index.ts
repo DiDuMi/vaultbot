@@ -122,6 +122,9 @@ const detectStartPayloadKind = (payload: string) => {
   if (normalized.startsWith("ca_")) {
     return "ca";
   }
+  if (normalized.startsWith("tg_")) {
+    return "tg";
+  }
   return "raw_share_code";
 };
 
@@ -850,6 +853,17 @@ export const registerTenantBot = (
       await trackStartPayloadVisit(ctx, payload, entry, "opened");
       return true;
     }
+    if (payload.startsWith("tg_")) {
+      const tagId = payload.slice(3).trim();
+      if (!tagId) {
+        await replyHtml(ctx, "⚠️ 标签链接无效，请重新打开标签列表。");
+        await trackStartPayloadVisit(ctx, payload, entry, "failed", "empty_tag_id");
+        return true;
+      }
+      await renderTagAssetsModule(ctx, tagId, 1, "reply");
+      await trackStartPayloadVisit(ctx, payload, entry, "opened");
+      return true;
+    }
     const openResult = await openShareCode(ctx, payload, 1);
     if (openResult === "opened") {
       await trackStartPayloadVisit(ctx, payload, entry, "opened");
@@ -1166,8 +1180,8 @@ export const registerTenantBot = (
     renderFootprint,
     renderMy,
     renderSettings,
-    renderTagIndex,
-    renderTagAssets,
+    renderTagIndex: renderTagIndexModule,
+    renderTagAssets: renderTagAssetsModule,
     renderUploadStatus,
     renderCollections,
     openShareCode,

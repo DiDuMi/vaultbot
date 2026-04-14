@@ -3,7 +3,7 @@ import type { Keyboard, Context } from "grammy";
 import type { DeliveryService } from "../../services/use-cases";
 import { buildHelpKeyboard } from "./keyboards";
 import { buildAssetActionLine } from "./builders";
-import { buildDbDisabledHint, editHtml, escapeHtml, replyHtml, safeCallbackData, sanitizeTelegramHtml } from "./ui-utils";
+import { buildDbDisabledHint, buildStartLink, editHtml, escapeHtml, replyHtml, safeCallbackData, sanitizeTelegramHtml } from "./ui-utils";
 
 const TAG_INDEX_PAGE_SIZE = 20;
 const TAG_ASSET_PAGE_SIZE = 10;
@@ -29,15 +29,8 @@ export const createTagRenderers = (deps: {
     return keyboard;
   };
 
-  const buildTagIndexKeyboard = (
-    items: { tagId: string; name: string }[],
-    currentPage: number,
-    totalPages: number
-  ) => {
+  const buildTagIndexKeyboard = (currentPage: number, totalPages: number) => {
     const keyboard = new InlineKeyboard();
-    for (const item of items) {
-      keyboard.row().text(`#${item.name}`, safeCallbackData(`tag:open:${item.tagId}:1`, "asset:noop"));
-    }
     if (totalPages > 1) {
       if (currentPage > 1) {
         keyboard.text("⬅️ 上一页", `tags:page:${currentPage - 1}`);
@@ -86,11 +79,19 @@ export const createTagRenderers = (deps: {
         .catch(() => ({ total: 0, items: [] }));
     }
 
+    const username = ctx.me?.username;
     const content =
       data.items.length === 0
         ? "暂无标签。\n发布内容时在标题或描述里写 <code>#标签</code>，保存后会自动归档。"
         : data.items
-            .map((t, i) => `${(currentPage - 1) * TAG_INDEX_PAGE_SIZE + i + 1}. <b>#${escapeHtml(t.name)}</b>（${t.count}）`)
+            .map((t, i) => {
+              const tagLabel = `#${t.name}`;
+              const tagLink = username ? buildStartLink(username, `tg_${t.tagId}`) : null;
+              const display = tagLink
+                ? `<a href="${escapeHtml(tagLink)}">${escapeHtml(tagLabel)}</a>`
+                : `<b>${escapeHtml(tagLabel)}</b>`;
+              return `${(currentPage - 1) * TAG_INDEX_PAGE_SIZE + i + 1}. ${display}（${t.count}）`;
+            })
             .join("\n");
     const text = [
       "<b>🏷 热门标签</b>",
@@ -100,7 +101,7 @@ export const createTagRenderers = (deps: {
       "",
       content
     ].join("\n");
-    const keyboard = buildTagIndexKeyboard(data.items, currentPage, totalPages);
+    const keyboard = buildTagIndexKeyboard(currentPage, totalPages);
 
     if (mode === "edit") {
       await editHtml(ctx, text, { reply_markup: keyboard });
