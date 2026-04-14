@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";
 import type { PrismaClient } from "@prisma/client";
 import { logError } from "../../infra/logging";
+import { ensureRuntimeTenant } from "../../infra/persistence/tenant-guard";
 
 export type UploadMessage = {
   messageId: number;
@@ -400,13 +401,9 @@ export const createUploadService = (
 
   const ensureTenantAndVault = async () => {
     return prisma.$transaction(async (tx) => {
-      const tenant = await tx.tenant.upsert({
-        where: { code: config.tenantCode },
-        update: { name: config.tenantName },
-        create: {
-          code: config.tenantCode,
-          name: config.tenantName
-        }
+      const tenant = await ensureRuntimeTenant(tx as PrismaClient, {
+        tenantCode: config.tenantCode,
+        tenantName: config.tenantName
       });
 
       const existingPrimary = await tx.tenantVaultBinding.findFirst({

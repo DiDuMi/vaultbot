@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Bot } from "grammy";
+import { ensureRuntimeTenant } from "../infra/persistence/tenant-guard";
 import { withTelegramRetry } from "../infra/telegram";
 import { logWorkerError } from "./strategy";
 
@@ -48,11 +49,7 @@ export const computeNextBroadcastRunAt = (input: { previousNextRunAt: Date | nul
 };
 
 export const ensureTenantId = async (prisma: PrismaClient, config: { tenantCode: string; tenantName: string }) => {
-  const tenant = await prisma.tenant.upsert({
-    where: { code: config.tenantCode },
-    update: { name: config.tenantName },
-    create: { code: config.tenantCode, name: config.tenantName }
-  });
+  const tenant = await ensureRuntimeTenant(prisma, config);
   return tenant.id;
 };
 

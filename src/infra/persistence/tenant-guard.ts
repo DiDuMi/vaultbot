@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { isSingleOwnerModeEnabled } from "../runtime-mode";
 
 export type TenantDiagnostics = {
   currentTenantCode: string;
@@ -86,4 +87,39 @@ export const assertTenantCodeConsistency = async (
   throw new Error(
     `TENANT_CODE 不匹配：当前=${tenantCode}，数据库已有租户=${summary}。已阻止启动，避免写入新租户导致统计归零。若确认要新建租户，请设置 ALLOW_TENANT_CODE_MISMATCH=1。`
   );
+};
+
+const isSingleOwnerBootstrapAllowed = () => {
+  const raw = (process.env.SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP || "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+};
+
+export const ensureRuntimeTenant = async (
+  prisma: PrismaClient,
+  input: { tenantCode: string; tenantName: string }
+) => {
+  const existing = await prisma.tenant.findUnique({
+    where: { code: input.tenantCode },
+    select: { id: true, code: true, name: true }
+  });
+  if (existing) {
+    if (existing.name !== input.tenantName) {
+      await prisma.tenant.update({
+        where: { id: existing.id },
+        data: { name: input.tenantName }
+      });
+    }
+    return { id: existing.id, code: existing.code, name: input.tenantName };
+  }
+
+  if (isSingleOwnerModeEnabled() && !isSingleOwnerBootstrapAllowed()) {
+    throw new Error(
+      `单人项目模式下禁止自动创建 tenant：${input.tenantCode}。如确认是首次初始化，请显式设置 SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP=1。`
+    );
+  }
+
+  return prisma.tenant.create({
+    data: { code: input.tenantCode, name: input.tenantName },
+    select: { id: true, code: true, name: true }
+  });
 };

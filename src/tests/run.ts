@@ -31,6 +31,7 @@ import { createDeliveryDiscovery } from "../services/use-cases/delivery-discover
 import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
 import { createDeliveryCore } from "../services/use-cases/delivery-core";
 import { isSingleOwnerModeEnabled } from "../infra/runtime-mode";
+import { ensureRuntimeTenant } from "../infra/persistence/tenant-guard";
 import { buildIdentityService, createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
 import { createDeliveryReplicaSelection } from "../services/use-cases/delivery-replica-selection";
 import { createDeliveryTenantVault } from "../services/use-cases/delivery-tenant-vault";
@@ -751,7 +752,8 @@ test("delivery-core: single owner mode only grants manage rights to owner", asyn
     const core = createDeliveryCore({
       prisma: {
         tenant: {
-          upsert: async () => ({ id: "tenant_1" })
+          findUnique: async () => ({ id: "tenant_1", code: "demo", name: "demo" }),
+          update: async () => ({})
         },
         tenantMember: {
           findFirst: async () => ({ role: "ADMIN" })
@@ -767,6 +769,33 @@ test("delivery-core: single owner mode only grants manage rights to owner", asyn
     assert.equal(result, false);
   } finally {
     process.env.SINGLE_OWNER_MODE = previous;
+  }
+});
+
+test("tenant-guard: single owner mode blocks implicit tenant bootstrap", async () => {
+  const previousMode = process.env.SINGLE_OWNER_MODE;
+  const previousBootstrap = process.env.SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP;
+  process.env.SINGLE_OWNER_MODE = "1";
+  process.env.SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP = "";
+  try {
+    await assert.rejects(
+      () =>
+        ensureRuntimeTenant(
+          {
+            tenant: {
+              findUnique: async () => null,
+              create: async () => {
+                throw new Error("should not create");
+              }
+            }
+          } as never,
+          { tenantCode: "demo", tenantName: "demo" }
+        ),
+      /禁止自动创建 tenant/
+    );
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previousMode;
+    process.env.SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP = previousBootstrap;
   }
 });
 

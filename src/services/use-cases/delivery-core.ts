@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeMinReplicas } from "./delivery-strategy";
 import { logError } from "../../infra/logging";
+import { ensureRuntimeTenant } from "../../infra/persistence/tenant-guard";
 import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
 
 export const createDeliveryCore = (deps: {
@@ -55,10 +56,9 @@ export const createDeliveryCore = (deps: {
   };
 
   const ensureTenant = async () => {
-    const tenant = await deps.prisma.tenant.upsert({
-      where: { code: deps.config.tenantCode },
-      update: { name: deps.config.tenantName },
-      create: { code: deps.config.tenantCode, name: deps.config.tenantName }
+    const tenant = await ensureRuntimeTenant(deps.prisma, {
+      tenantCode: deps.config.tenantCode,
+      tenantName: deps.config.tenantName
     });
     await bootstrapTenantSettings(tenant.id).catch((error) =>
       logError({ component: "delivery_core", op: "bootstrap_tenant_settings", tenantId: tenant.id }, error)
