@@ -12,6 +12,7 @@ export const createTagRenderers = (deps: {
   deliveryService: DeliveryService | null;
   mainKeyboard: InlineKeyboard | Keyboard;
 }) => {
+  const getMemberScopeLabel = () => "项目成员";
   const buildTagAssetsKeyboard = (tagId: string, currentPage: number, totalPages: number) => {
     const keyboard = new InlineKeyboard();
     if (totalPages > 1) {
@@ -55,15 +56,15 @@ export const createTagRenderers = (deps: {
     }
 
     const userId = String(ctx.from.id);
-    const searchMode = await deps.deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
+    const searchMode = await deps.deliveryService.getProjectSearchMode().catch(() => "ENTITLED_ONLY" as const);
     if (searchMode === "OFF") {
-      await replyHtml(ctx, "租户已关闭搜索。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}已关闭搜索。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
 
     const isTenant = await deps.deliveryService.isProjectMember(userId).catch(() => false);
     if (!isTenant && searchMode !== "PUBLIC") {
-      await replyHtml(ctx, "租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放搜索。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
 
@@ -121,16 +122,16 @@ export const createTagRenderers = (deps: {
     }
 
     const userId = String(ctx.from.id);
-    const searchMode = await deps.deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
+    const searchMode = await deps.deliveryService.getProjectSearchMode().catch(() => "ENTITLED_ONLY" as const);
     if (searchMode === "OFF") {
-      await replyHtml(ctx, "租户已关闭搜索。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}已关闭搜索。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
 
     const isTenant = await deps.deliveryService.isProjectMember(userId).catch(() => false);
     const canManageViewer = isTenant ? await deps.deliveryService.canManageProject(userId).catch(() => false) : false;
     if (!isTenant && searchMode !== "PUBLIC") {
-      await replyHtml(ctx, "租户未开放搜索。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放搜索。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
 
