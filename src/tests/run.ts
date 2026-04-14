@@ -885,6 +885,59 @@ test("discovery: public viewer tag index only counts public assets", async () =>
   assert.deepEqual(result.items, [{ tagId: "tag_public", name: "公开", count: 2 }]);
 });
 
+test("discovery: listTopTags backfills tags from existing asset metadata when empty", async () => {
+  const createdTags = new Map<string, string>();
+  const createdLinks: Array<{ tenantId: string; assetId: string; tagId: string }> = [];
+  const prisma = {
+    assetTag: {
+      count: async () => 0,
+      groupBy: async () => [{ tagId: "tag_1", _count: { tagId: 1 } }]
+    },
+    asset: {
+      findMany: async () => [{ id: "asset_1", title: "作品 #教程", description: "说明 #实战" }]
+    },
+    tag: {
+      upsert: async ({ where }: { where: { tenantId_name: { tenantId: string; name: string } } }) => {
+        const name = where.tenantId_name.name;
+        const id = createdTags.get(name) ?? `tag_${createdTags.size + 1}`;
+        createdTags.set(name, id);
+        return { id, name };
+      },
+      findMany: async () => [{ id: "tag_1", name: "教程" }]
+    },
+    $transaction: async (runner: (tx: any) => Promise<void>) =>
+      runner({
+        tag: {
+          upsert: async ({ where }: { where: { tenantId_name: { tenantId: string; name: string } } }) => {
+            const name = where.tenantId_name.name;
+            const id = createdTags.get(name) ?? `tag_${createdTags.size + 1}`;
+            createdTags.set(name, id);
+            return { id, name };
+          }
+        },
+        assetTag: {
+          createMany: async ({ data }: { data: Array<{ tenantId: string; assetId: string; tagId: string }> }) => {
+            createdLinks.push(...data);
+            return { count: data.length };
+          }
+        }
+      })
+  } as never;
+
+  const discovery = createDeliveryDiscovery({
+    prisma,
+    getTenantId: async () => "tenant_1",
+    isTenantUserSafe: async () => true,
+    startOfLocalDay: (date) => date
+  });
+
+  const result = await discovery.listTopTags(20);
+  assert.deepEqual(result, [{ tagId: "tag_1", name: "教程", count: 1 }]);
+  assert.equal(createdTags.has("教程"), true);
+  assert.equal(createdTags.has("实战"), true);
+  assert.equal(createdLinks.length, 2);
+});
+
 registerDeliveryModuleTests(test);
 
 const main = async () => {

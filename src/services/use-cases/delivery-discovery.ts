@@ -9,6 +9,87 @@ export const createDeliveryDiscovery = (deps: {
   startOfLocalDay: (date: Date) => Date;
 }) => {
   const recycledVisibilityKey = (assetId: string) => `recycled_visibility:${assetId}`;
+  const stripHtml = (value: string) => value.replace(/<[^>]*>/g, " ");
+  const normalizeTagName = (raw: string) => {
+    const withoutHash = raw.trim().replace(/^#+/, "");
+    if (!withoutHash) {
+      return null;
+    }
+    const normalized = withoutHash.toLowerCase().slice(0, 32);
+    if (!normalized) {
+      return null;
+    }
+    if (Buffer.byteLength(normalized, "utf8") > 60) {
+      return null;
+    }
+    return normalized;
+  };
+
+  const extractHashtags = (title: string, description: string | null) => {
+    const plain = `${stripHtml(title)}\n${stripHtml(description ?? "")}`.replace(/\s+/g, " ").trim();
+    if (!plain) {
+      return [];
+    }
+    const names = new Set<string>();
+    for (const match of plain.matchAll(/#([\p{L}\p{N}_-]{1,32})/gu)) {
+      const normalized = normalizeTagName(match[1] ?? "");
+      if (!normalized) {
+        continue;
+      }
+      names.add(normalized);
+      if (names.size >= 30) {
+        break;
+      }
+    }
+    return Array.from(names);
+  };
+
+  const backfillTenantTagsIfEmpty = async (tenantId: string) => {
+    if (
+      typeof deps.prisma.asset?.findMany !== "function" ||
+      typeof deps.prisma.$transaction !== "function" ||
+      typeof deps.prisma.tag?.upsert !== "function"
+    ) {
+      return;
+    }
+    const existingCount =
+      typeof deps.prisma.assetTag?.count === "function"
+        ? await deps.prisma.assetTag.count({ where: { tenantId } }).catch(() => 0)
+        : 0;
+    if (existingCount > 0) {
+      return;
+    }
+    const assets = await deps.prisma.asset
+      .findMany({
+        where: { tenantId },
+        select: { id: true, title: true, description: true }
+      })
+      .catch(() => []);
+    if (assets.length === 0) {
+      return;
+    }
+    await deps.prisma.$transaction(async (tx) => {
+      for (const asset of assets) {
+        const tags = extractHashtags(asset.title, asset.description);
+        if (tags.length === 0) {
+          continue;
+        }
+        const tagIds: string[] = [];
+        for (const name of tags) {
+          const tag = await tx.tag.upsert({
+            where: { tenantId_name: { tenantId, name } },
+            create: { tenantId, name },
+            update: {}
+          });
+          tagIds.push(tag.id);
+        }
+        await tx.assetTag.createMany({
+          data: tagIds.map((tagId) => ({ tenantId, assetId: asset.id, tagId })),
+          skipDuplicates: true
+        });
+      }
+    });
+  };
 
   const searchAssets = async (
     userId: string,
@@ -84,21 +165,6 @@ export const createDeliveryDiscovery = (deps: {
     };
   };
 
-  const normalizeTagName = (raw: string) => {
-    const withoutHash = raw.trim().replace(/^#+/, "");
-    if (!withoutHash) {
-      return null;
-    }
-    const normalized = withoutHash.toLowerCase().slice(0, 32);
-    if (!normalized) {
-      return null;
-    }
-    if (Buffer.byteLength(normalized, "utf8") > 60) {
-      return null;
-    }
-    return normalized;
-  };
-
   const getTagById = async (tagId: string) => {
     const tenantId = await deps.getTenantId();
     const tag = await deps.prisma.tag.findFirst({ where: { id: tagId, tenantId }, select: { id: true, name: true } });
@@ -129,6 +195,9 @@ export const createDeliveryDiscovery = (deps: {
   ): Promise<{ total: number; items: { tagId: string; name: string; count: number }[] }>;
   async function listTopTags(limitOrPage: number, pageSizeOrOptions?: number | { viewerUserId?: string }, options?: { viewerUserId?: string }) {
     const tenantId = await deps.getTenantId();
+    await backfillTenantTagsIfEmpty(tenantId).catch((error) =>
+      logError({ component: "delivery_discovery", op: "backfill_tenant_tags_if_empty", tenantId }, error)
+    );
     const pageSize = typeof pageSizeOrOptions === "number" ? pageSizeOrOptions : undefined;
     const finalOptions = (typeof pageSizeOrOptions === "number" ? options : pageSizeOrOptions) ?? {};
     const isTenantViewer = finalOptions.viewerUserId ? await deps.isTenantUserSafe(finalOptions.viewerUserId) : true;
