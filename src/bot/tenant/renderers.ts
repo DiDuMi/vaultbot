@@ -2,6 +2,7 @@ import { InlineKeyboard, Keyboard } from "grammy";
 import type { Context } from "grammy";
 import type { DeliveryService } from "../../services/use-cases";
 import { logError } from "../../infra/logging";
+import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
 import {
   buildDbDisabledHint,
   buildPublisherLine,
@@ -48,11 +49,6 @@ export const createTenantRenderers = (deps: {
 }) => {
   const logRendererError = (scope: string, error: unknown) => {
     logError({ component: "bot", op: "renderer_error", scope }, error);
-  };
-
-  const isSingleOwnerModeEnabled = () => {
-    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
-    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
   };
 
   const getManagerLabel = () => (isSingleOwnerModeEnabled() ? "项目拥有者" : "管理员");

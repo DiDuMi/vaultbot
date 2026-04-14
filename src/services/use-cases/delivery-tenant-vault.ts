@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeLimit } from "./delivery-strategy";
 import { logError } from "../../infra/logging";
+import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
 
 type TelegramUserInput = {
   id: number | string;
@@ -17,11 +18,6 @@ export const createDeliveryTenantVault = (deps: {
   isTenantAdmin: (userId: string) => Promise<boolean>;
   ensureInitialOwner: (tenantId: string, userId: string) => Promise<boolean>;
 }) => {
-  const isSingleOwnerModeEnabled = () => {
-    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
-    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-  };
-
   const buildSingleOwnerBlockedMessage = (subject: string) => `当前为单人项目模式，已关闭${subject}。`;
 
   const upsertTenantUserFromTelegram = async (user: TelegramUserInput) => {

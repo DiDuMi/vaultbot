@@ -1,15 +1,12 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeMinReplicas } from "./delivery-strategy";
 import { logError } from "../../infra/logging";
+import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
 
 export const createDeliveryCore = (deps: {
   prisma: PrismaClient;
   config: { tenantCode: string; tenantName: string };
 }) => {
-  const isSingleOwnerModeEnabled = () => {
-    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
-    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-  };
   const pad2 = (value: number) => String(value).padStart(2, "0");
   const formatLocalDate = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());

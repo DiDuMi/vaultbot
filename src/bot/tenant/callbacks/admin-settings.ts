@@ -1,5 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import type { Bot } from "grammy";
+import { isSingleOwnerModeEnabled } from "../../../infra/runtime-mode";
 import { escapeHtml, stripHtmlTags, toMetaKey, upsertHtml } from "../ui-utils";
 import {
   buildHelpKeyboard,
@@ -23,10 +24,6 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
     renderSettings,
     renderWelcomeSettings
   } = deps.renderers;
-  const isSingleOwnerModeEnabled = () => {
-    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
-    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-  };
 
   bot.callbackQuery("help:settings", async (ctx) => {
     await ctx.answerCallbackQuery();

@@ -30,6 +30,7 @@ import { createTenantRenderers } from "../bot/tenant/renderers";
 import { createDeliveryDiscovery } from "../services/use-cases/delivery-discovery";
 import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
 import { createDeliveryCore } from "../services/use-cases/delivery-core";
+import { isSingleOwnerModeEnabled } from "../infra/runtime-mode";
 import { createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
 import { createDeliveryReplicaSelection } from "../services/use-cases/delivery-replica-selection";
 import { createDeliveryTenantVault } from "../services/use-cases/delivery-tenant-vault";
@@ -484,6 +485,18 @@ test("worker-heartbeat: buildWorkerHeartbeatLines 能区分进程与副本任务
   assert.equal(lines.replicationAgoMin, null);
   assert.ok(lines.processLine.includes("1 分钟前"));
   assert.ok(lines.replicationLine.includes("暂无"));
+});
+
+test("runtime-mode: single owner mode accepts common truthy values", () => {
+  const previous = process.env.SINGLE_OWNER_MODE;
+  try {
+    process.env.SINGLE_OWNER_MODE = "true";
+    assert.equal(isSingleOwnerModeEnabled(), true);
+    process.env.SINGLE_OWNER_MODE = "0";
+    assert.equal(isSingleOwnerModeEnabled(), false);
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previous;
+  }
 });
 
 test("worker: computeNextBroadcastRunAt keeps cadence without drift", () => {

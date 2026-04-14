@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Bot } from "grammy";
 import { copyToVault, withTelegramRetry } from "../infra/telegram";
+import { isSingleOwnerModeEnabled } from "../infra/runtime-mode";
 import { logWorkerError } from "./strategy";
 
 export const createReplicateBatch = (deps: {
@@ -14,10 +15,6 @@ export const createReplicateBatch = (deps: {
     threadId?: number
   ) => Promise<Array<{ message_id: number }>>;
 }) => {
-  const isSingleOwnerModeEnabled = () => {
-    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
-    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-  };
   return async (batchId: string, options?: { includeOptional?: boolean }) => {
     const includeOptional = isSingleOwnerModeEnabled() ? false : options?.includeOptional !== false;
     const batch = await deps.prisma.uploadBatch.findUnique({

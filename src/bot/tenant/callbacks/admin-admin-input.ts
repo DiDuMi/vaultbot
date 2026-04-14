@@ -1,5 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import type { Bot, Context } from "grammy";
+import { isSingleOwnerModeEnabled } from "../../../infra/runtime-mode";
 import { buildBlockingHint, buildSuccessHint, escapeHtml, toMetaKey, upsertHtml } from "../ui-utils";
 import { buildAdminInputKeyboard, buildAdminManageKeyboard, buildAdminRemoveConfirmKeyboard, buildHelpKeyboard } from "../keyboards";
 import type { TenantCallbackDeps } from "./types";
@@ -9,10 +10,6 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
   const { getSessionMode, setSessionMode } = deps.session;
   const { adminInputStates, broadcastInputStates, settingsInputStates } = deps.states;
   const { renderAdSettings, renderBroadcast, renderSettings, renderWelcomeSettings } = deps.renderers;
-  const isSingleOwnerModeEnabled = () => {
-    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
-    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-  };
   const renderAdminManage = async (ctx: Context, page = 1) => {
     if (isSingleOwnerModeEnabled()) {
       await upsertHtml(
