@@ -84,7 +84,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       await renderWelcomeSettings(ctx);
       return;
     }
-    const result = await deliveryService.setTenantStartWelcomeHtml(String(ctx.from.id), null);
+    const result = await deliveryService.setProjectStartWelcomeHtml(String(ctx.from.id), null);
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderWelcomeSettings(ctx);
   });
@@ -111,7 +111,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     const enabled = (ctx.match?.[1] ?? "0") === "1";
-    const result = await deliveryService.setTenantProtectContentEnabled(String(ctx.from.id), enabled);
+    const result = await deliveryService.setProjectProtectContentEnabled(String(ctx.from.id), enabled);
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderProtectSettings(ctx);
   });
@@ -127,7 +127,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     const enabled = (ctx.match?.[1] ?? "0") === "1";
-    const result = await deliveryService.setTenantHidePublisherEnabled(String(ctx.from.id), enabled);
+    const result = await deliveryService.setProjectHidePublisherEnabled(String(ctx.from.id), enabled);
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderHidePublisherSettings(ctx);
   });
@@ -148,7 +148,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     const enabled = (ctx.match?.[1] ?? "0") === "1";
-    const result = await deliveryService.setTenantAutoCategorizeEnabled(String(ctx.from.id), enabled);
+    const result = await deliveryService.setProjectAutoCategorizeEnabled(String(ctx.from.id), enabled);
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderAutoCategorizeSettings(ctx);
   });
@@ -201,7 +201,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       await renderAutoCategorizeSettings(ctx);
       return;
     }
-    const result = await deliveryService.setTenantAutoCategorizeRules(String(ctx.from.id), []);
+    const result = await deliveryService.setProjectAutoCategorizeRules(String(ctx.from.id), []);
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderAutoCategorizeSettings(ctx);
   });
@@ -218,7 +218,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     const enabled = (ctx.match?.[1] ?? "0") === "1";
-    const result = await deliveryService.setTenantPublicRankingEnabled(String(ctx.from.id), enabled);
+    const result = await deliveryService.setProjectPublicRankingEnabled(String(ctx.from.id), enabled);
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderRankPublicSettings(ctx);
   });
@@ -244,7 +244,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     const mode = (ctx.match?.[1] ?? "ENTITLED_ONLY") as "OFF" | "ENTITLED_ONLY" | "PUBLIC";
-    const result = await deliveryService.setTenantSearchMode(String(ctx.from.id), mode);
+    const result = await deliveryService.setProjectSearchMode(String(ctx.from.id), mode);
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderSearchModeSettings(ctx);
   });
@@ -356,7 +356,7 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const result = await deliveryService.setTenantMinReplicas(actorUserId, value);
+    const result = await deliveryService.setProjectMinReplicas(actorUserId, value);
     await upsertHtml(ctx, result.message, new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
   });
 };

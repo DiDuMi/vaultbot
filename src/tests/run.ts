@@ -219,6 +219,10 @@ test("admin-input: welcome 清除会写入 null", async () => {
   const deliveryService = {
     canManageProject: async () => true,
     canManageAdmins: async () => true,
+    setProjectStartWelcomeHtml: async (...args: unknown[]) => {
+      welcomeCalls.push(args);
+      return { message: "ok" };
+    },
     setTenantStartWelcomeHtml: async (...args: unknown[]) => {
       welcomeCalls.push(args);
       return { message: "ok" };
@@ -873,6 +877,7 @@ test("renderers: vault settings become overview-only in single-owner mode", asyn
         isTenantUser: async () => true,
         canManageProject: async () => true,
         canManageAdmins: async () => true,
+        getProjectMinReplicas: async () => 1,
         getTenantMinReplicas: async () => 1,
         listVaultGroups: async () => [{ vaultGroupId: "vg_1", chatId: "-1001", role: "PRIMARY", status: "ACTIVE" }]
       } as never,

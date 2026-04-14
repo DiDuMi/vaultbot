@@ -57,13 +57,13 @@ export const registerAdsCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const current = await deliveryService.getTenantDeliveryAdConfig().catch(() => ({
+    const current = await deliveryService.getProjectDeliveryAdConfig().catch(() => ({
       prevText: "⬅️ 上一页",
       nextText: "下一组 ➡️",
       adButtonText: null,
       adButtonUrl: null
     }));
-    const result = await deliveryService.setTenantDeliveryAdConfig(actorUserId, { ...current, adButtonText: null, adButtonUrl: null });
+    const result = await deliveryService.setProjectDeliveryAdConfig(actorUserId, { ...current, adButtonText: null, adButtonUrl: null });
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderAdSettings(ctx);
   });
@@ -75,7 +75,7 @@ export const registerAdsCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const result = await deliveryService.setTenantDeliveryAdConfig(actorUserId, {
+    const result = await deliveryService.setProjectDeliveryAdConfig(actorUserId, {
       prevText: "⬅️ 上一页",
       nextText: "下一组 ➡️",
       adButtonText: null,

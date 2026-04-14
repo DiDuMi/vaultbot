@@ -433,7 +433,7 @@ export const createTenantRenderers = (deps: {
     }
     const singleOwnerMode = isSingleOwnerModeEnabled();
     const canManage = singleOwnerMode ? false : await deps.deliveryService.canManageProject(userId);
-    const minReplicas = await deps.deliveryService.getTenantMinReplicas().catch(() => 1);
+    const minReplicas = await deps.deliveryService.getProjectMinReplicas().catch(() => 1);
     const groups = await deps.deliveryService.listVaultGroups().catch(() => []);
     const primary = groups.find((g) => g.role === "PRIMARY") ?? null;
     const backups = groups.filter((g) => g.role === "BACKUP");
@@ -485,7 +485,7 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
-    const current = await deps.deliveryService.getTenantStartWelcomeHtml().catch(() => null);
+    const current = await deps.deliveryService.getProjectStartWelcomeHtml().catch(() => null);
     const preview = current?.trim() ? sanitizeTelegramHtml(current.trim()) : "👋 你好！这里是内容领取入口。\n发送打开哈希即可获取文件。";
     const text = [
       "<b>👋 /start 欢迎词</b>",
@@ -514,7 +514,7 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
-    const config = await deps.deliveryService.getTenantDeliveryAdConfig().catch(() => ({
+    const config = await deps.deliveryService.getProjectDeliveryAdConfig().catch(() => ({
       prevText: "⬅️ 上一页",
       nextText: "下一组 ➡️",
       adButtonText: null,
@@ -552,7 +552,7 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
-    const enabled = await deps.deliveryService.getTenantProtectContentEnabled().catch(() => false);
+    const enabled = await deps.deliveryService.getProjectProtectContentEnabled().catch(() => false);
     const text = [
       "🔒 内容保护（防转发/防保存）",
       "",
@@ -581,7 +581,7 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
-    const enabled = await deps.deliveryService.getTenantHidePublisherEnabled().catch(() => false);
+    const enabled = await deps.deliveryService.getProjectHidePublisherEnabled().catch(() => false);
     const text = [
       "🙈 隐藏发布者",
       "",
@@ -610,9 +610,9 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
-    const enabled = await deps.deliveryService.getTenantAutoCategorizeEnabled().catch(() => false);
+    const enabled = await deps.deliveryService.getProjectAutoCategorizeEnabled().catch(() => false);
     const [rules, collections] = await Promise.all([
-      deps.deliveryService.getTenantAutoCategorizeRules().catch(() => []),
+      deps.deliveryService.getProjectAutoCategorizeRules().catch(() => []),
       deps.deliveryService.listCollections().catch(() => [])
     ]);
     const titleById = new Map(collections.map((c) => [c.id, stripHtmlTags(c.title)]));
@@ -658,7 +658,7 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
-    const enabled = await deps.deliveryService.getTenantPublicRankingEnabled().catch(() => false);
+    const enabled = await deps.deliveryService.getProjectPublicRankingEnabled().catch(() => false);
     const text = [
       "🏆 排行开放",
       "",
@@ -687,7 +687,7 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
-    const mode = await deps.deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
+    const mode = await deps.deliveryService.getProjectSearchMode().catch(() => "ENTITLED_ONLY" as const);
     const statusText =
       mode === "PUBLIC" ? "已对用户开放" : mode === "OFF" ? "已关闭" : `仅${getMemberScopeLabel()}可见`;
     const text = [
@@ -838,7 +838,7 @@ export const createTenantRenderers = (deps: {
   const renderStartHome = async (ctx: Context) => {
     const firstName = ctx.from?.first_name?.trim() || ctx.from?.username?.trim() || "朋友";
     const userId = ctx.from ? String(ctx.from.id) : "";
-    const welcome = deps.deliveryService ? await deps.deliveryService.getTenantStartWelcomeHtml().catch(() => null) : null;
+    const welcome = deps.deliveryService ? await deps.deliveryService.getProjectStartWelcomeHtml().catch(() => null) : null;
     const welcomeText = welcome?.trim() ? sanitizeTelegramHtml(welcome.trim()) : null;
     const botName = ctx.me?.first_name?.trim() || ctx.me?.username?.trim() || "bot";
     const intro = `这里是“${escapeHtml(botName)}”，用于领取与管理内容。`;

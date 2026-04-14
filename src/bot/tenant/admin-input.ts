@@ -444,7 +444,7 @@ export const createTenantAdminInput = (deps: {
         }
         rules.push({ collectionId, keywords });
       }
-      const result = await deliveryService.setTenantAutoCategorizeRules(actorUserId, rules);
+      const result = await deliveryService.setProjectAutoCategorizeRules(actorUserId, rules);
       setSessionMode(key, "idle");
       const extra = unknown.length ? `\n\n⚠️ 未找到这些分类名：${unknown.map((t) => `<code>${escapeHtml(t)}</code>`).join(" ")}` : "";
       await replyHtml(ctx, `${result.message}${extra}`, { reply_markup: mainKeyboard });
@@ -463,14 +463,14 @@ export const createTenantAdminInput = (deps: {
       const normalized = text.trim();
       const result =
         normalized === "清除"
-          ? await deliveryService.setTenantStartWelcomeHtml(actorUserId, null)
-          : await deliveryService.setTenantStartWelcomeHtml(actorUserId, normalized);
+          ? await deliveryService.setProjectStartWelcomeHtml(actorUserId, null)
+          : await deliveryService.setProjectStartWelcomeHtml(actorUserId, normalized);
       setSessionMode(key, "idle");
       await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
       await renderWelcomeSettings(ctx);
       return true;
     }
-    const current = await deliveryService.getTenantDeliveryAdConfig().catch(() => ({
+    const current = await deliveryService.getProjectDeliveryAdConfig().catch(() => ({
       prevText: "⬅️ 上一页",
       nextText: "下一组 ➡️",
       adButtonText: null,
@@ -486,7 +486,7 @@ export const createTenantAdminInput = (deps: {
     } else if (state.mode === "adButtonUrl") {
       nextConfig.adButtonUrl = text.trim() === "清除" ? null : text.trim();
     }
-    const result = await deliveryService.setTenantDeliveryAdConfig(actorUserId, nextConfig);
+    const result = await deliveryService.setProjectDeliveryAdConfig(actorUserId, nextConfig);
     setSessionMode(key, "idle");
     await replyHtml(ctx, result.message, { reply_markup: mainKeyboard });
     await renderAdSettings(ctx);
