@@ -50,6 +50,11 @@ export const createTenantRenderers = (deps: {
     logError({ component: "bot", op: "renderer_error", scope }, error);
   };
 
+  const isSingleOwnerModeEnabled = () => {
+    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  };
+
   const renderStats = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
@@ -354,6 +359,7 @@ export const createTenantRenderers = (deps: {
     }
     const canManageAdmins = await deps.deliveryService.canManageAdmins(userId);
     const canManageCollections = await deps.deliveryService.canManageCollections(userId);
+    const singleOwnerMode = isSingleOwnerModeEnabled();
     const stats = await deps.deliveryService.getTenantHomeStats().catch(() => null);
     const admins = await deps.deliveryService.listTenantAdmins();
     const owners = admins.filter((m) => m.role === "OWNER");
@@ -393,11 +399,19 @@ export const createTenantRenderers = (deps: {
       "👥 管理员",
       content,
       "",
-      canManageAdmins ? "点击“👥 管理员列表”进行移除，点击“➕ 添加管理员”新增管理员。" : "🔒 仅管理员可添加/移除管理员。"
+      singleOwnerMode
+        ? "当前为单人项目模式：管理员扩展与多人治理入口已隐藏。"
+        : canManageAdmins
+          ? "点击“👥 管理员列表”进行移除，点击“➕ 添加管理员”新增管理员。"
+          : "🔒 仅管理员可添加/移除管理员。"
     ]
       .filter(Boolean)
       .join("\n");
-    await upsertHtml(ctx, text, buildSettingsKeyboard({ canManageAdmins, adminIds, canManageCollections }, showMoreActions));
+    await upsertHtml(
+      ctx,
+      text,
+      buildSettingsKeyboard({ canManageAdmins: singleOwnerMode ? false : canManageAdmins, adminIds, canManageCollections }, showMoreActions)
+    );
   };
 
   const renderVaultSettings = async (ctx: Context) => {
@@ -415,7 +429,8 @@ export const createTenantRenderers = (deps: {
       await upsertHtml(ctx, "🔒 仅租户可配置存储群。", buildHelpKeyboard());
       return;
     }
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const singleOwnerMode = isSingleOwnerModeEnabled();
+    const canManage = singleOwnerMode ? false : await deps.deliveryService.canManageAdmins(userId);
     const minReplicas = await deps.deliveryService.getTenantMinReplicas().catch(() => 1);
     const groups = await deps.deliveryService.listVaultGroups().catch(() => []);
     const primary = groups.find((g) => g.role === "PRIMARY") ?? null;
@@ -440,8 +455,12 @@ export const createTenantRenderers = (deps: {
       "",
       `副本最小成功数：${minReplicas}`,
       "",
-      "建议：主/备至少各 1 个；上传后尽量做多副本，单群被封时可切换继续交付。",
-      "注意：添加新群前，需把所有 Bot（主/备）加入并授予管理员权限（能发消息/复制消息/创建话题）。",
+      singleOwnerMode
+        ? "当前为单人项目模式：这里只保留主存储群概览与副本阈值展示，不再开放多存储群治理。"
+        : "建议：主/备至少各 1 个；上传后尽量做多副本，单群被封时可切换继续交付。",
+      singleOwnerMode
+        ? "如需后续彻底简化，可在 schema 清理阶段移除备份群治理能力。"
+        : "注意：添加新群前，需把所有 Bot（主/备）加入并授予管理员权限（能发消息/复制消息/创建话题）。",
       "",
       canManage ? "点击按钮进行配置。" : "🔒 仅管理员可修改。"
     ].join("\n");

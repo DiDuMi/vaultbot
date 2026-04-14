@@ -23,6 +23,10 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
     renderSettings,
     renderWelcomeSettings
   } = deps.renderers;
+  const isSingleOwnerModeEnabled = () => {
+    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  };
 
   bot.callbackQuery("help:settings", async (ctx) => {
     await ctx.answerCallbackQuery();
@@ -263,6 +267,10 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     await ctx.answerCallbackQuery();
+    if (isSingleOwnerModeEnabled()) {
+      await upsertHtml(ctx, "当前为单人项目模式，已关闭多存储群管理。", new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
+      return;
+    }
     if (!deliveryService) {
       await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置存储群。", new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
       return;
@@ -289,6 +297,10 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     await ctx.answerCallbackQuery();
+    if (isSingleOwnerModeEnabled()) {
+      await upsertHtml(ctx, "当前为单人项目模式，已关闭多存储群管理。", new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
+      return;
+    }
     if (!deliveryService || !ctx.from) {
       await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置存储群。", new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
       return;
@@ -305,6 +317,10 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     await ctx.answerCallbackQuery();
+    if (isSingleOwnerModeEnabled()) {
+      await upsertHtml(ctx, "当前为单人项目模式，已关闭多存储群管理。", new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
+      return;
+    }
     if (!deliveryService || !ctx.from) {
       await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置存储群。", new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
       return;
@@ -322,6 +338,10 @@ export const registerSettingsCallbacks = (bot: Bot, deps: TenantCallbackDeps) =>
       return;
     }
     await ctx.answerCallbackQuery();
+    if (isSingleOwnerModeEnabled()) {
+      await upsertHtml(ctx, "当前为单人项目模式，已关闭多存储群管理。", new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
+      return;
+    }
     if (!deliveryService || !ctx.from) {
       await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法配置存储群。", new InlineKeyboard().text("⬅️ 返回存储群", "settings:vault"));
       return;

@@ -9,7 +9,19 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
   const { getSessionMode, setSessionMode } = deps.session;
   const { adminInputStates, broadcastInputStates, settingsInputStates } = deps.states;
   const { renderAdSettings, renderBroadcast, renderSettings, renderWelcomeSettings } = deps.renderers;
+  const isSingleOwnerModeEnabled = () => {
+    const raw = (process.env.SINGLE_OWNER_MODE || "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  };
   const renderAdminManage = async (ctx: Context, page = 1) => {
+    if (isSingleOwnerModeEnabled()) {
+      await upsertHtml(
+        ctx,
+        buildBlockingHint("当前为单人项目模式，已关闭多人管理员管理。"),
+        new InlineKeyboard().text("⬅️ 返回设置", "help:settings")
+      );
+      return;
+    }
     if (!deliveryService || !ctx.from) {
       await upsertHtml(ctx, buildBlockingHint("当前未启用数据库，无法管理管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
       return;
@@ -75,6 +87,14 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       return;
     }
     await ctx.answerCallbackQuery();
+    if (isSingleOwnerModeEnabled()) {
+      await upsertHtml(
+        ctx,
+        buildBlockingHint("当前为单人项目模式，已关闭多人管理员管理。"),
+        new InlineKeyboard().text("⬅️ 返回设置", "help:settings")
+      );
+      return;
+    }
     if (!deliveryService) {
       await upsertHtml(ctx, buildBlockingHint("当前未启用数据库，无法添加管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
       return;
@@ -149,6 +169,15 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       await ctx.answerCallbackQuery();
       return;
     }
+    if (isSingleOwnerModeEnabled()) {
+      await ctx.answerCallbackQuery();
+      await upsertHtml(
+        ctx,
+        buildBlockingHint("当前为单人项目模式，已关闭多人管理员管理。"),
+        new InlineKeyboard().text("⬅️ 返回设置", "help:settings")
+      );
+      return;
+    }
     if (!deliveryService) {
       await ctx.answerCallbackQuery();
       await upsertHtml(ctx, buildBlockingHint("当前未启用数据库，无法移除管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
@@ -174,6 +203,15 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
   bot.callbackQuery(/^settings:admin:confirmremove:(\d{5,20}):(\d+)$/, async (ctx) => {
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
+      return;
+    }
+    if (isSingleOwnerModeEnabled()) {
+      await ctx.answerCallbackQuery();
+      await upsertHtml(
+        ctx,
+        buildBlockingHint("当前为单人项目模式，已关闭多人管理员管理。"),
+        new InlineKeyboard().text("⬅️ 返回设置", "help:settings")
+      );
       return;
     }
     if (!deliveryService) {
