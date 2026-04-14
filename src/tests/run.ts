@@ -1234,15 +1234,15 @@ test("access: restricted asset is allowed for owner", async () => {
   assert.equal(result.status, "ok");
 });
 
-test("discovery: public viewer search only returns public assets", async () => {
+test("discovery: public viewer search returns non-restricted assets", async () => {
   const prisma = {
     asset: {
-      count: async ({ where }: { where: { visibility?: "PUBLIC" } }) => {
-        assert.equal(where.visibility, "PUBLIC");
+      count: async ({ where }: { where: { visibility?: { not: "RESTRICTED" } } }) => {
+        assert.equal(where.visibility?.not, "RESTRICTED");
         return 1;
       },
-      findMany: async ({ where }: { where: { visibility?: "PUBLIC" } }) => {
-        assert.equal(where.visibility, "PUBLIC");
+      findMany: async ({ where }: { where: { visibility?: { not: "RESTRICTED" } } }) => {
+        assert.equal(where.visibility?.not, "RESTRICTED");
         return [
           {
             id: "asset_public",

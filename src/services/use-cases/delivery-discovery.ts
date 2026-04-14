@@ -109,7 +109,7 @@ export const createDeliveryDiscovery = (deps: {
         ? {
             tenantId,
             searchable: true,
-            ...(isTenantViewer ? {} : { visibility: "PUBLIC" as const }),
+            ...(isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } }),
             OR: [
               { title: { contains: safeQuery, mode: "insensitive" as const } },
               { description: { contains: safeQuery, mode: "insensitive" as const } }
@@ -119,7 +119,7 @@ export const createDeliveryDiscovery = (deps: {
             tenantId,
             searchable: true,
             collectionId,
-            ...(isTenantViewer ? {} : { visibility: "PUBLIC" as const }),
+            ...(isTenantViewer ? {} : { visibility: { not: "RESTRICTED" as const } }),
             OR: [
               { title: { contains: safeQuery, mode: "insensitive" as const } },
               { description: { contains: safeQuery, mode: "insensitive" as const } }
