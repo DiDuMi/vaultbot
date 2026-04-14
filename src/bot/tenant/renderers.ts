@@ -55,6 +55,9 @@ export const createTenantRenderers = (deps: {
     return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
   };
 
+  const getManagerLabel = () => (isSingleOwnerModeEnabled() ? "项目拥有者" : "管理员");
+  const getMemberLabel = () => (isSingleOwnerModeEnabled() ? "项目成员" : "租户成员");
+
   const renderStats = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
@@ -188,7 +191,7 @@ export const createTenantRenderers = (deps: {
 
     if (isTenant) {
       const text = [
-        `📖 ${escapeHtml(botName)} 使用说明（租户）`,
+        `📖 ${escapeHtml(botName)} 使用说明（${escapeHtml(getMemberLabel())}）`,
         "",
         "1) 发布作品",
         "点底部 分享 → 发送照片/视频/文件（可多条/相册）→ 点消息里的 ✅ 完成 → 按提示提交标题/描述。",
@@ -201,7 +204,9 @@ export const createTenantRenderers = (deps: {
         "把“打开哈希”发给我，或让用户使用 /start 打开哈希。",
         "",
         "4) 内容组织与运营",
-        "在 ⚙️ 设置 管理管理员/分类/欢迎词/广告等；统计与排行可在设置页查看或点按钮进入。",
+        isSingleOwnerModeEnabled()
+          ? "在 ⚙️ 设置 管理分类、欢迎词、广告和内容开关；多人治理入口已收起。"
+          : "在 ⚙️ 设置 管理管理员/分类/欢迎词/广告等；统计与排行可在设置页查看或点按钮进入。",
         rankPublic ? "提示：当前已对用户开放 🏆 排行。" : "提示：当前 🏆 排行 仅租户可见。",
         searchMode === "PUBLIC"
           ? "提示：当前已对用户开放 🔎 搜索。"
@@ -396,11 +401,11 @@ export const createTenantRenderers = (deps: {
           ].join("\n")
         : "",
       "",
-      "👥 管理员",
+      `👥 ${getManagerLabel()}`,
       content,
       "",
       singleOwnerMode
-        ? "当前为单人项目模式：管理员扩展与多人治理入口已隐藏。"
+        ? "当前为单人项目模式：已收起多人管理员扩展，只保留项目拥有者视角。"
         : canManageAdmins
           ? "点击“👥 管理员列表”进行移除，点击“➕ 添加管理员”新增管理员。"
           : "🔒 仅管理员可添加/移除管理员。"
@@ -462,7 +467,7 @@ export const createTenantRenderers = (deps: {
         ? "如需后续彻底简化，可在 schema 清理阶段移除备份群治理能力。"
         : "注意：添加新群前，需把所有 Bot（主/备）加入并授予管理员权限（能发消息/复制消息/创建话题）。",
       "",
-      canManage ? "点击按钮进行配置。" : "🔒 仅管理员可修改。"
+      canManage ? "点击按钮进行配置。" : singleOwnerMode ? "当前模式下此页仅作概览展示。" : "🔒 仅管理员可修改。"
     ].join("\n");
     await upsertHtml(ctx, text, buildVaultKeyboard({ canManage, minReplicas, primaryId: primary?.vaultGroupId ?? null, groups }));
   };
@@ -866,7 +871,9 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const isTenant = await deps.deliveryService.isTenantUser(String(ctx.from.id)).catch(() => false);
-    const roleLine = isTenant ? "👤 身份：<b>租户成员</b>（可发布作品）" : "👤 身份：<b>用户</b>（可浏览与领取内容）";
+    const roleLine = isTenant
+      ? `👤 身份：<b>${escapeHtml(getMemberLabel())}</b>（可发布作品）`
+      : "👤 身份：<b>用户</b>（可浏览与领取内容）";
     const quickStart = isTenant
       ? ["<b>🚀 快速开始</b>", "点底部 分享 → 发送媒体 → 点 ✅ 完成 保存 → 按提示提交标题/描述。", "也可以发送打开哈希领取内容，例如：<code>Abc123</code>。"].join("\n")
       : ["<b>🚀 快速开始</b>", "发送打开哈希即可领取内容，例如：<code>Abc123</code>", "或点底部 📚 列表 / 🔎 搜索 浏览内容。"].join("\n");

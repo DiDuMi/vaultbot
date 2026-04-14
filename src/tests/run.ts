@@ -26,6 +26,7 @@ import { startIntervalScheduler } from "../worker/orchestration";
 import { computeNextBroadcastRunAt } from "../worker/helpers";
 import { buildAssetActionLine, buildPreviewLinkLine } from "../bot/tenant/index";
 import { buildFootprintKeyboard, buildRankingKeyboard } from "../bot/tenant/keyboards";
+import { createTenantRenderers } from "../bot/tenant/renderers";
 import { createDeliveryDiscovery } from "../services/use-cases/delivery-discovery";
 import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
 import { createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
@@ -669,6 +670,67 @@ test("tenant-vault: single owner mode blocks backup vault changes", async () => 
     const result = await tenantVault.addBackupVaultGroup("owner_1", "-100123456");
     assert.equal(result.ok, false);
     assert.ok(result.message.includes("单人项目模式"));
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previous;
+  }
+});
+
+test("renderers: settings copy switches to single-owner wording", async () => {
+  const previous = process.env.SINGLE_OWNER_MODE;
+  process.env.SINGLE_OWNER_MODE = "1";
+  try {
+    const { ctx, calls } = createMockCtx();
+    const { store: broadcastDraftStates } = createStore<{ draftId: string }>();
+    const { store: rankingViewStates } = createStore<{ range: "today" | "week" | "month"; metric: "open" | "visit" | "like" | "comment" }>();
+    const renderers = createTenantRenderers({
+      deliveryService: {
+        isTenantUser: async () => true,
+        canManageAdmins: async () => true,
+        canManageCollections: async () => true,
+        getTenantHomeStats: async () => null,
+        listTenantAdmins: async () => [{ tgUserId: "owner_1", role: "OWNER" }]
+      } as never,
+      mainKeyboard: new Keyboard().text("菜单"),
+      syncSessionForView: () => undefined,
+      broadcastDraftStates,
+      rankingViewStates,
+      formatLocalDateTime: () => "x"
+    });
+
+    await renderers.renderSettings(ctx);
+    const text = String(calls.at(-1)?.args[0] ?? "");
+    assert.ok(text.includes("项目拥有者"));
+    assert.ok(text.includes("单人项目模式"));
+  } finally {
+    process.env.SINGLE_OWNER_MODE = previous;
+  }
+});
+
+test("renderers: vault settings become overview-only in single-owner mode", async () => {
+  const previous = process.env.SINGLE_OWNER_MODE;
+  process.env.SINGLE_OWNER_MODE = "1";
+  try {
+    const { ctx, calls } = createMockCtx();
+    const { store: broadcastDraftStates } = createStore<{ draftId: string }>();
+    const { store: rankingViewStates } = createStore<{ range: "today" | "week" | "month"; metric: "open" | "visit" | "like" | "comment" }>();
+    const renderers = createTenantRenderers({
+      deliveryService: {
+        isTenantUser: async () => true,
+        canManageAdmins: async () => true,
+        getTenantMinReplicas: async () => 1,
+        listVaultGroups: async () => [{ vaultGroupId: "vg_1", chatId: "-1001", role: "PRIMARY", status: "ACTIVE" }]
+      } as never,
+      mainKeyboard: new Keyboard().text("菜单"),
+      syncSessionForView: () => undefined,
+      broadcastDraftStates,
+      rankingViewStates,
+      formatLocalDateTime: () => "x"
+    });
+
+    await renderers.renderVaultSettings(ctx);
+    const text = String(calls.at(-1)?.args[0] ?? "");
+    assert.ok(text.includes("不再开放多存储群治理"));
+    assert.ok(text.includes("仅作概览展示"));
   } finally {
     process.env.SINGLE_OWNER_MODE = previous;
   }
