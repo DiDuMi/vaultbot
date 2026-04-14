@@ -117,7 +117,9 @@ export const buildIdentityService = ({
     getUserProfileSummary,
     trackOpen,
     trackVisit,
+    isProjectMember: isTenantUser,
     isTenantUser,
+    canManageProject: isTenantAdmin,
     canManageAdmins: isTenantAdmin,
     canManageCollections: isTenantAdmin
   };

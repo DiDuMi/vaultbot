@@ -67,7 +67,9 @@ export type DeliveryIdentityService = {
     source: "start" | "start_payload" | "home" | "help" | "tag",
     metadata?: Record<string, unknown>
   ) => Promise<void>;
+  isProjectMember: (userId: string) => Promise<boolean>;
   isTenantUser: (userId: string) => Promise<boolean>;
+  canManageProject: (userId: string) => Promise<boolean>;
   canManageAdmins: (userId: string) => Promise<boolean>;
   canManageCollections: (userId: string) => Promise<boolean>;
 };

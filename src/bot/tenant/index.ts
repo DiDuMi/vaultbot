@@ -257,7 +257,7 @@ export const registerTenantBot = (
     if (!deliveryService || !ctx.from) {
       return mainKeyboard;
     }
-    const isTenant = await deliveryService.isTenantUser(String(ctx.from.id)).catch(() => true);
+    const isTenant = await deliveryService.isProjectMember(String(ctx.from.id)).catch(() => true);
     return isTenant ? mainKeyboard : userKeyboard;
   };
   const resetSessionForCommand = async (ctx: Context) => {
@@ -477,7 +477,7 @@ export const registerTenantBot = (
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deliveryService.isTenantUser(userId))) {
+    if (!(await deliveryService.isProjectMember(userId))) {
       await replyHtml(ctx, `🔒 仅${getMemberScopeLabel()}可使用分类。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
@@ -999,8 +999,8 @@ export const registerTenantBot = (
       await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}已关闭搜索。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
-    const isTenant = await deliveryService.isTenantUser(userId).catch(() => false);
-    const canManageViewer = isTenant ? await deliveryService.canManageAdmins(userId).catch(() => false) : false;
+    const isTenant = await deliveryService.isProjectMember(userId).catch(() => false);
+    const canManageViewer = isTenant ? await deliveryService.canManageProject(userId).catch(() => false) : false;
     if (!isTenant) {
       if (searchMode !== "PUBLIC") {
         await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放搜索。`, { reply_markup: buildHelpKeyboard() });
@@ -1039,8 +1039,8 @@ export const registerTenantBot = (
       await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}已关闭搜索。`, { reply_markup: buildHelpKeyboard() });
       return;
     }
-    const isTenant = await deliveryService.isTenantUser(userId).catch(() => false);
-    const canManageViewer = isTenant ? await deliveryService.canManageAdmins(userId).catch(() => false) : false;
+    const isTenant = await deliveryService.isProjectMember(userId).catch(() => false);
+    const canManageViewer = isTenant ? await deliveryService.canManageProject(userId).catch(() => false) : false;
     if (!isTenant) {
       if (searchMode !== "PUBLIC") {
         await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放搜索。`, { reply_markup: buildHelpKeyboard() });

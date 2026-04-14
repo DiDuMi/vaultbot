@@ -61,7 +61,7 @@ export const createTenantRenderers = (deps: {
       await upsertHtml(ctx, buildDbDisabledHint("查看统计"), buildHomeKeyboard());
       return;
     }
-    if (!ctx.from || !(await deps.deliveryService.isTenantUser(String(ctx.from.id)))) {
+    if (!ctx.from || !(await deps.deliveryService.isProjectMember(String(ctx.from.id)))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可查看统计。`, buildHomeKeyboard());
       return;
     }
@@ -100,7 +100,7 @@ export const createTenantRenderers = (deps: {
       deps.rankingViewStates.set(toMetaKey(ctx.from.id, chatId), { range, metric });
     }
     const userId = String(ctx.from.id);
-    const isTenant = await deps.deliveryService.isTenantUser(userId).catch(() => false);
+    const isTenant = await deps.deliveryService.isProjectMember(userId).catch(() => false);
     if (!isTenant) {
       const enabled = await deps.deliveryService.getTenantPublicRankingEnabled().catch(() => false);
       if (!enabled) {
@@ -181,7 +181,7 @@ export const createTenantRenderers = (deps: {
 
     const userId = String(ctx.from.id);
     const [isTenant, searchMode, rankPublic] = await Promise.all([
-      deps.deliveryService.isTenantUser(userId).catch(() => false),
+      deps.deliveryService.isProjectMember(userId).catch(() => false),
       deps.deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const),
       deps.deliveryService.getTenantPublicRankingEnabled().catch(() => false)
     ]);
@@ -354,12 +354,12 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    const isTenant = await deps.deliveryService.isTenantUser(userId);
+    const isTenant = await deps.deliveryService.isProjectMember(userId);
     if (!isTenant) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可打开设置。`, buildHelpKeyboard());
       return;
     }
-    const canManageAdmins = await deps.deliveryService.canManageAdmins(userId);
+    const canManageAdmins = await deps.deliveryService.canManageProject(userId);
     const canManageCollections = await deps.deliveryService.canManageCollections(userId);
     const singleOwnerMode = isSingleOwnerModeEnabled();
     const stats = await deps.deliveryService.getTenantHomeStats().catch(() => null);
@@ -427,12 +427,12 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deps.deliveryService.isTenantUser(userId))) {
+    if (!(await deps.deliveryService.isProjectMember(userId))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置存储群。`, buildHelpKeyboard());
       return;
     }
     const singleOwnerMode = isSingleOwnerModeEnabled();
-    const canManage = singleOwnerMode ? false : await deps.deliveryService.canManageAdmins(userId);
+    const canManage = singleOwnerMode ? false : await deps.deliveryService.canManageProject(userId);
     const minReplicas = await deps.deliveryService.getTenantMinReplicas().catch(() => 1);
     const groups = await deps.deliveryService.listVaultGroups().catch(() => []);
     const primary = groups.find((g) => g.role === "PRIMARY") ?? null;
@@ -480,11 +480,11 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deps.deliveryService.isTenantUser(userId))) {
+    if (!(await deps.deliveryService.isProjectMember(userId))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置欢迎词。`, buildHelpKeyboard());
       return;
     }
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const canManage = await deps.deliveryService.canManageProject(userId);
     const current = await deps.deliveryService.getTenantStartWelcomeHtml().catch(() => null);
     const preview = current?.trim() ? sanitizeTelegramHtml(current.trim()) : "👋 你好！这里是内容领取入口。\n发送打开哈希即可获取文件。";
     const text = [
@@ -509,11 +509,11 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deps.deliveryService.isTenantUser(userId))) {
+    if (!(await deps.deliveryService.isProjectMember(userId))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置广告。`, buildHelpKeyboard());
       return;
     }
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const canManage = await deps.deliveryService.canManageProject(userId);
     const config = await deps.deliveryService.getTenantDeliveryAdConfig().catch(() => ({
       prevText: "⬅️ 上一页",
       nextText: "下一组 ➡️",
@@ -547,11 +547,11 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deps.deliveryService.isTenantUser(userId))) {
+    if (!(await deps.deliveryService.isProjectMember(userId))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置内容保护。`, buildHelpKeyboard());
       return;
     }
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const canManage = await deps.deliveryService.canManageProject(userId);
     const enabled = await deps.deliveryService.getTenantProtectContentEnabled().catch(() => false);
     const text = [
       "🔒 内容保护（防转发/防保存）",
@@ -576,11 +576,11 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deps.deliveryService.isTenantUser(userId))) {
+    if (!(await deps.deliveryService.isProjectMember(userId))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置隐藏发布者。`, buildHelpKeyboard());
       return;
     }
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const canManage = await deps.deliveryService.canManageProject(userId);
     const enabled = await deps.deliveryService.getTenantHidePublisherEnabled().catch(() => false);
     const text = [
       "🙈 隐藏发布者",
@@ -605,11 +605,11 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deps.deliveryService.isTenantUser(userId))) {
+    if (!(await deps.deliveryService.isProjectMember(userId))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置自动归类。`, buildHelpKeyboard());
       return;
     }
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const canManage = await deps.deliveryService.canManageProject(userId);
     const enabled = await deps.deliveryService.getTenantAutoCategorizeEnabled().catch(() => false);
     const [rules, collections] = await Promise.all([
       deps.deliveryService.getTenantAutoCategorizeRules().catch(() => []),
@@ -653,11 +653,11 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deps.deliveryService.isTenantUser(userId))) {
+    if (!(await deps.deliveryService.isProjectMember(userId))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置排行开放。`, buildHelpKeyboard());
       return;
     }
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const canManage = await deps.deliveryService.canManageProject(userId);
     const enabled = await deps.deliveryService.getTenantPublicRankingEnabled().catch(() => false);
     const text = [
       "🏆 排行开放",
@@ -682,11 +682,11 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deps.deliveryService.isTenantUser(userId))) {
+    if (!(await deps.deliveryService.isProjectMember(userId))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置搜索开放。`, buildHelpKeyboard());
       return;
     }
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const canManage = await deps.deliveryService.canManageProject(userId);
     const mode = await deps.deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
     const statusText =
       mode === "PUBLIC" ? "已对用户开放" : mode === "OFF" ? "已关闭" : `仅${getMemberScopeLabel()}可见`;
@@ -718,11 +718,11 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    if (!(await deps.deliveryService.isTenantUser(userId))) {
+    if (!(await deps.deliveryService.isProjectMember(userId))) {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可使用推送。`, buildHelpKeyboard());
       return;
     }
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const canManage = await deps.deliveryService.canManageProject(userId);
     const key = toMetaKey(ctx.from.id, chatId);
     const selectedId = deps.broadcastDraftStates.get(key)?.draftId;
     const broadcasts = await deps.deliveryService.listMyBroadcasts(userId, 10).catch(() => []);
@@ -811,7 +811,7 @@ export const createTenantRenderers = (deps: {
       return;
     }
     const userId = String(ctx.from.id);
-    const canManage = await deps.deliveryService.canManageAdmins(userId);
+    const canManage = await deps.deliveryService.canManageProject(userId);
     if (!canManage) {
       await upsertHtml(ctx, "🔒 仅管理员可配置推送按钮。", buildHelpKeyboard());
       return;
@@ -867,7 +867,7 @@ export const createTenantRenderers = (deps: {
       await replyHtml(ctx, "已为你打开菜单。", { reply_markup: deps.mainKeyboard });
       return;
     }
-    const isTenant = await deps.deliveryService.isTenantUser(String(ctx.from.id)).catch(() => false);
+    const isTenant = await deps.deliveryService.isProjectMember(String(ctx.from.id)).catch(() => false);
     const roleLine = isTenant
       ? `👤 身份：<b>${escapeHtml(getMemberLabel())}</b>（可发布作品）`
       : "👤 身份：<b>用户</b>（可浏览与领取内容）";

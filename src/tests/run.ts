@@ -31,7 +31,7 @@ import { createDeliveryDiscovery } from "../services/use-cases/delivery-discover
 import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
 import { createDeliveryCore } from "../services/use-cases/delivery-core";
 import { isSingleOwnerModeEnabled } from "../infra/runtime-mode";
-import { createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
+import { buildIdentityService, createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
 import { createDeliveryReplicaSelection } from "../services/use-cases/delivery-replica-selection";
 import { createDeliveryTenantVault } from "../services/use-cases/delivery-tenant-vault";
 import { createReplicateBatch } from "../worker/replication-worker";
@@ -671,6 +671,31 @@ test("tenant-vault: single owner mode hides extra admins", async () => {
   }
 });
 
+test("identity-service: exposes project-oriented aliases", async () => {
+  const identity = buildIdentityService({
+    selectReplicas: async () => ({ status: "missing", message: "x" }),
+    resolveShareCode: async () => null,
+    upsertTenantUserFromTelegram: async () => undefined,
+    getTenantUserLabel: async () => null,
+    getUserProfileSummary: async () => ({
+      displayName: null,
+      activatedAt: null,
+      lastSeenAt: null,
+      activeDays: 0,
+      visitCount: 0,
+      openCount: 0,
+      openedShares: 0
+    }),
+    trackOpen: async () => undefined,
+    trackVisit: async () => undefined,
+    isTenantUser: async () => true,
+    isTenantAdmin: async () => true
+  });
+
+  assert.equal(await identity.isProjectMember("u1"), true);
+  assert.equal(await identity.canManageProject("u1"), true);
+});
+
 test("tenant-vault: single owner mode blocks backup vault changes", async () => {
   const previous = process.env.SINGLE_OWNER_MODE;
   process.env.SINGLE_OWNER_MODE = "1";
@@ -806,7 +831,9 @@ test("renderers: settings copy switches to single-owner wording", async () => {
     const { store: rankingViewStates } = createStore<{ range: "today" | "week" | "month"; metric: "open" | "visit" | "like" | "comment" }>();
     const renderers = createTenantRenderers({
       deliveryService: {
+        isProjectMember: async () => true,
         isTenantUser: async () => true,
+        canManageProject: async () => true,
         canManageAdmins: async () => true,
         canManageCollections: async () => true,
         getTenantHomeStats: async () => null,
@@ -837,7 +864,9 @@ test("renderers: vault settings become overview-only in single-owner mode", asyn
     const { store: rankingViewStates } = createStore<{ range: "today" | "week" | "month"; metric: "open" | "visit" | "like" | "comment" }>();
     const renderers = createTenantRenderers({
       deliveryService: {
+        isProjectMember: async () => true,
         isTenantUser: async () => true,
+        canManageProject: async () => true,
         canManageAdmins: async () => true,
         getTenantMinReplicas: async () => 1,
         listVaultGroups: async () => [{ vaultGroupId: "vg_1", chatId: "-1001", role: "PRIMARY", status: "ACTIVE" }]
@@ -867,7 +896,9 @@ test("renderers: help copy uses project-member wording in single-owner mode", as
     const { store: rankingViewStates } = createStore<{ range: "today" | "week" | "month"; metric: "open" | "visit" | "like" | "comment" }>();
     const renderers = createTenantRenderers({
       deliveryService: {
+        isProjectMember: async () => true,
         isTenantUser: async () => true,
+        canManageProject: async () => true,
         getTenantSearchMode: async () => "ENTITLED_ONLY",
         getTenantPublicRankingEnabled: async () => false
       } as never,

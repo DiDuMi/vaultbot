@@ -313,7 +313,7 @@ export const registerTenantMessageHandlers = (
           return;
         }
         const actorUserId = String(ctx.from.id);
-        const canManageAdmins = await deps.deliveryService.canManageAdmins(actorUserId);
+        const canManageAdmins = await deps.deliveryService.canManageProject(actorUserId);
         if (!canManageAdmins) {
           deps.setSessionMode(key, "idle");
           await replyHtml(ctx, `🔒 无权限：仅${getManagerLabel()}可添加管理员。`, { reply_markup: buildHelpKeyboard() });
