@@ -81,7 +81,7 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, "\u5f53\u524d\u672a\u542f\u7528\u6570\u636e\u5e93\uff0c\u65e0\u6cd5\u7f16\u8f91\u63a8\u9001\u3002", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
@@ -89,20 +89,20 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "🔒 无权限：仅管理员可编辑推送。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002", { reply_markup: buildHelpKeyboard() });
       return true;
     }
     if (ctx.message.media_group_id) {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 推送仅支持单媒体，请发送单张照片/单个视频/单个文件。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, "\u63a8\u9001\u4ec5\u652f\u6301\u5355\u5a92\u4f53\uff0c\u8bf7\u53d1\u9001\u5355\u5f20\u56fe\u7247\u3001\u5355\u4e2a\u89c6\u9891\u6216\u5355\u4e2a\u6587\u4ef6\u3002", { reply_markup: mainKeyboard });
       await renderBroadcast(ctx);
       return true;
     }
     const fileId = ctx.message.photo?.[ctx.message.photo.length - 1]?.file_id;
     if (!fileId) {
-      await replyHtml(ctx, "⚠️ 未识别到照片，请重试。", { reply_markup: buildSettingsInputKeyboard() });
+      await replyHtml(ctx, "\u672a\u8bc6\u522b\u5230\u56fe\u7247\uff0c\u8bf7\u91cd\u8bd5\u3002", { reply_markup: buildSettingsInputKeyboard() });
       return true;
     }
     const caption = (ctx.message.caption ?? "").trim();
@@ -137,7 +137,7 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, "\u5f53\u524d\u672a\u542f\u7528\u6570\u636e\u5e93\uff0c\u65e0\u6cd5\u7f16\u8f91\u63a8\u9001\u3002", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
@@ -145,20 +145,20 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "🔒 无权限：仅管理员可编辑推送。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002", { reply_markup: buildHelpKeyboard() });
       return true;
     }
     if (ctx.message.media_group_id) {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 推送仅支持单媒体，请发送单张照片/单个视频/单个文件。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, "\u63a8\u9001\u4ec5\u652f\u6301\u5355\u5a92\u4f53\uff0c\u8bf7\u53d1\u9001\u5355\u5f20\u56fe\u7247\u3001\u5355\u4e2a\u89c6\u9891\u6216\u5355\u4e2a\u6587\u4ef6\u3002", { reply_markup: mainKeyboard });
       await renderBroadcast(ctx);
       return true;
     }
     const fileId = ctx.message.video?.file_id;
     if (!fileId) {
-      await replyHtml(ctx, "⚠️ 未识别到视频，请重试。", { reply_markup: buildSettingsInputKeyboard() });
+      await replyHtml(ctx, "\u672a\u8bc6\u522b\u5230\u89c6\u9891\uff0c\u8bf7\u91cd\u8bd5\u3002", { reply_markup: buildSettingsInputKeyboard() });
       return true;
     }
     const caption = (ctx.message.caption ?? "").trim();
@@ -193,7 +193,7 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, "\u5f53\u524d\u672a\u542f\u7528\u6570\u636e\u5e93\uff0c\u65e0\u6cd5\u7f16\u8f91\u63a8\u9001\u3002", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
@@ -201,20 +201,20 @@ export const createTenantAdminInput = (deps: {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "🔒 无权限：仅管理员可编辑推送。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002", { reply_markup: buildHelpKeyboard() });
       return true;
     }
     if (ctx.message.media_group_id) {
       if (state?.mode === "broadcastContent") {
         setSessionMode(key, "idle");
       }
-      await replyHtml(ctx, "⚠️ 推送仅支持单媒体，请发送单张照片/单个视频/单个文件。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, "\u63a8\u9001\u4ec5\u652f\u6301\u5355\u5a92\u4f53\uff0c\u8bf7\u53d1\u9001\u5355\u5f20\u56fe\u7247\u3001\u5355\u4e2a\u89c6\u9891\u6216\u5355\u4e2a\u6587\u4ef6\u3002", { reply_markup: mainKeyboard });
       await renderBroadcast(ctx);
       return true;
     }
     const fileId = ctx.message.document?.file_id;
     if (!fileId) {
-      await replyHtml(ctx, "⚠️ 未识别到文件，请重试。", { reply_markup: buildSettingsInputKeyboard() });
+      await replyHtml(ctx, "\u672a\u8bc6\u522b\u5230\u6587\u4ef6\uff0c\u8bf7\u91cd\u8bd5\u3002", { reply_markup: buildSettingsInputKeyboard() });
       return true;
     }
     const caption = (ctx.message.caption ?? "").trim();
@@ -248,38 +248,38 @@ export const createTenantAdminInput = (deps: {
     }
     const command = normalizeButtonText(text);
     if (
-      command === "分享" ||
-      command === "储存" ||
-      command === "完成" ||
-      command === "列表" ||
-      command === "搜索" ||
-      command === "足迹" ||
-      command === "关注" ||
-      command === "设置"
+      command === "\u5206\u4eab" ||
+      command === "\u50a8\u5b58" ||
+      command === "\u5b8c\u6210" ||
+      command === "\u5217\u8868" ||
+      command === "\u641c\u7d22" ||
+      command === "\u8db3\u8ff9" ||
+      command === "\u5173\u6ce8" ||
+      command === "\u8bbe\u7f6e"
     ) {
-      await replyHtml(ctx, buildInputExitHint("配置推送"), { reply_markup: buildSettingsInputKeyboard() });
+      await replyHtml(ctx, buildInputExitHint("\u914d\u7f6e\u63a8\u9001"), { reply_markup: buildSettingsInputKeyboard() });
       return true;
     }
     if (!deliveryService) {
       setSessionMode(key, "idle");
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法编辑推送。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, "\u5f53\u524d\u672a\u542f\u7528\u6570\u636e\u5e93\uff0c\u65e0\u6cd5\u7f16\u8f91\u63a8\u9001\u3002", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
     const canManage = await deliveryService.canManageProject(actorUserId);
     if (!canManage) {
       setSessionMode(key, "idle");
-      await replyHtml(ctx, "🔒 无权限：仅管理员可编辑推送。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002", { reply_markup: buildHelpKeyboard() });
       return true;
     }
     if (inputState.mode === "broadcastContent") {
       const draft = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
       if (!draft || draft.status !== "DRAFT") {
         setSessionMode(key, "idle");
-        await replyHtml(ctx, "⚠️ 未找到可编辑的推送草稿。", { reply_markup: buildHelpKeyboard() });
+        await replyHtml(ctx, "\u672a\u627e\u5230\u53ef\u7f16\u8f91\u7684\u63a8\u9001\u8349\u7a3f\u3002", { reply_markup: buildHelpKeyboard() });
         return true;
       }
-      if (text.trim() === "清除媒体") {
+      if (text.trim() === "\u6e05\u9664\u5a92\u4f53") {
         const result = await deliveryService.updateBroadcastDraftContent(actorUserId, inputState.draftId, {
           contentHtml: draft.contentHtml,
           mediaKind: null,
@@ -304,17 +304,17 @@ export const createTenantAdminInput = (deps: {
     if (inputState.mode === "broadcastButtonText") {
       const btnText = text.trim();
       if (!btnText) {
-        await replyHtml(ctx, "⚠️ 按钮文案不能为空。", { reply_markup: buildSettingsInputKeyboard() });
+        await replyHtml(ctx, "\u6309\u94ae\u6587\u6848\u4e0d\u80fd\u4e3a\u7a7a\u3002", { reply_markup: buildSettingsInputKeyboard() });
         return true;
       }
       if (utf8ByteLength(btnText) > 60) {
-        await replyHtml(ctx, "⚠️ 按钮文案过长，请控制在 60 字节以内。", { reply_markup: buildSettingsInputKeyboard() });
+        await replyHtml(ctx, "\u6309\u94ae\u6587\u6848\u8fc7\u957f\uff0c\u8bf7\u63a7\u5236\u5728 60 \u5b57\u8282\u4ee5\u5185\u3002", { reply_markup: buildSettingsInputKeyboard() });
         return true;
       }
       broadcastInputStates.set(key, { mode: "broadcastButtonUrl", draftId: inputState.draftId, text: btnText });
       await upsertHtml(
         ctx,
-        ["<b>🔗 添加按钮</b>", "", `按钮文案：<b>${escapeHtml(btnText)}</b>`, "请发送 http/https 链接："].join("\n"),
+        ["<b>\u6dfb\u52a0\u6309\u94ae</b>", "", `\u6309\u94ae\u6587\u6848\uff1a<b>${escapeHtml(btnText)}</b>`, "\u8bf7\u53d1\u9001 http/https \u94fe\u63a5\uff1a"].join("\n"),
         buildSettingsInputKeyboard()
       );
       return true;
@@ -322,13 +322,13 @@ export const createTenantAdminInput = (deps: {
     if (inputState.mode === "broadcastButtonUrl") {
       const url = text.trim();
       if (!/^https?:\/\//i.test(url)) {
-        await replyHtml(ctx, "⚠️ 链接格式错误：仅支持 http/https。", { reply_markup: buildSettingsInputKeyboard() });
+        await replyHtml(ctx, "\u94fe\u63a5\u683c\u5f0f\u9519\u8bef\uff1a\u4ec5\u652f\u6301 http/https\u3002", { reply_markup: buildSettingsInputKeyboard() });
         return true;
       }
       const draft = await deliveryService.getMyBroadcastDraft(actorUserId).catch(() => null);
       if (!draft || draft.status !== "DRAFT") {
         setSessionMode(key, "idle");
-        await replyHtml(ctx, "⚠️ 未找到可编辑的推送草稿。", { reply_markup: buildHelpKeyboard() });
+        await replyHtml(ctx, "\u672a\u627e\u5230\u53ef\u7f16\u8f91\u7684\u63a8\u9001\u8349\u7a3f\u3002", { reply_markup: buildHelpKeyboard() });
         return true;
       }
       const nextButtons = [...draft.buttons, { text: inputState.text, url }];
@@ -341,11 +341,11 @@ export const createTenantAdminInput = (deps: {
     if (inputState.mode === "broadcastScheduleAt") {
       const date = parseLocalDateTime(text);
       if (!date) {
-        await replyHtml(ctx, "⚠️ 时间格式错误，请使用 <code>YYYY-MM-DD HH:mm</code>。", { reply_markup: buildSettingsInputKeyboard() });
+        await replyHtml(ctx, "\u65f6\u95f4\u683c\u5f0f\u9519\u8bef\uff0c\u8bf7\u4f7f\u7528 <code>YYYY-MM-DD HH:mm</code>\u3002", { reply_markup: buildSettingsInputKeyboard() });
         return true;
       }
       if (date.getTime() < Date.now()) {
-        await replyHtml(ctx, "⚠️ 定时时间不能早于当前时间，请重新输入未来时间。", {
+        await replyHtml(ctx, "\u5b9a\u65f6\u65f6\u95f4\u4e0d\u80fd\u65e9\u4e8e\u5f53\u524d\u65f6\u95f4\uff0c\u8bf7\u91cd\u65b0\u8f93\u5165\u672a\u6765\u65f6\u95f4\u3002", {
           reply_markup: buildSettingsInputKeyboard()
         });
         return true;
@@ -359,7 +359,7 @@ export const createTenantAdminInput = (deps: {
     }
     const minutes = Number(text.trim());
     if (!Number.isFinite(minutes) || minutes < 5) {
-      await replyHtml(ctx, "⚠️ 间隔不合法：请发送分钟数（最小 5）。", { reply_markup: buildSettingsInputKeyboard() });
+      await replyHtml(ctx, "\u95f4\u9694\u4e0d\u5408\u6cd5\uff1a\u8bf7\u53d1\u9001\u5206\u949f\u6570\uff08\u6700\u5c11 5\uff09\u3002", { reply_markup: buildSettingsInputKeyboard() });
       return true;
     }
     const repeatEveryMs = Math.round(minutes * 60 * 1000);
@@ -386,28 +386,28 @@ export const createTenantAdminInput = (deps: {
     }
     const command = normalizeButtonText(text);
     if (
-      command === "分享" ||
-      command === "储存" ||
-      command === "完成" ||
-      command === "列表" ||
-      command === "搜索" ||
-      command === "足迹" ||
-      command === "关注" ||
-      command === "设置"
+      command === "\u5206\u4eab" ||
+      command === "\u50a8\u5b58" ||
+      command === "\u5b8c\u6210" ||
+      command === "\u5217\u8868" ||
+      command === "\u641c\u7d22" ||
+      command === "\u8db3\u8ff9" ||
+      command === "\u5173\u6ce8" ||
+      command === "\u8bbe\u7f6e"
     ) {
-      await replyHtml(ctx, buildInputExitHint("配置设置"), { reply_markup: buildSettingsInputKeyboard() });
+      await replyHtml(ctx, buildInputExitHint("\u914d\u7f6e\u8bbe\u7f6e"), { reply_markup: buildSettingsInputKeyboard() });
       return true;
     }
     if (!deliveryService) {
       setSessionMode(key, "idle");
-      await replyHtml(ctx, "⚠️ 当前未启用数据库，无法保存设置。", { reply_markup: mainKeyboard });
+      await replyHtml(ctx, "\u5f53\u524d\u672a\u542f\u7528\u6570\u636e\u5e93\uff0c\u65e0\u6cd5\u4fdd\u5b58\u8bbe\u7f6e\u3002", { reply_markup: mainKeyboard });
       return true;
     }
     const actorUserId = String(ctx.from.id);
     const canManage = await deliveryService.canManageProject(actorUserId);
     if (!canManage) {
       setSessionMode(key, "idle");
-      await replyHtml(ctx, "🔒 无权限：仅管理员可修改设置。", { reply_markup: buildHelpKeyboard() });
+      await replyHtml(ctx, "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u8bbe\u7f6e\u3002", { reply_markup: buildHelpKeyboard() });
       return true;
     }
     if (state.mode === "autoCategorizeRules") {
@@ -446,7 +446,7 @@ export const createTenantAdminInput = (deps: {
       }
       const result = await deliveryService.setProjectAutoCategorizeRules(actorUserId, rules);
       setSessionMode(key, "idle");
-      const extra = unknown.length ? `\n\n⚠️ 未找到这些分类名：${unknown.map((t) => `<code>${escapeHtml(t)}</code>`).join(" ")}` : "";
+      const extra = unknown.length ? `\n\n\u672a\u627e\u5230\u8fd9\u4e9b\u5206\u7c7b\u540d\uff1a${unknown.map((t) => `<code>${escapeHtml(t)}</code>`).join(" ")}` : "";
       await replyHtml(ctx, `${result.message}${extra}`, { reply_markup: mainKeyboard });
       await renderAutoCategorizeSettings(ctx);
       return true;
@@ -462,7 +462,7 @@ export const createTenantAdminInput = (deps: {
     if (state.mode === "welcome") {
       const normalized = text.trim();
       const result =
-        normalized === "清除"
+        normalized === "\u6e05\u9664"
           ? await deliveryService.setProjectStartWelcomeHtml(actorUserId, null)
           : await deliveryService.setProjectStartWelcomeHtml(actorUserId, normalized);
       setSessionMode(key, "idle");
@@ -471,8 +471,8 @@ export const createTenantAdminInput = (deps: {
       return true;
     }
     const current = await deliveryService.getProjectDeliveryAdConfig().catch(() => ({
-      prevText: "⬅️ 上一页",
-      nextText: "下一组 ➡️",
+      prevText: "\u2b05\ufe0f \u4e0a\u4e00\u9875",
+      nextText: "\u4e0b\u4e00\u9875 \u27a1\ufe0f",
       adButtonText: null,
       adButtonUrl: null
     }));
@@ -482,9 +482,9 @@ export const createTenantAdminInput = (deps: {
     } else if (state.mode === "adNext") {
       nextConfig.nextText = text.trim();
     } else if (state.mode === "adButtonText") {
-      nextConfig.adButtonText = text.trim() === "清除" ? null : text.trim();
+      nextConfig.adButtonText = text.trim() === "\u6e05\u9664" ? null : text.trim();
     } else if (state.mode === "adButtonUrl") {
-      nextConfig.adButtonUrl = text.trim() === "清除" ? null : text.trim();
+      nextConfig.adButtonUrl = text.trim() === "\u6e05\u9664" ? null : text.trim();
     }
     const result = await deliveryService.setProjectDeliveryAdConfig(actorUserId, nextConfig);
     setSessionMode(key, "idle");

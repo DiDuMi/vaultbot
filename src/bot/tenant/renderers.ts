@@ -3,6 +3,8 @@ import type { Context } from "grammy";
 import type { DeliveryService } from "../../services/use-cases";
 import { logError } from "../../infra/logging";
 import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
+import { resolveLocaleFromTelegramLanguageCode, t } from "../../i18n";
+import { getManagerLabel, getMemberLabel, getMemberScopeLabel, getStorageGroupLabel, getBroadcastLabel } from "./labels";
 import {
   buildDbDisabledHint,
   buildPublisherLine,
@@ -50,10 +52,8 @@ export const createTenantRenderers = (deps: {
   const logRendererError = (scope: string, error: unknown) => {
     logError({ component: "bot", op: "renderer_error", scope }, error);
   };
+  const getLocale = (ctx: Context) => resolveLocaleFromTelegramLanguageCode(ctx.from?.language_code);
 
-  const getManagerLabel = () => (isSingleOwnerModeEnabled() ? "项目拥有者" : "管理员");
-  const getMemberLabel = () => (isSingleOwnerModeEnabled() ? "项目成员" : "租户成员");
-  const getMemberScopeLabel = () => (isSingleOwnerModeEnabled() ? "项目成员" : "租户");
 
   const renderStats = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
@@ -175,7 +175,7 @@ export const createTenantRenderers = (deps: {
         "",
         "⚠️ 当前未启用数据库，部分功能不可用。"
       ].join("\n");
-      await upsertHtml(ctx, text, buildStartShortcutKeyboard());
+      await upsertHtml(ctx, text, buildStartShortcutKeyboard(getLocale(ctx)));
       return;
     }
 
@@ -213,7 +213,7 @@ export const createTenantRenderers = (deps: {
       ]
         .filter(Boolean)
         .join("\n");
-      await upsertHtml(ctx, text, buildHelpKeyboard());
+      await upsertHtml(ctx, text, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
 
@@ -251,11 +251,11 @@ export const createTenantRenderers = (deps: {
   const renderFollow = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("使用关注"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("使用关注"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const keywords = await deps.deliveryService.getUserFollowKeywords(String(ctx.from.id)).catch((error) => {
@@ -277,11 +277,11 @@ export const createTenantRenderers = (deps: {
   const renderMy = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("查看我的信息"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("查看我的信息"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
@@ -318,11 +318,11 @@ export const createTenantRenderers = (deps: {
   const renderNotifySettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("配置通知"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置通知"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const settings = await deps.deliveryService.getUserNotifySettings(String(ctx.from.id)).catch((error) => {
@@ -346,17 +346,17 @@ export const createTenantRenderers = (deps: {
   const renderSettings = async (ctx: Context, showMoreActions = false) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("打开设置"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("打开设置"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     const isTenant = await deps.deliveryService.isProjectMember(userId);
     if (!isTenant) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可打开设置。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可打开设置。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const canManageAdmins = await deps.deliveryService.canManageProject(userId);
@@ -419,16 +419,16 @@ export const createTenantRenderers = (deps: {
   const renderVaultSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("配置存储群"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置存储群"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isProjectMember(userId))) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置存储群。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置存储群。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const singleOwnerMode = isSingleOwnerModeEnabled();
@@ -472,16 +472,16 @@ export const createTenantRenderers = (deps: {
   const renderWelcomeSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("配置欢迎词"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置欢迎词"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isProjectMember(userId))) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置欢迎词。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置欢迎词。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
@@ -501,16 +501,16 @@ export const createTenantRenderers = (deps: {
   const renderAdSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("配置广告"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置广告"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isProjectMember(userId))) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置广告。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置广告。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
@@ -539,16 +539,16 @@ export const createTenantRenderers = (deps: {
   const renderProtectSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("配置内容保护"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置内容保护"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isProjectMember(userId))) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置内容保护。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置内容保护。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
@@ -568,16 +568,16 @@ export const createTenantRenderers = (deps: {
   const renderHidePublisherSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("配置隐藏发布者"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置隐藏发布者"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isProjectMember(userId))) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置隐藏发布者。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置隐藏发布者。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
@@ -597,16 +597,16 @@ export const createTenantRenderers = (deps: {
   const renderAutoCategorizeSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("配置自动归类"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置自动归类"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isProjectMember(userId))) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置自动归类。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置自动归类。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
@@ -645,16 +645,16 @@ export const createTenantRenderers = (deps: {
   const renderRankPublicSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("配置排行开放"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置排行开放"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isProjectMember(userId))) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置排行开放。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置排行开放。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
@@ -674,16 +674,16 @@ export const createTenantRenderers = (deps: {
   const renderSearchModeSettings = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("配置搜索开放"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("配置搜索开放"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isProjectMember(userId))) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置搜索开放。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可配置搜索开放。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
@@ -705,21 +705,21 @@ export const createTenantRenderers = (deps: {
   const renderBroadcast = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("使用推送"), buildHelpKeyboard());
+      await upsertHtml(ctx, buildDbDisabledHint("使用推送"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前用户。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
     if (!chatId) {
-      await upsertHtml(ctx, "⚠️ 无法识别当前会话。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 无法识别当前会话。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const userId = String(ctx.from.id);
     if (!(await deps.deliveryService.isProjectMember(userId))) {
-      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可使用推送。`, buildHelpKeyboard());
+      await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可使用推送。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const canManage = await deps.deliveryService.canManageProject(userId);
@@ -813,7 +813,7 @@ export const createTenantRenderers = (deps: {
     const userId = String(ctx.from.id);
     const canManage = await deps.deliveryService.canManageProject(userId);
     if (!canManage) {
-      await upsertHtml(ctx, "🔒 仅管理员可配置推送按钮。", buildHelpKeyboard());
+      await upsertHtml(ctx, "🔒 仅管理员可配置推送按钮。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const key = toMetaKey(ctx.from.id, chatId);
@@ -822,7 +822,7 @@ export const createTenantRenderers = (deps: {
       (selectedId ? await deps.deliveryService.getBroadcastById(userId, selectedId).catch(() => null) : null) ??
       (await deps.deliveryService.getMyBroadcastDraft(userId).catch(() => null));
     if (!draft || draft.status !== "DRAFT") {
-      await upsertHtml(ctx, "⚠️ 未找到可编辑的推送草稿。", buildHelpKeyboard());
+      await upsertHtml(ctx, "⚠️ 未找到可编辑的推送草稿。", buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     const text = [
@@ -861,24 +861,24 @@ export const createTenantRenderers = (deps: {
           .filter(Boolean)
           .join("\n"),
         {
-        reply_markup: buildStartShortcutKeyboard()
+        reply_markup: buildStartShortcutKeyboard(getLocale(ctx))
         }
       );
-      await replyHtml(ctx, "已为你打开菜单。", { reply_markup: deps.mainKeyboard });
+      await replyHtml(ctx, t("system.menu_opened", { locale: getLocale(ctx) }), { reply_markup: deps.mainKeyboard });
       return;
     }
     const isTenant = await deps.deliveryService.isProjectMember(String(ctx.from.id)).catch(() => false);
     const roleLine = isTenant
-      ? `👤 身份：<b>${escapeHtml(getMemberLabel())}</b>（可发布作品）`
-      : "👤 身份：<b>用户</b>（可浏览与领取内容）";
+      ? t("start.role_tenant", { locale: getLocale(ctx), values: { role: escapeHtml(getMemberLabel({ locale: getLocale(ctx) })) } })
+      : t("start.role_user", { locale: getLocale(ctx) });
     const quickStart = isTenant
       ? ["<b>🚀 快速开始</b>", "点底部 分享 → 发送媒体 → 点 ✅ 完成 保存 → 按提示提交标题/描述。", "也可以发送打开哈希领取内容，例如：<code>Abc123</code>。"].join("\n")
       : ["<b>🚀 快速开始</b>", "发送打开哈希即可领取内容，例如：<code>Abc123</code>", "或点底部 📚 列表 / 🔎 搜索 浏览内容。"].join("\n");
     await replyHtml(
       ctx,
       [
-        `👋 你好，<b>${escapeHtml(firstName)}</b>`,
-        `ID：<code>${escapeHtml(String(ctx.from.id))}</code>`,
+        t("start.greeting_line", { locale: getLocale(ctx), values: { greeting: escapeHtml(t("start.greeting", { locale: getLocale(ctx) })), name: escapeHtml(firstName) } }),
+        t("start.id_line", { locale: getLocale(ctx), values: { id: escapeHtml(String(ctx.from.id)) } }),
         intro,
         "",
         roleLine,
@@ -891,14 +891,14 @@ export const createTenantRenderers = (deps: {
         .filter(Boolean)
         .join("\n"),
       {
-        reply_markup: buildStartShortcutKeyboard()
+        reply_markup: buildStartShortcutKeyboard(getLocale(ctx))
       }
     );
     if (isTenant) {
-      await replyHtml(ctx, "已为你打开菜单（分享/列表/搜索/足迹/我的/设置）。", { reply_markup: deps.mainKeyboard });
+      await replyHtml(ctx, t("system.menu_opened_tenant", { locale: getLocale(ctx) }), { reply_markup: deps.mainKeyboard });
       return;
     }
-    await replyHtml(ctx, "已为你打开菜单（列表/搜索/足迹/我的）。", { reply_markup: buildUserKeyboard() });
+    await replyHtml(ctx, t("system.menu_opened_user", { locale: getLocale(ctx) }), { reply_markup: buildUserKeyboard(getLocale(ctx)) });
   };
 
 

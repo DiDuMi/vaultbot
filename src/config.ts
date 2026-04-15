@@ -79,7 +79,7 @@ export const loadConfig = (): Config => {
     port: assertPort(Number(readEnv("PORT", "3002")))
   };
   if (config.webhookBaseUrl && (!config.webhookSecret || config.webhookSecret.trim() === "")) {
-    throw new Error("启用 WEBHOOK_BASE_URL 时必须设置 WEBHOOK_SECRET");
+    throw new Error("\u542f\u7528 WEBHOOK_BASE_URL \u65f6\u5fc5\u987b\u8bbe\u7f6e WEBHOOK_SECRET");
   }
   return config;
 };

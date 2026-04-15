@@ -36,10 +36,10 @@ const start = async () => {
 
   try {
     await bot.api.setMyCommands([
-      { command: "start", description: "开始" },
-      { command: "help", description: "帮助" },
-      { command: "tag", description: "热门标签" },
-      { command: "history", description: "浏览足迹" }
+      { command: "start", description: "\u5f00\u59cb" },
+      { command: "help", description: "\u5e2e\u52a9" },
+      { command: "tag", description: "\u70ed\u95e8\u6807\u7b7e" },
+      { command: "history", description: "\u6d4f\u89c8\u8db3\u8ff9" }
     ]);
   } catch (error) {
     logError({ component: "main", op: "set_my_commands" }, error);

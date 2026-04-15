@@ -2,10 +2,11 @@ import { InlineKeyboard } from "grammy";
 import type { Bot, Context } from "grammy";
 import type { Message } from "grammy/types";
 import { logError, logErrorThrottled } from "../../infra/logging";
-import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
+import { resolveLocaleFromTelegramLanguageCode } from "../../i18n";
 import { withTelegramRetry } from "../../infra/telegram";
 import type { DeliveryService, UploadMessage, UploadService } from "../../services/use-cases";
 import { createUploadBatchStore } from "../../services/use-cases";
+import { getMemberScopeLabel } from "./labels";
 import {
   buildPublisherLine,
   buildDbDisabledHint,
@@ -91,8 +92,8 @@ const formatReceivedHint = (count: number) => {
   const base = Math.floor(count / 10) * 10;
   return `${base}+`;
 };
-const ASSET_ACTION_LABEL = "操作";
-const ASSET_ACTION_SEPARATOR = " ｜ ";
+const ASSET_ACTION_LABEL = "\u64cd\u4f5c";
+const ASSET_ACTION_SEPARATOR = " | ";
 
 type StartPayloadEntry = "command" | "text_link";
 type StartPayloadStatus = "received" | "routed_social" | "opened" | "failed";
@@ -129,44 +130,6 @@ const detectStartPayloadKind = (payload: string) => {
   return "raw_share_code";
 };
 
-const legacyBuildPreviewLinkLine = (openLink?: string) => {
-  return openLink ? `打开链接：<a href="${escapeHtml(openLink)}">点击预览</a>` : "";
-};
-
-const legacyBuildPreviewCopyLines = (openLink?: string, title?: string) => {
-  if (!openLink) {
-    return [];
-  }
-  const safeOpenLink = escapeHtml(openLink);
-  const plainTitle = stripHtmlTags(title ?? "").trim() || "未命名";
-  const safeTitle = escapeHtml(plainTitle);
-  return [
-    "📎 <b>预览链接（可复制）</b>",
-    `<code>预览 - ${safeOpenLink}</code>`,
-    "🧾 <b>分享文案（可复制）</b>",
-    `<code>${safeTitle}\n\n预览 - ${safeOpenLink}</code>`
-  ];
-};
-
-const legacyBuildAssetActionLine = (options: {
-  username?: string;
-  shareCode?: string | null;
-  assetId: string;
-  canManage: boolean;
-}) => {
-  const manageCode = `m_${options.assetId}`;
-  const manageLink = options.canManage && options.username ? buildStartLink(options.username, manageCode) : undefined;
-  const openLink =
-    options.shareCode && options.username ? buildStartLink(options.username, `p_${options.shareCode}`) : undefined;
-  const line = [
-    manageLink ? `<a href="${escapeHtml(manageLink)}">管理</a>` : "",
-    openLink ? `<a href="${escapeHtml(openLink)}">点击查看</a>` : ""
-  ]
-    .filter(Boolean)
-    .join(ASSET_ACTION_SEPARATOR);
-  return line ? `${ASSET_ACTION_LABEL}：${line}` : "";
-};
-
 const toUploadMessage = (message: Message, kind: UploadMessage["kind"]): UploadMessage => {
   const fileId =
     kind === "photo"
@@ -189,76 +152,25 @@ const toUploadMessage = (message: Message, kind: UploadMessage["kind"]): UploadM
   };
 };
 
-const legacyRegisterMediaHandlers = (
-  bot: Bot,
-  store: UploadBatchStore,
-  isActive: (userId: number, chatId: number) => boolean,
-  options?: {
-    shouldSkipInactiveHint?: (userId: number, chatId: number, kind: UploadMessage["kind"]) => boolean;
-    getInactiveHint?: (userId: number, chatId: number, kind: UploadMessage["kind"]) => string | null;
-    getInactiveReplyKeyboard?: (ctx: Context) => Promise<ReplyMarkup | undefined> | ReplyMarkup | undefined;
-  }
-) => {
-  const handle =
-    (kind: UploadMessage["kind"]) =>
-    async (ctx: Context, next: () => Promise<void>) => {
-      if (!ctx.message || !ctx.from || !ctx.chat) {
-        return;
-      }
-      if (!isActive(ctx.from.id, ctx.chat.id)) {
-        if (options?.shouldSkipInactiveHint?.(ctx.from.id, ctx.chat.id, kind)) {
-          await next();
-          return;
-        }
-        const hint = options?.getInactiveHint?.(ctx.from.id, ctx.chat.id, kind) ?? "请点击 <b>分享</b> 开始接收媒体。";
-        const replyKeyboard = options?.getInactiveReplyKeyboard ? await options.getInactiveReplyKeyboard(ctx) : buildMainKeyboard();
-        await replyHtml(ctx, hint, {
-          reply_markup: replyKeyboard ?? buildMainKeyboard()
-        });
-        return;
-      }
-      const batch = store.addMessage(ctx.from.id, ctx.chat.id, toUploadMessage(ctx.message, kind));
-      if (batch.messages.length === 1) {
-        await replyHtml(ctx, "已接收第 <b>1</b> 个文件。继续发送（可多条/相册），发送完点击 <b>✅ 完成</b> 保存。", {
-          reply_markup: actionKeyboard
-        });
-        return;
-      }
-      if (batch.messages.length % 10 === 0) {
-        const hint = formatReceivedHint(batch.messages.length);
-        await replyHtml(ctx, `已接收 <b>${hint}</b> 个文件。继续发送，发送完点击 <b>✅ 完成</b> 保存。`, {
-          reply_markup: actionKeyboard
-        });
-      }
-    };
-
-  bot.on("message:photo", handle("photo"));
-  bot.on("message:video", handle("video"));
-  bot.on("message:document", handle("document"));
-  bot.on("message:audio", handle("audio"));
-  bot.on("message:voice", handle("voice"));
-  bot.on("message:animation", handle("animation"));
-};
-
 export const registerTenantBot = (
   bot: Bot,
   store: UploadBatchStore,
   service: UploadService,
   deliveryService: DeliveryService | null
 ) => {
-  const getMemberScopeLabel = () => (isSingleOwnerModeEnabled() ? "项目成员" : "租户");
   const mainKeyboard = buildMainKeyboard();
   const userKeyboard = buildUserKeyboard();
   const isCancelText = (value: string) => {
     const normalized = normalizeButtonText(value).toLowerCase();
-    return normalized === "取消" || normalized === "退出" || normalized === "cancel" || normalized === "/cancel";
+    return normalized === "\u53d6\u6d88" || normalized === "\u9000\u51fa" || normalized === "cancel" || normalized === "/cancel";
   };
   const getDefaultKeyboard = async (ctx: Context) => {
+    const locale = resolveLocaleFromTelegramLanguageCode(ctx.from?.language_code);
     if (!deliveryService || !ctx.from) {
-      return mainKeyboard;
+      return buildMainKeyboard(locale);
     }
     const isTenant = await deliveryService.isProjectMember(String(ctx.from.id)).catch(() => true);
-    return isTenant ? mainKeyboard : userKeyboard;
+    return isTenant ? buildMainKeyboard(locale) : buildUserKeyboard(locale);
   };
   const resetSessionForCommand = async (ctx: Context) => {
     if (!ctx.from || !ctx.chat) {
@@ -280,19 +192,19 @@ export const registerTenantBot = (
     const mode = ensureSessionMode(key);
     if (mode === "idle") {
       const keyboard = await getDefaultKeyboard(ctx);
-      await replyHtml(ctx, buildGuideHint("当前没有进行中的输入状态。"), { reply_markup: keyboard });
+      await replyHtml(ctx, buildGuideHint("\u5f53\u524d\u6ca1\u6709\u8fdb\u884c\u4e2d\u7684\u8f93\u5165\u72b6\u6001\u3002"), { reply_markup: keyboard });
       return true;
     }
     if (mode === "upload") {
       const result = await cancel(ctx.from.id, ctx.chat.id);
       setActive(ctx.from.id, ctx.chat.id, false);
       const keyboard = await getDefaultKeyboard(ctx);
-      await replyHtml(ctx, buildSuccessHint(result.message, "已退出当前输入状态。"), { reply_markup: keyboard });
+      await replyHtml(ctx, buildSuccessHint(result.message, "\u5df2\u9000\u51fa\u5f53\u524d\u8f93\u5165\u72b6\u6001\u3002"), { reply_markup: keyboard });
       return true;
     }
     setSessionMode(key, "idle");
     const keyboard = await getDefaultKeyboard(ctx);
-    await replyHtml(ctx, buildSuccessHint(`已退出${getSessionLabel(mode)}。`), { reply_markup: keyboard });
+    await replyHtml(ctx, buildSuccessHint(`\u5df2\u9000\u51fa${getSessionLabel(mode)}\u3002`), { reply_markup: keyboard });
     return true;
   };
   const {

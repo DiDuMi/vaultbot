@@ -4,7 +4,7 @@ import { Queue, Worker } from "bullmq";
 import { loadConfig } from "../config";
 import { assertTenantCodeConsistency } from "../infra/persistence/tenant-guard";
 import { createRedisConnection } from "../infra/queue";
-import { copyToVault, withTelegramRetry } from "../infra/telegram";
+import { withTelegramRetry } from "../infra/telegram";
 import { createDeliveryService } from "../services/use-cases";
 import { startBroadcastScheduler } from "./broadcast-scheduler";
 import {
@@ -40,7 +40,7 @@ const start = async () => {
     const redisOk = await Promise.race([connection.ping().then(() => true), sleep(1500).then(() => false)]).catch(() => false);
     if (!redisOk) {
       await connection.quit().catch((error) => logWorkerError({ op: "redis_quit_on_fail" }, error));
-      throw new Error("Redis 不可用：请先启动 Redis，或设置 REDIS_URL=memory（仅本地轮询模式）");
+      throw new Error("Redis \u4e0d\u53ef\u7528\uff1a\u8bf7\u5148\u542f\u52a8 Redis\uff0c\u6216\u8bbe\u7f6e REDIS_URL=memory\uff08\u4ec5\u672c\u5730\u8f6e\u8be2\u6a21\u5f0f\uff09\u3002");
     }
   }
 
@@ -54,373 +54,6 @@ const start = async () => {
     return;
   }
   const runtimeTenantId = await ensureTenantId(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
-
-  const legacyReplicateBatch = async (batchId: string, options?: { includeOptional?: boolean }) => {
-    const includeOptional = options?.includeOptional !== false;
-    const batch = await prisma.uploadBatch.findUnique({
-      where: { id: batchId },
-      include: { items: { orderBy: { createdAt: "asc" } } }
-    });
-    if (!batch) {
-      return;
-    }
-
-    const asset = await prisma.asset.findUnique({
-      where: { id: batch.assetId },
-      select: { collectionId: true, collection: { select: { title: true } } }
-    });
-    const rawCollectionId = asset?.collectionId ?? null;
-    const collectionId = rawCollectionId ?? "none";
-    const collectionTitle = asset?.collection?.title ?? (rawCollectionId ? "分类" : "未分类");
-
-    const bindings = await prisma.tenantVaultBinding.findMany({
-      where: { tenantId: batch.tenantId, role: { in: ["PRIMARY", "BACKUP"] } },
-      include: { vaultGroup: true },
-      orderBy: [{ role: "asc" }, { createdAt: "asc" }]
-    });
-    if (bindings.length === 0) {
-      const configuredChatId = BigInt(config.vaultChatId);
-      const createdGroup = await prisma.vaultGroup.upsert({
-        where: { tenantId_chatId: { tenantId: batch.tenantId, chatId: configuredChatId } },
-        update: {},
-        create: { tenantId: batch.tenantId, chatId: configuredChatId }
-      });
-      await prisma.tenantVaultBinding.upsert({
-        where: { tenantId_vaultGroupId_role: { tenantId: batch.tenantId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
-        update: {},
-        create: { tenantId: batch.tenantId, vaultGroupId: createdGroup.id, role: "PRIMARY" }
-      });
-      const createdBinding = await prisma.tenantVaultBinding.findUnique({
-        where: { tenantId_vaultGroupId_role: { tenantId: batch.tenantId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
-        include: { vaultGroup: true }
-      });
-      if (createdBinding) {
-        bindings.push(createdBinding);
-      }
-    }
-
-    const roleRank = (role: "PRIMARY" | "BACKUP") => (role === "PRIMARY" ? 0 : 1);
-    const dedup = new Map<string, (typeof bindings)[number]>();
-    for (const binding of bindings) {
-      const existing = dedup.get(binding.vaultGroupId);
-      if (!existing || roleRank(binding.role as "PRIMARY" | "BACKUP") < roleRank(existing.role as "PRIMARY" | "BACKUP")) {
-        dedup.set(binding.vaultGroupId, binding);
-      }
-    }
-    const uniqueBindings = Array.from(dedup.values()).sort((a, b) => roleRank(a.role as "PRIMARY" | "BACKUP") - roleRank(b.role as "PRIMARY" | "BACKUP"));
-    const nonBanned = uniqueBindings.filter((b) => b.vaultGroup.status !== "BANNED");
-    const required = nonBanned.find((b) => b.role === "PRIMARY") ?? nonBanned[0] ?? uniqueBindings[0];
-    const optional = nonBanned.filter((b) => b.vaultGroupId !== required.vaultGroupId);
-    const targets = includeOptional
-      ? [{ binding: required, required: true }, ...optional.map((b) => ({ binding: b, required: false }))]
-      : [{ binding: required, required: true }];
-
-    const rawMinReplicas = await prisma.tenantSetting
-      .findUnique({
-        where: { tenantId_key: { tenantId: batch.tenantId, key: "min_replicas" } },
-        select: { value: true }
-      })
-      .then((row) => row?.value ?? null)
-      .catch(() => null);
-    const parsedMin = rawMinReplicas ? Number(rawMinReplicas) : 1;
-    const minReplicas = !Number.isFinite(parsedMin) ? 1 : Math.min(3, Math.max(1, Math.trunc(parsedMin)));
-
-    if (targets.length < minReplicas) {
-      const message = `可用存储群不足：当前 ${targets.length} 个，要求最少 ${minReplicas} 个。`;
-      await prisma.uploadItem.updateMany({
-        where: { batchId: batch.id, status: { in: ["PENDING", "FAILED"] } },
-        data: { status: "FAILED", lastError: message }
-      });
-      return;
-    }
-
-    const existing = await prisma.assetReplica.findMany({
-      where: { assetId: batch.assetId, status: "ACTIVE", vaultGroupId: { in: targets.map((t) => t.binding.vaultGroupId) } },
-      select: { uploadItemId: true, vaultGroupId: true }
-    });
-    const existingKeys = new Set(existing.filter((r) => r.uploadItemId).map((r) => `${r.uploadItemId}:${r.vaultGroupId}`));
-    const hasReplica = (uploadItemId: string, vaultGroupId: string) => existingKeys.has(`${uploadItemId}:${vaultGroupId}`);
-    const markReplica = (uploadItemId: string, vaultGroupId: string) => {
-      existingKeys.add(`${uploadItemId}:${vaultGroupId}`);
-    };
-
-    const ensureThreadId = async (vaultGroupId: string, vaultChatId: string, isForum: boolean) => {
-      if (isForum) {
-        const topic = await prisma.tenantTopic.findFirst({
-          where: { tenantId: batch.tenantId, vaultGroupId, collectionId, version: 1 }
-        });
-        const existingThreadId = topic?.messageThreadId ? Number(topic.messageThreadId) : null;
-        if (existingThreadId) {
-          return existingThreadId;
-        }
-        const normalized = String(collectionTitle || "未分类")
-          .trim()
-          .replace(/\s+/g, " ")
-          .slice(0, 64);
-        const created = await withTelegramRetry(() => bot.api.createForumTopic(vaultChatId, normalized || "未分类")).catch(() => null);
-        const createdThreadId = created?.message_thread_id;
-        if (typeof createdThreadId === "number") {
-          await prisma.tenantTopic
-            .upsert({
-              where: {
-                tenantId_vaultGroupId_collectionId_version: {
-                  tenantId: batch.tenantId,
-                  vaultGroupId,
-                  collectionId,
-                  version: 1
-                }
-              },
-              update: { messageThreadId: BigInt(createdThreadId) },
-              create: {
-                tenantId: batch.tenantId,
-                vaultGroupId,
-                collectionId,
-                messageThreadId: BigInt(createdThreadId),
-                version: 1
-              }
-            })
-            .catch((error) =>
-              logWorkerError(
-                { op: "tenant_topic_upsert", tenantId: batch.tenantId, scope: `vaultGroupId:${vaultGroupId}:collectionId:${collectionId}:v1` },
-                error
-              )
-            );
-          return createdThreadId;
-        }
-        return undefined;
-      }
-      if (config.vaultThreadId !== undefined) {
-        await prisma.tenantTopic.upsert({
-          where: {
-            tenantId_vaultGroupId_collectionId_version: {
-              tenantId: batch.tenantId,
-              vaultGroupId,
-              collectionId: "none",
-              version: 1
-            }
-          },
-          update: { messageThreadId: BigInt(config.vaultThreadId) },
-          create: {
-            tenantId: batch.tenantId,
-            vaultGroupId,
-            collectionId: "none",
-            messageThreadId: BigInt(config.vaultThreadId),
-            version: 1
-          }
-        });
-        return config.vaultThreadId;
-      }
-      return undefined;
-    };
-
-    let hasFailure = false;
-
-    for (const target of targets) {
-      const vaultGroup = target.binding.vaultGroup;
-      const vaultChatId = vaultGroup.chatId.toString();
-      const chat = await bot.api.getChat(vaultChatId).catch(() => null);
-      const isForum = (chat as { is_forum?: boolean } | null)?.is_forum === true;
-      const threadId = await ensureThreadId(vaultGroup.id, vaultChatId, isForum).catch((error) => {
-        logWorkerError({ op: "ensure_thread_id", tenantId: batch.tenantId, scope: `vaultGroupId:${vaultGroup.id}:chatId:${vaultChatId}` }, error);
-        return undefined;
-      });
-
-      type BatchItem = (typeof batch)["items"][number];
-      const items: BatchItem[] = batch.items;
-      let index = 0;
-      while (index < items.length) {
-        const item = items[index];
-        if (target.required && item.status === "SUCCESS") {
-          index += 1;
-          continue;
-        }
-        const canGroup = item.mediaGroupId && (item.kind === "photo" || item.kind === "video") && item.fileId;
-        if (canGroup) {
-          const groupId = item.mediaGroupId as string;
-          const groupItems: BatchItem[] = [];
-          const album: { type: "photo" | "video"; media: string }[] = [];
-          while (
-            index < items.length &&
-            items[index].mediaGroupId === groupId &&
-            (items[index].kind === "photo" || items[index].kind === "video") &&
-            items[index].fileId
-          ) {
-            groupItems.push(items[index]);
-            album.push({
-              type: items[index].kind === "photo" ? "photo" : "video",
-              media: items[index].fileId as string
-            });
-            index += 1;
-          }
-          const shouldReplicate = groupItems.some((groupItem) => !hasReplica(groupItem.id, vaultGroup.id));
-          if (!shouldReplicate) {
-            continue;
-          }
-          try {
-            const copiedMessages = await sendMediaGroupWithRetry(bot, vaultChatId, album, threadId);
-            await prisma.$transaction(async (tx) => {
-              await Promise.all(
-                groupItems.map((groupItem, itemIndex) =>
-                  tx.assetReplica.upsert({
-                    where: {
-                      assetId_uploadItemId_vaultGroupId: {
-                        assetId: batch.assetId,
-                        uploadItemId: groupItem.id,
-                        vaultGroupId: vaultGroup.id
-                      }
-                    },
-                    update: {
-                      messageId: BigInt(copiedMessages[itemIndex].message_id),
-                      messageThreadId: threadId !== undefined ? BigInt(threadId) : null,
-                      status: "ACTIVE"
-                    },
-                    create: {
-                      assetId: batch.assetId,
-                      uploadItemId: groupItem.id,
-                      vaultGroupId: vaultGroup.id,
-                      messageId: BigInt(copiedMessages[itemIndex].message_id),
-                      messageThreadId: threadId !== undefined ? BigInt(threadId) : undefined,
-                      status: "ACTIVE"
-                    }
-                  })
-                )
-              );
-              if (target.required) {
-                await Promise.all(
-                  groupItems.map((groupItem) =>
-                    tx.uploadItem.update({ where: { id: groupItem.id }, data: { status: "SUCCESS", lastError: null } })
-                  )
-                );
-              }
-            });
-            for (const groupItem of groupItems) {
-              markReplica(groupItem.id, vaultGroup.id);
-            }
-          } catch (error) {
-            if (target.required) {
-              hasFailure = true;
-              const message = error instanceof Error ? error.message : "unknown error";
-              await Promise.all(
-                groupItems.map((groupItem) =>
-                  prisma.uploadItem.update({ where: { id: groupItem.id }, data: { status: "FAILED", lastError: message } })
-                )
-              );
-            }
-          }
-          continue;
-        }
-        if (hasReplica(item.id, vaultGroup.id)) {
-          index += 1;
-          continue;
-        }
-        try {
-          const copied = await copyToVault(bot, {
-            fromChatId: item.chatId,
-            messageId: Number(item.messageId),
-            toChatId: vaultChatId,
-            threadId
-          });
-
-          await prisma.$transaction(async (tx) => {
-            await tx.assetReplica.upsert({
-              where: {
-                assetId_uploadItemId_vaultGroupId: {
-                  assetId: batch.assetId,
-                  uploadItemId: item.id,
-                  vaultGroupId: vaultGroup.id
-                }
-              },
-              update: {
-                messageId: BigInt(copied.message_id),
-                messageThreadId: threadId !== undefined ? BigInt(threadId) : null,
-                status: "ACTIVE"
-              },
-              create: {
-                assetId: batch.assetId,
-                uploadItemId: item.id,
-                vaultGroupId: vaultGroup.id,
-                messageId: BigInt(copied.message_id),
-                messageThreadId: threadId !== undefined ? BigInt(threadId) : undefined,
-                status: "ACTIVE"
-              }
-            });
-            if (target.required) {
-              await tx.uploadItem.update({ where: { id: item.id }, data: { status: "SUCCESS", lastError: null } });
-            }
-          });
-          markReplica(item.id, vaultGroup.id);
-        } catch (error) {
-          if (target.required) {
-            hasFailure = true;
-            const message = error instanceof Error ? error.message : "unknown error";
-            await prisma.uploadItem.update({ where: { id: item.id }, data: { status: "FAILED", lastError: message } });
-          }
-        }
-        index += 1;
-      }
-    }
-
-    const counts = await prisma.assetReplica
-      .groupBy({
-        by: ["uploadItemId"],
-        where: {
-          assetId: batch.assetId,
-          status: "ACTIVE",
-          uploadItemId: { not: null },
-          vaultGroupId: { in: targets.map((t) => t.binding.vaultGroupId) }
-        },
-        _count: { _all: true }
-      })
-      .catch(() => []);
-    const countByUploadItemId = new Map<string, number>();
-    for (const row of counts) {
-      const id = row.uploadItemId;
-      if (typeof id === "string") {
-        countByUploadItemId.set(id, row._count._all);
-      }
-    }
-    for (const item of batch.items) {
-      const successCount = countByUploadItemId.get(item.id) ?? 0;
-      if (successCount >= minReplicas) {
-        if (item.status !== "SUCCESS") {
-          await prisma.uploadItem
-            .update({ where: { id: item.id }, data: { status: "SUCCESS", lastError: null } })
-            .catch((error) =>
-              logWorkerError(
-                { op: "upload_item_status_update", tenantId: batch.tenantId, batchId: batch.id, scope: `uploadItemId:${item.id}:next:SUCCESS` },
-                error
-              )
-            );
-        }
-        continue;
-      }
-      if (item.status === "SUCCESS") {
-        await prisma.uploadItem
-          .update({ where: { id: item.id }, data: { status: "PENDING", lastError: null } })
-          .catch((error) =>
-            logWorkerError(
-              { op: "upload_item_status_update", tenantId: batch.tenantId, batchId: batch.id, scope: `uploadItemId:${item.id}:next:PENDING` },
-              error
-            )
-          );
-      } else if (item.status === "FAILED") {
-        continue;
-      } else {
-        await prisma.uploadItem
-          .update({ where: { id: item.id }, data: { status: "PENDING" } })
-          .catch((error) =>
-            logWorkerError(
-              { op: "upload_item_status_update", tenantId: batch.tenantId, batchId: batch.id, scope: `uploadItemId:${item.id}:next:PENDING` },
-              error
-            )
-          );
-      }
-    }
-
-    if (hasFailure) {
-      throw new Error("replication failed");
-    }
-  };
 
   const replicateBatch = createReplicateBatch({
     bot,
@@ -443,14 +76,21 @@ const start = async () => {
       let failedCount = 0;
       let blockedCount = 0;
       const errorsSample: { userId: string; message: string }[] = [];
+      const cancelCheckInterval = 50;
+      let lastCancelCheckAt = 0;
 
       const shouldStop = async () => {
+        const now = Date.now();
+        if (now - lastCancelCheckAt < 1000) {
+          return false;
+        }
+        lastCancelCheckAt = now;
         const current = await prisma.broadcast.findUnique({ where: { id: broadcastId }, select: { status: true } });
         return current?.status === "CANCELED";
       };
 
       for (let index = 0; index < targetUserIds.length; index += 1) {
-        if (await shouldStop()) {
+        if (index > 0 && index % cancelCheckInterval === 0 && (await shouldStop())) {
           break;
         }
         const chatId = targetUserIds[index];

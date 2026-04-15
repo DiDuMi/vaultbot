@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import type { Keyboard, Context } from "grammy";
 import type { DeliveryService } from "../../services/use-cases";
 import { buildHelpKeyboard } from "./keyboards";
+import { getMemberScopeLabel } from "./labels";
 import { buildAssetActionLine } from "./builders";
 import { buildDbDisabledHint, buildStartLink, editHtml, escapeHtml, replyHtml, safeCallbackData, sanitizeTelegramHtml } from "./ui-utils";
 
@@ -12,7 +13,6 @@ export const createTagRenderers = (deps: {
   deliveryService: DeliveryService | null;
   mainKeyboard: InlineKeyboard | Keyboard;
 }) => {
-  const getMemberScopeLabel = () => "项目成员";
   const buildTagAssetsKeyboard = (tagId: string, currentPage: number, totalPages: number) => {
     const keyboard = new InlineKeyboard();
     if (totalPages > 1) {

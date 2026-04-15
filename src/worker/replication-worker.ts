@@ -31,7 +31,7 @@ export const createReplicateBatch = (deps: {
     });
     const rawCollectionId = asset?.collectionId ?? null;
     const collectionId = rawCollectionId ?? "none";
-    const collectionTitle = asset?.collection?.title ?? (rawCollectionId ? "鍒嗙被" : "鏈垎绫?");
+    const collectionTitle = asset?.collection?.title ?? (rawCollectionId ? "\u5206\u7c7b" : "\u672a\u5206\u7c7b");
 
     const bindings = await deps.prisma.tenantVaultBinding.findMany({
       where: { tenantId: batch.tenantId, role: { in: ["PRIMARY", "BACKUP"] } },
@@ -92,7 +92,7 @@ export const createReplicateBatch = (deps: {
         : Math.min(3, Math.max(1, Math.trunc(parsedMin)));
 
     if (targets.length < minReplicas) {
-      const message = `鍙敤瀛樺偍缇や笉瓒筹細褰撳墠 ${targets.length} 涓紝瑕佹眰鏈€灏?${minReplicas} 涓€俙`;
+      const message = `\u53ef\u7528\u5b58\u50a8\u7fa4\u4e0d\u8db3\uff1a\u5f53\u524d ${targets.length} \u4e2a\uff0c\u8981\u6c42\u81f3\u5c11 ${minReplicas} \u4e2a\u3002`;
       await deps.prisma.uploadItem.updateMany({
         where: { batchId: batch.id, status: { in: ["PENDING", "FAILED"] } },
         data: { status: "FAILED", lastError: message }
@@ -119,12 +119,12 @@ export const createReplicateBatch = (deps: {
         if (existingThreadId) {
           return existingThreadId;
         }
-        const normalized = String(collectionTitle || "鏈垎绫?")
+        const normalized = String(collectionTitle || "\u672a\u5206\u7c7b")
           .trim()
           .replace(/\s+/g, " ")
           .slice(0, 64);
         const created = await withTelegramRetry(() =>
-          deps.bot.api.createForumTopic(vaultChatId, normalized || "鏈垎绫?")
+          deps.bot.api.createForumTopic(vaultChatId, normalized || "\u672a\u5206\u7c7b")
         ).catch(() => null);
         const createdThreadId = created?.message_thread_id;
         if (typeof createdThreadId === "number") {

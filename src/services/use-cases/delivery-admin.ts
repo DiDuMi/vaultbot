@@ -40,8 +40,8 @@ const normalizeBroadcastButtons = (value: unknown) => {
 };
 
 const defaultAdConfig = {
-  prevText: "⬅️ 上一页",
-  nextText: "下一页 ➡️",
+  prevText: "\u2b05\ufe0f \u4e0a\u4e00\u9875",
+  nextText: "\u4e0b\u4e00\u9875 \u27a1\ufe0f",
   adButtonText: null as string | null,
   adButtonUrl: null as string | null
 };
@@ -97,32 +97,42 @@ export const createDeliveryAdmin = (deps: {
 
   const getBroadcastTargetUserIds = async () => {
     const tenantId = await deps.getTenantId();
-    const [users, members] = await Promise.all([
+    const [users, tenantUsers, members] = await Promise.all([
       deps.prisma.event.groupBy({ by: ["userId"], where: { tenantId } }),
+      deps.prisma.tenantUser.findMany({ where: { tenantId }, select: { tgUserId: true } }),
       deps.prisma.tenantMember.findMany({ where: { tenantId }, select: { tgUserId: true } })
     ]);
     const excluded = new Set(members.map((m) => m.tgUserId));
-    return users.map((u) => u.userId).filter((id) => !excluded.has(id));
+    const audience = new Set<string>();
+    for (const row of users) {
+      if (row.userId) {
+        audience.add(row.userId);
+      }
+    }
+    for (const row of tenantUsers) {
+      if (row.tgUserId) {
+        audience.add(row.tgUserId);
+      }
+    }
+    return Array.from(audience).filter((id) => !excluded.has(id));
   };
 
-  const getTenantStartWelcomeHtml = async () => {
-    return deps.getSetting(deps.settingKeys.startWelcomeHtml);
-  };
+  const getTenantStartWelcomeHtml = async () => deps.getSetting(deps.settingKeys.startWelcomeHtml);
 
   const setTenantStartWelcomeHtml = async (actorUserId: string, html: string | null) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可修改欢迎词。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u6b22\u8fce\u8bcd\u3002" };
     }
     const normalized = html ? html.trim() : "";
     if (!normalized) {
       await deps.deleteSetting(deps.settingKeys.startWelcomeHtml);
-      return { ok: true, message: "✅ 已重置欢迎词。" };
+      return { ok: true, message: "\u5df2\u91cd\u7f6e\u6b22\u8fce\u8bcd\u3002" };
     }
     if (Buffer.byteLength(normalized, "utf8") > 4000) {
-      return { ok: false, message: "⚠️ 欢迎词过长，请控制在 4000 字节以内。" };
+      return { ok: false, message: "\u6b22\u8fce\u8bcd\u8fc7\u957f\uff0c\u8bf7\u63a7\u5236\u5728 4000 \u5b57\u8282\u4ee5\u5185\u3002" };
     }
     await deps.upsertSetting(deps.settingKeys.startWelcomeHtml, normalized);
-    return { ok: true, message: "✅ 已更新欢迎词。" };
+    return { ok: true, message: "\u5df2\u66f4\u65b0\u6b22\u8fce\u8bcd\u3002" };
   };
 
   const getTenantDeliveryAdConfig = async () => {
@@ -135,62 +145,62 @@ export const createDeliveryAdmin = (deps: {
     config: { prevText: string; nextText: string; adButtonText: string | null; adButtonUrl: string | null }
   ) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可配置广告。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u914d\u7f6e\u5e7f\u544a\u3002" };
     }
     const normalized = normalizeAdConfig(JSON.stringify(config));
     if (Buffer.byteLength(normalized.prevText, "utf8") > 60 || Buffer.byteLength(normalized.nextText, "utf8") > 60) {
-      return { ok: false, message: "⚠️ 翻页文案过长，请控制在 60 字节以内。" };
+      return { ok: false, message: "\u7ffb\u9875\u6587\u6848\u8fc7\u957f\uff0c\u8bf7\u63a7\u5236\u5728 60 \u5b57\u8282\u4ee5\u5185\u3002" };
     }
     if (normalized.adButtonText && Buffer.byteLength(normalized.adButtonText, "utf8") > 60) {
-      return { ok: false, message: "⚠️ 广告按钮文案过长，请控制在 60 字节以内。" };
+      return { ok: false, message: "\u5e7f\u544a\u6309\u94ae\u6587\u6848\u8fc7\u957f\uff0c\u8bf7\u63a7\u5236\u5728 60 \u5b57\u8282\u4ee5\u5185\u3002" };
     }
     if (normalized.adButtonUrl && !/^https?:\/\//i.test(normalized.adButtonUrl)) {
-      return { ok: false, message: "⚠️ 广告链接格式错误：仅支持 http/https。" };
+      return { ok: false, message: "\u5e7f\u544a\u94fe\u63a5\u683c\u5f0f\u9519\u8bef\uff1a\u4ec5\u652f\u6301 http/https\u3002" };
     }
     await deps.upsertSetting(deps.settingKeys.deliveryAdConfig, JSON.stringify(normalized));
-    return { ok: true, message: "✅ 已更新广告配置。" };
+    return { ok: true, message: "\u5df2\u66f4\u65b0\u5e7f\u544a\u914d\u7f6e\u3002" };
   };
 
   const getTenantProtectContentEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.protectContentEnabled));
 
   const setTenantProtectContentEnabled = async (actorUserId: string, enabled: boolean) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可修改内容保护。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u5185\u5bb9\u4fdd\u62a4\u3002" };
     }
     if (enabled) {
       await deps.upsertSetting(deps.settingKeys.protectContentEnabled, "1");
-      return { ok: true, message: "✅ 已开启内容保护：用户领取后不可转发/保存。" };
+      return { ok: true, message: "\u5df2\u5f00\u542f\u5185\u5bb9\u4fdd\u62a4\uff1a\u7528\u6237\u9886\u53d6\u540e\u4e0d\u53ef\u8f6c\u53d1\u6216\u4fdd\u5b58\u3002" };
     }
     await deps.deleteSetting(deps.settingKeys.protectContentEnabled);
-    return { ok: true, message: "✅ 已关闭内容保护。" };
+    return { ok: true, message: "\u5df2\u5173\u95ed\u5185\u5bb9\u4fdd\u62a4\u3002" };
   };
 
   const getTenantHidePublisherEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.hidePublisherEnabled));
 
   const setTenantHidePublisherEnabled = async (actorUserId: string, enabled: boolean) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可修改隐藏发布者设置。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u9690\u85cf\u53d1\u5e03\u8005\u8bbe\u7f6e\u3002" };
     }
     if (enabled) {
       await deps.upsertSetting(deps.settingKeys.hidePublisherEnabled, "1");
-      return { ok: true, message: "✅ 已开启隐藏发布者。" };
+      return { ok: true, message: "\u5df2\u5f00\u542f\u9690\u85cf\u53d1\u5e03\u8005\u3002" };
     }
     await deps.deleteSetting(deps.settingKeys.hidePublisherEnabled);
-    return { ok: true, message: "✅ 已关闭隐藏发布者。" };
+    return { ok: true, message: "\u5df2\u5173\u95ed\u9690\u85cf\u53d1\u5e03\u8005\u3002" };
   };
 
   const getTenantAutoCategorizeEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.autoCategorizeEnabled));
 
   const setTenantAutoCategorizeEnabled = async (actorUserId: string, enabled: boolean) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可修改自动归类设置。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u81ea\u52a8\u5f52\u7c7b\u8bbe\u7f6e\u3002" };
     }
     if (enabled) {
       await deps.upsertSetting(deps.settingKeys.autoCategorizeEnabled, "1");
-      return { ok: true, message: "✅ 已开启自动归类：保存标题/描述后尝试自动分配分类。" };
+      return { ok: true, message: "\u5df2\u5f00\u542f\u81ea\u52a8\u5f52\u7c7b\uff1a\u4fdd\u5b58\u6807\u9898/\u63cf\u8ff0\u540e\u5c06\u5c1d\u8bd5\u81ea\u52a8\u5206\u914d\u5206\u7c7b\u3002" };
     }
     await deps.deleteSetting(deps.settingKeys.autoCategorizeEnabled);
-    return { ok: true, message: "✅ 已关闭自动归类。" };
+    return { ok: true, message: "\u5df2\u5173\u95ed\u81ea\u52a8\u5f52\u7c7b\u3002" };
   };
 
   const getTenantAutoCategorizeRules = async () => {
@@ -233,7 +243,7 @@ export const createDeliveryAdmin = (deps: {
 
   const setTenantAutoCategorizeRules = async (actorUserId: string, rules: { collectionId: string; keywords: string[] }[]) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可修改自动归类规则。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u81ea\u52a8\u5f52\u7c7b\u89c4\u5219\u3002" };
     }
     const normalized: { collectionId: string; keywords: string[] }[] = [];
     for (const row of Array.isArray(rules) ? rules : []) {
@@ -256,24 +266,24 @@ export const createDeliveryAdmin = (deps: {
     const limited = normalized.slice(0, 50);
     if (limited.length === 0) {
       await deps.deleteSetting(deps.settingKeys.autoCategorizeRules);
-      return { ok: true, message: "✅ 已清空自动归类规则。" };
+      return { ok: true, message: "\u5df2\u6e05\u7a7a\u81ea\u52a8\u5f52\u7c7b\u89c4\u5219\u3002" };
     }
     await deps.upsertSetting(deps.settingKeys.autoCategorizeRules, JSON.stringify(limited));
-    return { ok: true, message: `✅ 已更新自动归类规则（${limited.length} 条）。` };
+    return { ok: true, message: `\u5df2\u66f4\u65b0\u81ea\u52a8\u5f52\u7c7b\u89c4\u5219\uff08${limited.length} \u6761\uff09\u3002` };
   };
 
   const getTenantPublicRankingEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.publicRankingEnabled));
 
   const setTenantPublicRankingEnabled = async (actorUserId: string, enabled: boolean) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可修改排行开放设置。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u6392\u884c\u5f00\u653e\u8bbe\u7f6e\u3002" };
     }
     if (enabled) {
       await deps.upsertSetting(deps.settingKeys.publicRankingEnabled, "1");
-      return { ok: true, message: "✅ 已对用户开放排行。" };
+      return { ok: true, message: "\u5df2\u5411\u7528\u6237\u5f00\u653e\u6392\u884c\u5165\u53e3\u3002" };
     }
     await deps.deleteSetting(deps.settingKeys.publicRankingEnabled);
-    return { ok: true, message: "✅ 已关闭用户排行入口。" };
+    return { ok: true, message: "\u5df2\u5173\u95ed\u7528\u6237\u6392\u884c\u5165\u53e3\u3002" };
   };
 
   const getBroadcastTargetCount = async (actorUserId: string) => {
@@ -286,14 +296,14 @@ export const createDeliveryAdmin = (deps: {
 
   const createBroadcastDraft = async (actorUserId: string, actorChatId: string) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可创建推送。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u521b\u5efa\u63a8\u9001\u3002" };
     }
     const tenantId = await deps.getTenantId();
     const draft = await deps.prisma.broadcast.create({
       data: { tenantId, creatorUserId: actorUserId, creatorChatId: actorChatId, status: "DRAFT", contentHtml: "" },
       select: { id: true }
     });
-    return { ok: true, id: draft.id, message: "✅ 已创建推送草稿。" };
+    return { ok: true, id: draft.id, message: "\u5df2\u521b\u5efa\u63a8\u9001\u8349\u7a3f\u3002" };
   };
 
   const listMyBroadcasts = async (actorUserId: string, limit: number) => {
@@ -326,7 +336,7 @@ export const createDeliveryAdmin = (deps: {
     input: { contentHtml: string; mediaKind: string | null; mediaFileId: string | null }
   ) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可编辑推送。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002" };
     }
     const tenantId = await deps.getTenantId();
     const existing = await deps.prisma.broadcast.findFirst({
@@ -334,25 +344,25 @@ export const createDeliveryAdmin = (deps: {
       select: { id: true }
     });
     if (!existing) {
-      return { ok: false, message: "⚠️ 草稿不存在或已不可编辑。" };
+      return { ok: false, message: "\u8349\u7a3f\u4e0d\u5b58\u5728\u6216\u5df2\u4e0d\u53ef\u7f16\u8f91\u3002" };
     }
     const html = input.contentHtml.trim();
     if (!html && !input.mediaFileId) {
-      return { ok: false, message: "⚠️ 文案与媒体至少设置一项。" };
+      return { ok: false, message: "\u6587\u6848\u4e0e\u5a92\u4f53\u81f3\u5c11\u9700\u8bbe\u7f6e\u4e00\u9879\u3002" };
     }
     if (Buffer.byteLength(html, "utf8") > 4000) {
-      return { ok: false, message: "⚠️ 文案过长，请控制在 4000 字节以内。" };
+      return { ok: false, message: "\u6587\u6848\u8fc7\u957f\uff0c\u8bf7\u63a7\u5236\u5728 4000 \u5b57\u8282\u4ee5\u5185\u3002" };
     }
     await deps.prisma.broadcast.update({
       where: { id: existing.id },
       data: { contentHtml: html, mediaKind: input.mediaKind, mediaFileId: input.mediaFileId }
     });
-    return { ok: true, message: "✅ 已更新推送内容。" };
+    return { ok: true, message: "\u5df2\u66f4\u65b0\u63a8\u9001\u5185\u5bb9\u3002" };
   };
 
   const updateBroadcastDraftButtons = async (actorUserId: string, draftId: string, buttons: { text: string; url: string }[]) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可编辑推送。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002" };
     }
     const tenantId = await deps.getTenantId();
     const existing = await deps.prisma.broadcast.findFirst({
@@ -360,24 +370,24 @@ export const createDeliveryAdmin = (deps: {
       select: { id: true }
     });
     if (!existing) {
-      return { ok: false, message: "⚠️ 草稿不存在或已不可编辑。" };
+      return { ok: false, message: "\u8349\u7a3f\u4e0d\u5b58\u5728\u6216\u5df2\u4e0d\u53ef\u7f16\u8f91\u3002" };
     }
     const trimmed = buttons
       .map((b) => ({ text: b.text.trim(), url: b.url.trim() }))
       .filter((b) => b.text && b.url);
     if (trimmed.length > 6) {
-      return { ok: false, message: "⚠️ 按钮过多，最多 6 个。" };
+      return { ok: false, message: "\u6309\u94ae\u8fc7\u591a\uff0c\u6700\u591a 6 \u4e2a\u3002" };
     }
     for (const item of trimmed) {
       if (Buffer.byteLength(item.text, "utf8") > 60) {
-        return { ok: false, message: "⚠️ 按钮文案过长，请控制在 60 字节以内。" };
+        return { ok: false, message: "\u6309\u94ae\u6587\u6848\u8fc7\u957f\uff0c\u8bf7\u63a7\u5236\u5728 60 \u5b57\u8282\u4ee5\u5185\u3002" };
       }
       if (!/^https?:\/\//i.test(item.url)) {
-        return { ok: false, message: "⚠️ 按钮链接格式错误：仅支持 http/https。" };
+        return { ok: false, message: "\u6309\u94ae\u94fe\u63a5\u683c\u5f0f\u9519\u8bef\uff1a\u4ec5\u652f\u6301 http/https\u3002" };
       }
     }
     await deps.prisma.broadcast.update({ where: { id: existing.id }, data: { buttons: trimmed as unknown as object } });
-    return { ok: true, message: "✅ 已更新按钮配置。" };
+    return { ok: true, message: "\u5df2\u66f4\u65b0\u6309\u94ae\u914d\u7f6e\u3002" };
   };
 
   const scheduleBroadcast = async (
@@ -386,33 +396,33 @@ export const createDeliveryAdmin = (deps: {
     schedule: { nextRunAt: Date; repeatEveryMs?: number | null }
   ) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可发起推送。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u53d1\u8d77\u63a8\u9001\u3002" };
     }
     const tenantId = await deps.getTenantId();
     const draft = await deps.prisma.broadcast.findFirst({
       where: { id: draftId, tenantId, creatorUserId: actorUserId, status: "DRAFT" }
     });
     if (!draft) {
-      return { ok: false, message: "⚠️ 草稿不存在或已不可推送。" };
+      return { ok: false, message: "\u8349\u7a3f\u4e0d\u5b58\u5728\u6216\u5df2\u4e0d\u53ef\u63a8\u9001\u3002" };
     }
     if (!draft.contentHtml.trim() && !draft.mediaFileId) {
-      return { ok: false, message: "⚠️ 请先编辑推送内容或设置媒体。" };
+      return { ok: false, message: "\u8bf7\u5148\u7f16\u8f91\u63a8\u9001\u5185\u5bb9\u6216\u8bbe\u7f6e\u5a92\u4f53\u3002" };
     }
     const nextRunAt = schedule.nextRunAt;
     if (!(nextRunAt instanceof Date) || Number.isNaN(nextRunAt.getTime())) {
-      return { ok: false, message: "⚠️ 时间格式错误。" };
+      return { ok: false, message: "\u65f6\u95f4\u683c\u5f0f\u9519\u8bef\u3002" };
     }
     const repeatEveryMs = schedule.repeatEveryMs ?? null;
     if (repeatEveryMs !== null && (repeatEveryMs < 5 * 60 * 1000 || repeatEveryMs > 365 * 24 * 60 * 60 * 1000)) {
-      return { ok: false, message: "⚠️ 循环间隔不合法：最小 5 分钟，最大 365 天。" };
+      return { ok: false, message: "\u5faa\u73af\u95f4\u9694\u4e0d\u5408\u6cd5\uff1a\u6700\u5c11 5 \u5206\u949f\uff0c\u6700\u591a 365 \u5929\u3002" };
     }
     await deps.prisma.broadcast.update({ where: { id: draft.id }, data: { status: "SCHEDULED", nextRunAt, repeatEveryMs } });
-    return { ok: true, message: repeatEveryMs ? "✅ 已创建循环推送。" : "✅ 已创建定时推送。" };
+    return { ok: true, message: repeatEveryMs ? "\u5df2\u521b\u5efa\u5faa\u73af\u63a8\u9001\u3002" : "\u5df2\u521b\u5efa\u5b9a\u65f6\u63a8\u9001\u3002" };
   };
 
   const cancelBroadcast = async (actorUserId: string, broadcastId: string) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可取消推送。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u53d6\u6d88\u63a8\u9001\u3002" };
     }
     const tenantId = await deps.getTenantId();
     const existing = await deps.prisma.broadcast.findFirst({
@@ -420,15 +430,15 @@ export const createDeliveryAdmin = (deps: {
       select: { id: true }
     });
     if (!existing) {
-      return { ok: false, message: "⚠️ 推送不存在或不可取消。" };
+      return { ok: false, message: "\u63a8\u9001\u4e0d\u5b58\u5728\u6216\u4e0d\u53ef\u53d6\u6d88\u3002" };
     }
     await deps.prisma.broadcast.update({ where: { id: existing.id }, data: { status: "CANCELED", nextRunAt: null, repeatEveryMs: null } });
-    return { ok: true, message: "✅ 已取消推送。" };
+    return { ok: true, message: "\u5df2\u53d6\u6d88\u63a8\u9001\u3002" };
   };
 
   const deleteBroadcastDraft = async (actorUserId: string, draftId: string) => {
     if (!(await deps.isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可删除草稿。" };
+      return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u5220\u9664\u8349\u7a3f\u3002" };
     }
     const tenantId = await deps.getTenantId();
     const existing = await deps.prisma.broadcast.findFirst({
@@ -436,10 +446,10 @@ export const createDeliveryAdmin = (deps: {
       select: { id: true }
     });
     if (!existing) {
-      return { ok: true, message: "✅ 草稿不存在或已删除。" };
+      return { ok: true, message: "\u8349\u7a3f\u4e0d\u5b58\u5728\u6216\u5df2\u5220\u9664\u3002" };
     }
     await deps.prisma.broadcast.delete({ where: { id: existing.id } });
-    return { ok: true, message: "✅ 已删除草稿。" };
+    return { ok: true, message: "\u5df2\u5220\u9664\u8349\u7a3f\u3002" };
   };
 
   const listBroadcastRuns = async (actorUserId: string, broadcastId: string, limit: number) => {

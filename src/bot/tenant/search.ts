@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 import type { DeliveryService } from "../../services/use-cases";
 import { buildHelpKeyboard } from "./keyboards";
+import { getMemberScopeLabel } from "./labels";
 import { buildDbDisabledHint, editHtml, escapeHtml, replyHtml, sanitizeTelegramHtml } from "./ui-utils";
 
 export const createSearchRenderer = (deps: {
@@ -9,7 +10,6 @@ export const createSearchRenderer = (deps: {
   mainKeyboard: NonNullable<Parameters<Context["reply"]>[1]>["reply_markup"];
   buildAssetActionLine: (options: { username?: string; shareCode?: string | null; assetId: string; canManage: boolean }) => string;
 }) => {
-  const getMemberScopeLabel = () => "项目成员";
   const buildSearchKeyboard = (currentPage: number, totalPages: number) => {
     const keyboard = new InlineKeyboard();
     if (totalPages > 1) {

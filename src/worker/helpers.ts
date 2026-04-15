@@ -30,12 +30,24 @@ export const sendMediaGroupWithRetry = async (
 };
 
 export const getBroadcastTargetUserIds = async (prisma: PrismaClient, tenantId: string) => {
-  const [users, members] = await Promise.all([
+  const [users, tenantUsers, members] = await Promise.all([
     prisma.event.groupBy({ by: ["userId"], where: { tenantId } }),
+    prisma.tenantUser.findMany({ where: { tenantId }, select: { tgUserId: true } }),
     prisma.tenantMember.findMany({ where: { tenantId }, select: { tgUserId: true } })
   ]);
   const excluded = new Set(members.map((m) => m.tgUserId));
-  return users.map((u) => u.userId).filter((id) => !excluded.has(id));
+  const audience = new Set<string>();
+  for (const row of users) {
+    if (row.userId) {
+      audience.add(row.userId);
+    }
+  }
+  for (const row of tenantUsers) {
+    if (row.tgUserId) {
+      audience.add(row.tgUserId);
+    }
+  }
+  return Array.from(audience).filter((id) => !excluded.has(id));
 };
 
 export const computeNextBroadcastRunAt = (input: { previousNextRunAt: Date | null; repeatEveryMs: number; now?: Date }) => {

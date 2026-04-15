@@ -1,4 +1,25 @@
-import { InlineKeyboard, Keyboard } from "grammy";
+﻿import { InlineKeyboard, Keyboard } from "grammy";
+import {
+  getDeleteDraftLabel,
+  getEditLabel,
+  getFootprintLabel,
+  getListLabel,
+  getMyLabel,
+  getNotifyLabel,
+  getOpenContentLabel,
+  getPreviewLabel,
+  getRankingLabel,
+  getRecentReportLabel,
+  getRecycleBinLabel,
+  getRecycleLabel,
+  getRestoreLabel,
+  getSearchLabel,
+  getSettingsLabel,
+  getShareLabel,
+  getShowLabel,
+  getStatsLabel,
+  getHideLabel
+} from "./labels";
 import { safeCallbackData, stripHtmlTags, truncatePlainText } from "./ui-utils";
 
 export const actionKeyboard = new InlineKeyboard().text("✅ 完成", "upload:commit").text("❌ 取消", "upload:cancel");
@@ -11,29 +32,37 @@ const addRefreshRow = (keyboard: InlineKeyboard, refreshCallback: string) => {
   return keyboard.row().text("🔄 刷新", refreshCallback);
 };
 
-export const buildMainKeyboard = () => {
-  return new Keyboard().text("分享").text("列表").text("搜索").row().text("足迹").text("我的").text("设置").resized();
+export const buildMainKeyboard = (locale?: string | null) => {
+  return new Keyboard()
+    .text(getShareLabel({ locale }))
+    .text(getListLabel({ locale }))
+    .text(getSearchLabel({ locale }))
+    .row()
+    .text(getFootprintLabel({ locale }))
+    .text(getMyLabel({ locale }))
+    .text(getSettingsLabel({ locale }))
+    .resized();
 };
 
-export const buildUserKeyboard = () => {
-  return new Keyboard().text("列表").text("搜索").row().text("足迹").text("我的").resized();
+export const buildUserKeyboard = (locale?: string | null) => {
+  return new Keyboard().text(getListLabel({ locale })).text(getSearchLabel({ locale })).row().text(getFootprintLabel({ locale })).text(getMyLabel({ locale })).resized();
 };
 
 export const buildOpenKeyboard = (assetId: string) => {
-  return new InlineKeyboard().text("🔓 打开内容", safeCallbackData(`asset:open:${assetId}`, "asset:noop"));
+  return new InlineKeyboard().text(getOpenContentLabel(), safeCallbackData(`asset:open:${assetId}`, "asset:noop"));
 };
 
 export const buildManageKeyboard = (assetId: string, options?: { searchable: boolean; recycled?: boolean }) => {
   const searchable = options?.searchable ?? true;
   const recycled = options?.recycled ?? false;
   return new InlineKeyboard()
-    .text("✏️ 修改", safeCallbackData(`asset:meta:${assetId}`, "asset:noop"))
-    .text(searchable ? "🙈 隐藏" : "👁 显示", safeCallbackData(`asset:searchable:${assetId}:${searchable ? "0" : "1"}`, "asset:noop"))
+    .text(getEditLabel(), safeCallbackData(`asset:meta:${assetId}`, "asset:noop"))
+    .text(searchable ? getHideLabel() : getShowLabel(), safeCallbackData(`asset:searchable:${assetId}:${searchable ? "0" : "1"}`, "asset:noop"))
     .row()
-    .text(recycled ? "♻️ 恢复" : "🧺 回收", safeCallbackData(recycled ? `asset:recycle:restore:${assetId}` : `asset:recycle:${assetId}`, "asset:noop"))
-    .text("🔓 打开内容", safeCallbackData(`asset:open:${assetId}`, "asset:noop"))
+    .text(recycled ? getRestoreLabel() : getRecycleLabel(), safeCallbackData(recycled ? `asset:recycle:restore:${assetId}` : `asset:recycle:${assetId}`, "asset:noop"))
+    .text(getOpenContentLabel(), safeCallbackData(`asset:open:${assetId}`, "asset:noop"))
     .row()
-    .text("🗂 回收站", "asset:recycle:list:1");
+    .text(getRecycleBinLabel(), "asset:recycle:list:1");
 };
 
 export const buildManageRecycleConfirmKeyboard = (assetId: string) => {
@@ -66,39 +95,42 @@ export const buildRecycleBinKeyboard = (items: { assetId: string; title: string 
   return keyboard;
 };
 
-export const buildHomeKeyboard = () => {
+export const buildHomeKeyboard = (locale?: string | null) => {
   return new InlineKeyboard()
-    .text("📚 列表", "help:list")
-    .text("⚙️ 设置", "help:settings")
+    .text(getListLabel({ locale }), "help:list")
+    .text(getSettingsLabel({ locale }), "help:settings")
     .row()
-    .text("📊 统计", "home:stats")
-    .text("🏆 排行", "home:rank");
+    .text(getStatsLabel({ locale }), "home:stats")
+    .text(getRankingLabel({ locale }), "home:rank");
 };
 
-export const buildStartShortcutKeyboard = () => {
-  return new InlineKeyboard().text("🏆 排行", "home:rank").text("📚 列表", "help:list").text("👣 足迹", "user:history");
+export const buildStartShortcutKeyboard = (locale?: string | null) => {
+  return new InlineKeyboard()
+    .text(getRankingLabel({ locale }), "home:rank")
+    .text(getListLabel({ locale }), "help:list")
+    .text(getFootprintLabel({ locale }), "user:history");
 };
 
-export const buildHomeDetailKeyboard = (active: "stats" | "rank") => {
+export const buildHomeDetailKeyboard = (active: "stats" | "rank", locale?: string | null) => {
   const keyboard = new InlineKeyboard().text("🏠 首页", "home:back");
   if (active === "stats") {
-    keyboard.text("🏆 排行", "home:rank");
+    keyboard.text(getRankingLabel({ locale }), "home:rank");
   } else {
-    keyboard.text("📊 统计", "home:stats");
+    keyboard.text(getStatsLabel({ locale }), "home:stats");
   }
   return keyboard;
 };
 
-export const buildHelpKeyboard = () => {
+export const buildHelpKeyboard = (locale?: string | null) => {
   return new InlineKeyboard()
-    .text("📚 列表", "help:list")
-    .text("⚙️ 设置", "help:settings")
+    .text(getListLabel({ locale }), "help:list")
+    .text(getSettingsLabel({ locale }), "help:settings")
     .row()
-    .text("📊 统计", "home:stats")
-    .text("🏆 排行", "home:rank")
-    .text("👤 我的", "my:show")
+    .text(getStatsLabel({ locale }), "home:stats")
+    .text(getRankingLabel({ locale }), "home:rank")
+    .text(getMyLabel({ locale }), "my:show")
     .row()
-    .text("🔕 通知", "notify:show");
+    .text(getNotifyLabel({ locale }), "notify:show");
 };
 
 export const buildFollowKeyboard = (options: { keywords: string[] }) => {
@@ -390,9 +422,9 @@ export const buildBroadcastKeyboard = (options: {
     return keyboard;
   }
   if (options.isDraft) {
-    keyboard.row().text("✏️ 编辑内容", "broadcast:edit:content").text("🔗 配置按钮", "broadcast:edit:buttons");
+    keyboard.row().text(getEditLabel(), "broadcast:edit:content").text("配置按钮", "broadcast:edit:buttons");
   }
-  keyboard.row().text("👁 预览", "broadcast:preview");
+  keyboard.row().text(getPreviewLabel(), "broadcast:preview");
   if (options.canSend) {
     keyboard.row().text("🚀 立即推送", "broadcast:send:now").text("⏰ 定时推送", "broadcast:send:schedule");
     keyboard.row().text("🔁 循环推送", "broadcast:send:repeat");
@@ -401,9 +433,9 @@ export const buildBroadcastKeyboard = (options: {
     keyboard.row().text("🛑 取消推送", "broadcast:cancel");
   }
   if (options.isDraft) {
-    keyboard.row().text("🧹 删除草稿", "broadcast:delete");
+    keyboard.row().text(getDeleteDraftLabel(), "broadcast:delete");
   }
-  keyboard.row().text("📊 最近报告", "broadcast:runs");
+  keyboard.row().text(getRecentReportLabel(), "broadcast:runs");
   if (options.showListEntry !== false) {
     keyboard.row().text("🗂 推送列表", "broadcast:list").text("➕ 新建草稿", "broadcast:create");
   }

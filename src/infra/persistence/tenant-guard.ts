@@ -58,7 +58,7 @@ export const assertTenantCodeConsistency = async (
 ) => {
   const expectedTenantCode = (process.env.EXPECTED_TENANT_CODE || "").trim();
   if (expectedTenantCode && expectedTenantCode !== tenantCode) {
-    throw new Error(`TENANT_CODE 校验失败：当前=${tenantCode}，期望=${expectedTenantCode}`);
+    throw new Error(`TENANT_CODE \u6821\u9a8c\u5931\u8d25\uff1a\u5f53\u524d=${tenantCode}\uff0c\u671f\u671b=${expectedTenantCode}`);
   }
   const requireExisting = process.env.REQUIRE_EXISTING_TENANT === "1";
   const existing = await prisma.tenant.findUnique({
@@ -75,7 +75,7 @@ export const assertTenantCodeConsistency = async (
   });
   if (tenants.length === 0) {
     if (requireExisting) {
-      throw new Error("数据库中尚无租户数据：已阻止启动，避免连到空库/新库导致设置与统计被重置。");
+      throw new Error("\u6570\u636e\u5e93\u4e2d\u5c1a\u65e0\u79df\u6237\u6570\u636e\uff1a\u5df2\u963b\u6b62\u542f\u52a8\uff0c\u907f\u514d\u8fde\u5230\u7a7a\u5e93\u6216\u65b0\u5e93\u5bfc\u81f4\u8bbe\u7f6e\u4e0e\u7edf\u8ba1\u88ab\u91cd\u7f6e\u3002");
     }
     return;
   }
@@ -85,7 +85,7 @@ export const assertTenantCodeConsistency = async (
   const codes = tenants.map((row) => row.code).filter(Boolean);
   const summary = codes.join(", ");
   throw new Error(
-    `TENANT_CODE 不匹配：当前=${tenantCode}，数据库已有租户=${summary}。已阻止启动，避免写入新租户导致统计归零。若确认要新建租户，请设置 ALLOW_TENANT_CODE_MISMATCH=1。`
+    `TENANT_CODE \u4e0d\u5339\u914d\uff1a\u5f53\u524d=${tenantCode}\uff0c\u6570\u636e\u5e93\u5df2\u6709\u79df\u6237=${summary}\u3002\u5df2\u963b\u6b62\u542f\u52a8\uff0c\u907f\u514d\u5199\u5165\u65b0\u79df\u6237\u5bfc\u81f4\u7edf\u8ba1\u5f52\u96f6\u3002\u82e5\u786e\u8ba4\u9700\u8981\u65b0\u5efa\u79df\u6237\uff0c\u8bf7\u8bbe\u7f6e ALLOW_TENANT_CODE_MISMATCH=1\u3002`
   );
 };
 
@@ -114,7 +114,7 @@ export const ensureRuntimeTenant = async (
 
   if (isSingleOwnerModeEnabled() && !isSingleOwnerBootstrapAllowed()) {
     throw new Error(
-      `单人项目模式下禁止自动创建 tenant：${input.tenantCode}。如确认是首次初始化，请显式设置 SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP=1。`
+      `\u5355\u4eba\u9879\u76ee\u6a21\u5f0f\u4e0b\u7981\u6b62\u81ea\u52a8\u521b\u5efa tenant\uff1a${input.tenantCode}\u3002\u5982\u786e\u8ba4\u662f\u9996\u6b21\u521d\u59cb\u5316\uff0c\u8bf7\u663e\u5f0f\u8bbe\u7f6e SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP=1\u3002`
     );
   }
 

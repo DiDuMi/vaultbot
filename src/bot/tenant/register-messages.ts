@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy";
 import { logError, logErrorThrottled } from "../../infra/logging";
-import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
 import type { DeliveryService } from "../../services/use-cases";
+import { getManagerLabel, getMemberScopeLabel } from "./labels";
 import {
   buildDbDisabledHint,
   buildGuideHint,
@@ -86,8 +86,6 @@ export const registerTenantMessageHandlers = (
     updateVaultTopicIndexByCollection: (ctx: Context, collectionId: string, title: string) => Promise<void>;
   }
 ) => {
-  const getMemberScopeLabel = () => (isSingleOwnerModeEnabled() ? "项目成员" : "租户");
-  const getManagerLabel = () => (isSingleOwnerModeEnabled() ? "项目拥有者" : "管理员");
   bot.on("message:photo", async (ctx) => {
     await deps.handleBroadcastPhoto(ctx);
   });
