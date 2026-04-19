@@ -86,6 +86,39 @@ export const registerTenantMessageHandlers = (
     updateVaultTopicIndexByCollection: (ctx: Context, collectionId: string, title: string) => Promise<void>;
   }
 ) => {
+  const canonicalizeMenuCommand = (value: string) => {
+    const normalized = normalizeButtonText(value).trim();
+    const lowered = normalized.toLowerCase();
+    switch (lowered) {
+      case "share":
+        return "分享";
+      case "library":
+      case "list":
+        return "列表";
+      case "search":
+        return "搜索";
+      case "footprint":
+      case "history":
+        return "足迹";
+      case "my":
+      case "follow":
+      case "favorite":
+      case "favourite":
+      case "favorites":
+      case "favourites":
+      case "bookmark":
+      case "bookmarks":
+        return "我的";
+      case "settings":
+        return "设置";
+      case "tags":
+      case "tag":
+        return "标签";
+      default:
+        return normalized;
+    }
+  };
+
   bot.on("message:photo", async (ctx) => {
     await deps.handleBroadcastPhoto(ctx);
   });
@@ -186,7 +219,7 @@ export const registerTenantMessageHandlers = (
       const key = toMetaKey(ctx.from.id, ctx.chat.id);
       const mode = deps.getSessionMode(key);
       if (mode === "followInput") {
-        const command = normalizeButtonText(text);
+        const command = canonicalizeMenuCommand(text);
         if (
           command === "分享" ||
           command === "储存" ||
@@ -228,7 +261,7 @@ export const registerTenantMessageHandlers = (
       const mode = deps.getSessionMode(key);
       const inputState = mode === "collectionInput" ? deps.collectionInputStates.get(key) : undefined;
       if (mode === "collectionInput" && (inputState?.mode === "createCollection" || inputState?.mode === "renameCollection")) {
-        const command = normalizeButtonText(text);
+        const command = canonicalizeMenuCommand(text);
         if (
           command === "分享" ||
           command === "储存" ||
@@ -238,6 +271,7 @@ export const registerTenantMessageHandlers = (
           command === "足迹" ||
           command === "我的" ||
           command === "关注" ||
+          command === "收藏" ||
           command === "设置"
         ) {
           await replyHtml(ctx, buildInputExitHint("编辑分类"), { reply_markup: buildCollectionInputKeyboard() });
@@ -290,7 +324,7 @@ export const registerTenantMessageHandlers = (
       const mode = deps.getSessionMode(key);
       const adminState = mode === "adminInput" ? deps.adminInputStates.get(key) : undefined;
       if (mode === "adminInput" && adminState?.mode === "addAdmin") {
-        const command = normalizeButtonText(text);
+        const command = canonicalizeMenuCommand(text);
         if (
           command === "分享" ||
           command === "储存" ||
@@ -300,6 +334,7 @@ export const registerTenantMessageHandlers = (
           command === "足迹" ||
           command === "我的" ||
           command === "关注" ||
+          command === "收藏" ||
           command === "设置"
         ) {
           await replyHtml(ctx, buildInputExitHint("添加管理员"), { reply_markup: buildAdminInputKeyboard() });
@@ -331,8 +366,8 @@ export const registerTenantMessageHandlers = (
         return;
       }
     }
-    const normalizedCommand = normalizeButtonText(text);
-    const command = normalizedCommand === "关注" ? "我的" : normalizedCommand;
+    const normalizedCommand = canonicalizeMenuCommand(text);
+    const command = normalizedCommand === "关注" || normalizedCommand === "收藏" ? "我的" : normalizedCommand;
     const isTopLevelCommand =
       command === "分享" ||
       command === "储存" ||
@@ -413,7 +448,7 @@ export const registerTenantMessageHandlers = (
       await deps.renderSettings(ctx);
       return;
     }
-    const searchMatch = text.match(/^搜索\s+(.+)$/);
+    const searchMatch = text.match(/^(?:搜索|search)\s+(.+)$/i);
     if (searchMatch) {
       const query = searchMatch[1].trim();
       if (ctx.from && ctx.chat) {
@@ -424,7 +459,7 @@ export const registerTenantMessageHandlers = (
       await deps.renderSearch(ctx, query, 1, "reply");
       return;
     }
-    if (text === "标签") {
+    if (canonicalizeMenuCommand(text) === "标签") {
       await deps.renderTagIndex(ctx, "reply");
       return;
     }

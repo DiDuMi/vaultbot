@@ -38,7 +38,10 @@ export const getDefaultLocale = (): SupportedLocale => {
 };
 
 export const resolveLocaleFromTelegramLanguageCode = (languageCode?: string | null): SupportedLocale => {
-  return languageCodeToLocale(languageCode);
+  // Keep the bot UI stable and command-compatible by default.
+  // Telegram client language should not silently switch runtime labels.
+  void languageCode;
+  return getDefaultLocale();
 };
 
 const interpolate = (template: string, values?: Record<string, string | number>) => {

@@ -25,15 +25,17 @@ import { createWorkerRoutes } from "../worker/routes";
 import { startIntervalScheduler } from "../worker/orchestration";
 import { computeNextBroadcastRunAt } from "../worker/helpers";
 import { buildAssetActionLine, buildPreviewLinkLine } from "../bot/tenant/index";
-import { buildFootprintKeyboard, buildRankingKeyboard } from "../bot/tenant/keyboards";
+import { buildFootprintKeyboard, buildMyKeyboard, buildRankingKeyboard } from "../bot/tenant/keyboards";
 import { createTenantRenderers } from "../bot/tenant/renderers";
 import { registerTenantMessageHandlers } from "../bot/tenant/register-messages";
 import { createDeliveryDiscovery } from "../services/use-cases/delivery-discovery";
 import { createDeliveryAdmin } from "../services/use-cases/delivery-admin";
 import { createDeliveryCore } from "../services/use-cases/delivery-core";
+import { createDeliverySocial } from "../services/use-cases/delivery-social";
 import { isSingleOwnerModeEnabled } from "../infra/runtime-mode";
 import { ensureRuntimeTenant } from "../infra/persistence/tenant-guard";
 import { buildIdentityService, createGetTenantAssetAccess } from "../services/use-cases/delivery-factories";
+import { resolveLocaleFromTelegramLanguageCode } from "../i18n";
 import { createDeliveryReplicaSelection } from "../services/use-cases/delivery-replica-selection";
 import { createDeliveryTenantVault } from "../services/use-cases/delivery-tenant-vault";
 import { createReplicateBatch } from "../worker/replication-worker";
@@ -416,6 +418,170 @@ test("messages: search mode remains active after consecutive queries", async () 
   assert.equal(sessionModes.get(key), "searchInput");
 });
 
+test("messages: 收藏 command is treated like 我的 entry", async () => {
+  const textHandlers: Array<(ctx: any) => Promise<void>> = [];
+  const bot = {
+    on: (event: string, handler: (ctx: any) => Promise<void>) => {
+      if (event === "message:text") {
+        textHandlers.push(handler);
+      }
+    }
+  } as any;
+
+  let myRendered = 0;
+  registerTenantMessageHandlers(bot, {
+    deliveryService: null,
+    mainKeyboard: new Keyboard().text("菜单"),
+    getDefaultKeyboard: async () => new Keyboard().text("菜单"),
+    isCancelText: () => false,
+    exitCurrentInputState: async () => undefined,
+    handleMetaInput: async () => false,
+    handleBroadcastPhoto: async () => undefined,
+    handleBroadcastVideo: async () => undefined,
+    handleBroadcastDocument: async () => undefined,
+    handleBroadcastText: async () => false,
+    handleSettingsText: async () => false,
+    handleCommentInputText: async () => false,
+    notifyCommentTargets: async () => undefined,
+    renderComments: async () => undefined,
+    renderFollow: async () => undefined,
+    renderHistory: async () => undefined,
+    renderSearch: async () => undefined,
+    renderFootprint: async () => undefined,
+    renderMy: async () => {
+      myRendered += 1;
+    },
+    renderSettings: async () => undefined,
+    renderTagIndex: async () => undefined,
+    renderTagAssets: async () => undefined,
+    renderUploadStatus: async () => undefined,
+    renderCollections: async () => undefined,
+    openShareCode: async () => undefined,
+    trackStartPayloadVisit: async () => undefined,
+    handleStartPayloadEntry: async () => false,
+    getSessionMode: () => "idle",
+    ensureSessionMode: () => "idle",
+    setSessionMode: () => undefined,
+    setActive: () => undefined,
+    historyScopeStates: createStore<"community" | "mine">().store,
+    historyDateStates: createStore<Date>().store,
+    searchStates: createStore<{ query: string }>().store,
+    collectionInputStates: createStore<any>().store,
+    adminInputStates: createStore<any>().store,
+    commentInputStates: createStore<any>().store,
+    updateVaultTopicIndexByCollection: async () => undefined
+  });
+
+  const textHandler = textHandlers[0];
+  assert.ok(textHandler);
+  await textHandler!({
+    from: { id: 1, first_name: "U" },
+    chat: { id: 2 },
+    me: { username: "bot" },
+    message: { text: "收藏" },
+    reply: async () => ({ message_id: 1 })
+  });
+  assert.equal(myRendered, 1);
+});
+
+test("i18n: telegram non-zh language still keeps Chinese locale by default", () => {
+  assert.equal(resolveLocaleFromTelegramLanguageCode("en"), "zh-CN");
+  assert.equal(resolveLocaleFromTelegramLanguageCode("en-US"), "zh-CN");
+  assert.equal(resolveLocaleFromTelegramLanguageCode("zh-CN"), "zh-CN");
+});
+
+test("messages: English keyboard commands still route to the original Chinese actions", async () => {
+  const textHandlers: Array<(ctx: any) => Promise<void>> = [];
+  const bot = {
+    on: (event: string, handler: (ctx: any) => Promise<void>) => {
+      if (event === "message:text") {
+        textHandlers.push(handler);
+      }
+    }
+  } as any;
+
+  let historyRendered = 0;
+  let searchPrompted = 0;
+  let myRendered = 0;
+  registerTenantMessageHandlers(bot, {
+    deliveryService: null,
+    mainKeyboard: new Keyboard().text("菜单"),
+    getDefaultKeyboard: async () => new Keyboard().text("菜单"),
+    isCancelText: () => false,
+    exitCurrentInputState: async () => undefined,
+    handleMetaInput: async () => false,
+    handleBroadcastPhoto: async () => undefined,
+    handleBroadcastVideo: async () => undefined,
+    handleBroadcastDocument: async () => undefined,
+    handleBroadcastText: async () => false,
+    handleSettingsText: async () => false,
+    handleCommentInputText: async () => false,
+    notifyCommentTargets: async () => undefined,
+    renderComments: async () => undefined,
+    renderFollow: async () => undefined,
+    renderHistory: async () => {
+      historyRendered += 1;
+    },
+    renderSearch: async () => undefined,
+    renderFootprint: async () => undefined,
+    renderMy: async () => {
+      myRendered += 1;
+    },
+    renderSettings: async () => undefined,
+    renderTagIndex: async () => undefined,
+    renderTagAssets: async () => undefined,
+    renderUploadStatus: async () => undefined,
+    renderCollections: async () => undefined,
+    openShareCode: async () => undefined,
+    trackStartPayloadVisit: async () => undefined,
+    handleStartPayloadEntry: async () => false,
+    getSessionMode: () => "idle",
+    ensureSessionMode: () => "idle",
+    setSessionMode: () => undefined,
+    setActive: () => undefined,
+    historyScopeStates: createStore<"community" | "mine">().store,
+    historyDateStates: createStore<Date>().store,
+    searchStates: createStore<{ query: string }>().store,
+    collectionInputStates: createStore<any>().store,
+    adminInputStates: createStore<any>().store,
+    commentInputStates: createStore<any>().store,
+    updateVaultTopicIndexByCollection: async () => undefined
+  });
+
+  const textHandler = textHandlers[0];
+  assert.ok(textHandler);
+
+  const libraryCtx = {
+    from: { id: 1, first_name: "U" },
+    chat: { id: 2 },
+    me: { username: "bot" },
+    message: { text: "Library" },
+    reply: async (...args: unknown[]) => {
+      if (String(args[0]).includes("搜索")) {
+        searchPrompted += 1;
+      }
+      return { message_id: 1 };
+    }
+  };
+  await textHandler!(libraryCtx);
+
+  const myCtx = {
+    ...libraryCtx,
+    message: { text: "My" }
+  };
+  await textHandler!(myCtx);
+
+  const searchCtx = {
+    ...libraryCtx,
+    message: { text: "Search" }
+  };
+  await textHandler!(searchCtx);
+
+  assert.equal(historyRendered, 1);
+  assert.equal(myRendered, 1);
+  assert.equal(searchPrompted, 1);
+});
+
 test("ui-utils: extractStartPayloadFromText 能解析 t.me start 链接", () => {
   assert.equal(extractStartPayloadFromText("https://t.me/ChuYunbot?start=hZ9hyXAf"), "hZ9hyXAf");
   assert.equal(extractStartPayloadFromText("t.me/ChuYunbot?start=p_hZ9hyXAf_2"), "p_hZ9hyXAf_2");
@@ -521,6 +687,15 @@ test("keyboards: 足迹 tab like 文案显示为收藏", () => {
   assert.ok(textList.includes("收藏 ✅"));
   assert.equal(textList.includes("点赞 ✅"), false);
   assert.equal(textList.includes("点赞"), false);
+});
+
+test("keyboards: 我的页入口显示为收藏", () => {
+  const keyboard = buildMyKeyboard();
+  const textList = (keyboard as unknown as { inline_keyboard: Array<Array<{ text: string }>> }).inline_keyboard
+    .flat()
+    .map((item) => item.text);
+  assert.ok(textList.includes("⭐ 收藏"));
+  assert.equal(textList.includes("🔔 关注"), false);
 });
 
 test("copy: like 核心入口文案保持收藏语义", () => {
@@ -1024,6 +1199,8 @@ test("renderers: help copy uses project-member wording in single-owner mode", as
         isProjectMember: async () => true,
         isTenantUser: async () => true,
         canManageProject: async () => true,
+        getProjectSearchMode: async () => "ENTITLED_ONLY",
+        getProjectPublicRankingEnabled: async () => false,
         getTenantSearchMode: async () => "ENTITLED_ONLY",
         getTenantPublicRankingEnabled: async () => false
       } as never,
@@ -1119,7 +1296,7 @@ test("discovery: recycle and restore preserve original visibility", async () => 
   assert.equal(asset.visibility, "PUBLIC");
 });
 
-test("access: protected asset is forbidden for public viewer", async () => {
+test("access: protected asset is allowed for public viewer", async () => {
   const getTenantAssetAccess = createGetTenantAssetAccess({
     prisma: {
       asset: {
@@ -1134,7 +1311,7 @@ test("access: protected asset is forbidden for public viewer", async () => {
   });
 
   const result = await getTenantAssetAccess("tenant_1", "user_1", "asset_1");
-  assert.equal(result.status, "forbidden");
+  assert.equal(result.status, "ok");
 });
 
 test("replica-selection: protected asset remains accessible by share link for public viewer", async () => {
@@ -1410,6 +1587,45 @@ test("discovery: public viewer likes exclude only restricted assets", async () =
   const result = await discovery.listUserLikedAssets("user_public", 1, 10);
   assert.equal(result.total, 1);
   assert.deepEqual(result.items.map((item) => item.assetId), ["asset_1"]);
+});
+
+test("social: public viewer comments history excludes only restricted assets", async () => {
+  const social = createDeliverySocial({
+    prisma: {
+      assetComment: {
+        count: async ({ where }: { where: { asset?: { visibility?: { not: "RESTRICTED" } } } }) => {
+          assert.equal(where.asset?.visibility?.not, "RESTRICTED");
+          return 1;
+        },
+        findMany: async ({ where }: { where: { asset?: { visibility?: { not: "RESTRICTED" } } } }) => {
+          assert.equal(where.asset?.visibility?.not, "RESTRICTED");
+          return [
+            {
+              id: "comment_1",
+              assetId: "asset_1",
+              content: "nice",
+              replyToCommentId: null,
+              createdAt: new Date("2026-04-15T00:00:00.000Z"),
+              replyTo: null,
+              asset: {
+                title: "Protected comment asset",
+                description: "Visible",
+                shareCode: "share_1",
+                uploadBatches: [{ userId: "publisher_1" }]
+              }
+            }
+          ];
+        }
+      }
+    } as never,
+    getTenantId: async () => "tenant_1",
+    isTenantUserSafe: async () => false,
+    getTenantAssetAccess: async () => ({ status: "ok", asset: { id: "asset_1", visibility: "PROTECTED" } })
+  });
+
+  const result = await social.listUserComments("user_public", "comment", 1, 10);
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.items.map((item: { assetId: string }) => item.assetId), ["asset_1"]);
 });
 
 test("discovery: listTopTags backfills tags from existing asset metadata when empty", async () => {
