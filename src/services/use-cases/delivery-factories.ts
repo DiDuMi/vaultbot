@@ -74,15 +74,12 @@ export const createGetTenantAssetAccess = ({ prisma, isTenantUserSafe, isTenantA
     if (!asset) {
       return { status: "missing" as const };
     }
-    if (asset.visibility === "PUBLIC") {
+    if (asset.visibility === "PUBLIC" || asset.visibility === "PROTECTED") {
       return { status: "ok" as const, asset };
     }
     const isTenant = await isTenantUserSafe(userId);
     if (!isTenant) {
       return { status: "forbidden" as const };
-    }
-    if (asset.visibility === "PROTECTED") {
-      return { status: "ok" as const, asset };
     }
     const [isAdmin, owned] = await Promise.all([
       isTenantAdminSafe(userId),

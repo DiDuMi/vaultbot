@@ -28,7 +28,7 @@ export const createDeliverySocial = (deps: {
       authorUserId: userId,
       replyToCommentId: kind === "reply" ? { not: null } : null,
       ...(since ? { createdAt: { gte: since } } : {}),
-      ...(isTenant ? {} : { asset: { visibility: "PUBLIC" as const } })
+      ...(isTenant ? {} : { asset: { visibility: { not: "RESTRICTED" as const } } })
     };
     const [total, comments] = await Promise.all([
       deps.prisma.assetComment.count({ where }),
