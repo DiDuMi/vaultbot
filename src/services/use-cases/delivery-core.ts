@@ -1,13 +1,17 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeMinReplicas } from "./delivery-strategy";
 import { logError } from "../../infra/logging";
-import { ensureRuntimeTenant } from "../../infra/persistence/tenant-guard";
+import { ensureRuntimeProjectContext } from "../../infra/persistence/tenant-guard";
 import { isSingleOwnerModeEnabled } from "../../infra/runtime-mode";
+import { normalizeProjectContextConfig, type ProjectContextInput } from "../../project-context";
 
 export const createDeliveryCore = (deps: {
   prisma: PrismaClient;
-  config: { tenantCode: string; tenantName: string };
+  config: ProjectContextInput;
 }) => {
+  type ProjectSearchMode = "OFF" | "ENTITLED_ONLY" | "PUBLIC";
+  const projectContext = normalizeProjectContextConfig(deps.config);
+
   const pad2 = (value: number) => String(value).padStart(2, "0");
   const formatLocalDate = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -35,7 +39,7 @@ export const createDeliveryCore = (deps: {
     return value === "1" || value === "true" || value === "yes" || value === "on";
   };
 
-  const bootstrapTenantSettings = async (tenantId: string) => {
+  const bootstrapProjectSettings = async (projectId: string) => {
     const entries = [
       { key: tenantSettingKeys.hidePublisherEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_HIDE_PUBLISHER_ENABLED") },
       { key: tenantSettingKeys.protectContentEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_PROTECT_CONTENT_ENABLED") },
@@ -46,51 +50,60 @@ export const createDeliveryCore = (deps: {
       return;
     }
     const keys = entries.map((entry) => entry.key);
-    const existing = await deps.prisma.tenantSetting.findMany({ where: { tenantId, key: { in: keys } }, select: { key: true } });
+    const existing = await deps.prisma.tenantSetting.findMany({ where: { tenantId: projectId, key: { in: keys } }, select: { key: true } });
     const existingKeys = new Set(existing.map((row) => row.key));
-    const missing = entries.filter((entry) => !existingKeys.has(entry.key)).map((entry) => ({ tenantId, key: entry.key, value: "1" }));
+    const missing = entries.filter((entry) => !existingKeys.has(entry.key)).map((entry) => ({ tenantId: projectId, key: entry.key, value: "1" }));
     if (missing.length === 0) {
       return;
     }
     await deps.prisma.tenantSetting.createMany({ data: missing, skipDuplicates: true });
   };
 
-  const ensureTenant = async () => {
-    const tenant = await ensureRuntimeTenant(deps.prisma, {
-      tenantCode: deps.config.tenantCode,
-      tenantName: deps.config.tenantName
+  const ensureProjectContext = async () => {
+    const project = await ensureRuntimeProjectContext(deps.prisma, {
+      code: projectContext.code,
+      name: projectContext.name
     });
-    await bootstrapTenantSettings(tenant.id).catch((error) =>
-      logError({ component: "delivery_core", op: "bootstrap_tenant_settings", tenantId: tenant.id }, error)
+    await bootstrapProjectSettings(project.projectId).catch((error) =>
+      logError({ component: "delivery_core", op: "bootstrap_project_settings", projectId: project.projectId }, error)
     );
-    return tenant.id;
+    return project;
   };
 
-  let cachedTenantId: Promise<string> | null = null;
-  const getTenantId = async () => {
-    if (!cachedTenantId) {
-      cachedTenantId = ensureTenant().catch((error) => {
-        cachedTenantId = null;
+  let cachedRuntimeProjectContext: Promise<{ projectId: string; code: string; name: string }> | null = null;
+  const getRuntimeProjectContext = async () => {
+    if (!cachedRuntimeProjectContext) {
+      cachedRuntimeProjectContext = ensureProjectContext().catch((error) => {
+        cachedRuntimeProjectContext = null;
         throw error;
       });
     }
-    return cachedTenantId;
+    return cachedRuntimeProjectContext;
   };
 
-  const ensureInitialOwner = async (tenantId: string, userId: string) => {
-    const anyMember = await deps.prisma.tenantMember.findFirst({ where: { tenantId }, select: { id: true } });
+  const getRuntimeProjectId = async () => {
+    const project = await getRuntimeProjectContext();
+    return project.projectId;
+  };
+
+  const getTenantId = async () => {
+    return getRuntimeProjectId();
+  };
+
+  const ensureInitialOwner = async (projectId: string, userId: string) => {
+    const anyMember = await deps.prisma.tenantMember.findFirst({ where: { tenantId: projectId }, select: { id: true } });
     if (anyMember) {
       return false;
     }
     const batch = await deps.prisma.uploadBatch.findFirst({
-      where: { tenantId, userId, status: "COMMITTED" },
+      where: { tenantId: projectId, userId, status: "COMMITTED" },
       select: { id: true }
     });
     if (!batch) {
       return false;
     }
     try {
-      await deps.prisma.tenantMember.create({ data: { tenantId, tgUserId: userId, role: "OWNER" } });
+      await deps.prisma.tenantMember.create({ data: { tenantId: projectId, tgUserId: userId, role: "OWNER" } });
     } catch {
       return true;
     }
@@ -98,25 +111,27 @@ export const createDeliveryCore = (deps: {
   };
 
   const isTenantAdmin = async (userId: string) => {
-    const tenantId = await getTenantId();
-    const member = await deps.prisma.tenantMember.findFirst({ where: { tenantId, tgUserId: userId } });
+    const projectId = await getTenantId();
+    const member = await deps.prisma.tenantMember.findFirst({ where: { tenantId: projectId, tgUserId: userId } });
     if (member?.role === "OWNER") {
       return true;
     }
     if (!isSingleOwnerModeEnabled() && member?.role === "ADMIN") {
       return true;
     }
-    return ensureInitialOwner(tenantId, userId);
+    return ensureInitialOwner(projectId, userId);
   };
 
-  const getTenantSearchMode = async () => {
+  const canManageProject = async (userId: string) => isTenantAdmin(userId);
+
+  const getProjectSearchMode = async (): Promise<ProjectSearchMode> => {
     const tenantId = await getTenantId();
     const tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId }, select: { searchMode: true } });
     const mode = tenant?.searchMode ?? "ENTITLED_ONLY";
     return mode === "OFF" || mode === "ENTITLED_ONLY" || mode === "PUBLIC" ? mode : "ENTITLED_ONLY";
   };
 
-  const setTenantSearchMode = async (actorUserId: string, mode: "OFF" | "ENTITLED_ONLY" | "PUBLIC") => {
+  const setProjectSearchMode = async (actorUserId: string, mode: ProjectSearchMode) => {
     if (!(await isTenantAdmin(actorUserId))) {
       return { ok: false, message: "🔒 无权限：仅管理员可修改搜索开放设置。" };
     }
@@ -132,7 +147,7 @@ export const createDeliveryCore = (deps: {
     return { ok: true, message: "✅ 已设置为仅租户可搜索。" };
   };
 
-  const getTenantMinReplicas = async () => {
+  const getProjectMinReplicas = async () => {
     if (isSingleOwnerModeEnabled()) {
       return 1;
     }
@@ -148,7 +163,7 @@ export const createDeliveryCore = (deps: {
     return normalizeMinReplicas(parsed);
   };
 
-  const setTenantMinReplicas = async (actorUserId: string, value: number) => {
+  const setProjectMinReplicas = async (actorUserId: string, value: number) => {
     if (!(await isTenantAdmin(actorUserId))) {
       return { ok: false, message: "🔒 无权限：仅管理员可修改副本最小成功数。" };
     }
@@ -170,8 +185,8 @@ export const createDeliveryCore = (deps: {
     return asset?.id ?? null;
   };
 
-  const trackOpen = async (tenantId: string, userId: string, assetId: string) => {
-    await deps.prisma.event.create({ data: { tenantId, userId, assetId, type: "OPEN" } });
+  const trackOpen = async (projectId: string, userId: string, assetId: string) => {
+    await deps.prisma.event.create({ data: { tenantId: projectId, userId, assetId, type: "OPEN" } });
   };
 
   const trackVisit = async (
@@ -188,13 +203,16 @@ export const createDeliveryCore = (deps: {
     startOfLocalDay,
     startOfLocalWeek,
     startOfLocalMonth,
+    getRuntimeProjectContext,
+    getRuntimeProjectId,
     getTenantId,
     ensureInitialOwner,
     isTenantAdmin,
-    getTenantSearchMode,
-    setTenantSearchMode,
-    getTenantMinReplicas,
-    setTenantMinReplicas,
+    canManageProject,
+    getProjectSearchMode,
+    setProjectSearchMode,
+    getProjectMinReplicas,
+    setProjectMinReplicas,
     resolveShareCode,
     trackOpen,
     trackVisit

@@ -346,8 +346,8 @@ export const registerTenantMessageHandlers = (
           return;
         }
         const actorUserId = String(ctx.from.id);
-        const canManageAdmins = await deps.deliveryService.canManageProject(actorUserId);
-        if (!canManageAdmins) {
+        const canManageProjectAdmins = await deps.deliveryService.canManageProjectAdmins(actorUserId);
+        if (!canManageProjectAdmins) {
           deps.setSessionMode(key, "idle");
           await replyHtml(ctx, `🔒 无权限：仅${getManagerLabel()}可添加管理员。`, { reply_markup: buildHelpKeyboard() });
           return;
@@ -359,7 +359,7 @@ export const registerTenantMessageHandlers = (
           });
           return;
         }
-        const result = await deps.deliveryService.addTenantAdmin(actorUserId, id);
+        const result = await deps.deliveryService.addProjectManager(actorUserId, id);
         deps.setSessionMode(key, "idle");
         await replyHtml(ctx, result.message, { reply_markup: deps.mainKeyboard });
         await deps.renderSettings(ctx);

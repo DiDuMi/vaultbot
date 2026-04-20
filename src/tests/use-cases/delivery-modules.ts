@@ -17,7 +17,7 @@ const createPreferencesForTest = () => {
       notifyCommentEnabled: "f",
       notifyState: "g"
     },
-    getTenantId: async () => "tenant1",
+    getRuntimeProjectId: async () => "tenant1",
     getPreference: async (userId, key) => pref.get(`${userId}:${key}`) ?? null,
     upsertPreference: async (userId, key, value) => {
       pref.set(`${userId}:${key}`, value);

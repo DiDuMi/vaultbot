@@ -5,8 +5,8 @@ type RankingRange = "today" | "week" | "month";
 
 export const createDeliveryStats = (deps: {
   prisma: PrismaClient;
-  getTenantId: () => Promise<string>;
-  isTenantUserSafe: (userId: string) => Promise<boolean>;
+  getRuntimeProjectId: () => Promise<string>;
+  isProjectMemberSafe: (userId: string) => Promise<boolean>;
   formatLocalDate: (date: Date) => string;
   startOfLocalDay: (date: Date) => Date;
   startOfLocalWeek: (date: Date) => Date;
@@ -21,10 +21,10 @@ export const createDeliveryStats = (deps: {
   };
 
   const prepareRankingContext = async (range: RankingRange, limit: number, viewerUserId?: string) => {
-    const tenantId = await deps.getTenantId();
+    const tenantId = await deps.getRuntimeProjectId();
     const since = getSince(range, new Date());
     const maxReturn = normalizeLimit(limit, { defaultLimit: 10, maxLimit: 50 });
-    const isPublicViewer = viewerUserId ? !(await deps.isTenantUserSafe(viewerUserId)) : false;
+    const isPublicViewer = viewerUserId ? !(await deps.isProjectMemberSafe(viewerUserId)) : false;
     const take = isPublicViewer ? Math.min(maxReturn * 3, 200) : maxReturn;
     return { tenantId, since, maxReturn, isPublicViewer, take };
   };
@@ -73,8 +73,8 @@ export const createDeliveryStats = (deps: {
     return input.isPublicViewer ? items.slice(0, input.maxReturn) : items;
   };
 
-  const getTenantHomeStats = async () => {
-    const tenantId = await deps.getTenantId();
+  const getProjectHomeStats = async () => {
+    const tenantId = await deps.getRuntimeProjectId();
     const now = new Date();
     const todayStart = deps.startOfLocalDay(now);
     const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
@@ -125,9 +125,8 @@ export const createDeliveryStats = (deps: {
       deliveriesYesterday
     };
   };
-
-  const getTenantStats = async () => {
-    const tenantId = await deps.getTenantId();
+  const getProjectStats = async () => {
+    const tenantId = await deps.getRuntimeProjectId();
     const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const [visitorUsers, openUserGroups] = await Promise.all([
       deps.prisma.event.groupBy({ by: ["userId"], where: { tenantId, type: "IMPRESSION" } }),
@@ -154,8 +153,7 @@ export const createDeliveryStats = (deps: {
       opens7d
     };
   };
-
-  const getTenantRanking = async (
+  const getProjectRanking = async (
     range: RankingRange,
     limit: number,
     viewerUserId?: string
@@ -178,8 +176,7 @@ export const createDeliveryStats = (deps: {
     const items = await buildRankingBase({ assetIds, valueMap, isPublicViewer, maxReturn });
     return items.map((item) => ({ ...item, opens: item.value })).map(({ value, ...rest }) => rest);
   };
-
-  const getTenantLikeRanking = async (
+  const getProjectLikeRanking = async (
     range: RankingRange,
     limit: number,
     viewerUserId?: string
@@ -200,8 +197,7 @@ export const createDeliveryStats = (deps: {
     const items = await buildRankingBase({ assetIds, valueMap, isPublicViewer, maxReturn });
     return items.map((item) => ({ ...item, likes: item.value })).map(({ value, ...rest }) => rest);
   };
-
-  const getTenantVisitRanking = async (
+  const getProjectVisitRanking = async (
     range: RankingRange,
     limit: number,
     viewerUserId?: string
@@ -224,8 +220,7 @@ export const createDeliveryStats = (deps: {
     const items = await buildRankingBase({ assetIds, valueMap, isPublicViewer, maxReturn });
     return items.map((item) => ({ ...item, visits: item.value })).map(({ value, ...rest }) => rest);
   };
-
-  const getTenantCommentRanking = async (
+  const getProjectCommentRanking = async (
     range: RankingRange,
     limit: number,
     viewerUserId?: string
@@ -246,13 +241,12 @@ export const createDeliveryStats = (deps: {
     const items = await buildRankingBase({ assetIds, valueMap, isPublicViewer, maxReturn });
     return items.map((item) => ({ ...item, comments: item.value })).map(({ value, ...rest }) => rest);
   };
-
   return {
-    getTenantHomeStats,
-    getTenantStats,
-    getTenantRanking,
-    getTenantLikeRanking,
-    getTenantVisitRanking,
-    getTenantCommentRanking
+    getProjectHomeStats,
+    getProjectStats,
+    getProjectRanking,
+    getProjectLikeRanking,
+    getProjectVisitRanking,
+    getProjectCommentRanking
   };
 };

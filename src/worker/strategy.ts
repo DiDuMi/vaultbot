@@ -13,6 +13,7 @@ export const logWorkerError = (
   fields: {
     op: string;
     scope?: string;
+    projectId?: string;
     tenantId?: string;
     batchId?: string;
     broadcastId?: string;

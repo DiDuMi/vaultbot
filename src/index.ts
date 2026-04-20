@@ -2,12 +2,12 @@ import { createBot } from "./bot";
 import { loadConfig } from "./config";
 import { logError } from "./infra/logging";
 import { prisma } from "./infra/persistence";
-import { assertTenantCodeConsistency } from "./infra/persistence/tenant-guard";
+import { assertProjectContextConsistency } from "./infra/persistence/tenant-guard";
 import { createServer } from "./server";
 
 const start = async () => {
   const config = loadConfig();
-  await assertTenantCodeConsistency(prisma, config.tenantCode);
+  await assertProjectContextConsistency(prisma, config.projectContext);
   const { bot, shutdown: shutdownBotResources } = createBot(config);
   const enableWebhook = Boolean(config.webhookBaseUrl);
   const server = createServer(bot, config, enableWebhook);

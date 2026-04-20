@@ -1,21 +1,22 @@
 import type { PrismaClient } from "@prisma/client";
 import type { UploadMessage } from "./upload";
-import { createDeliveryAdmin } from "./delivery-admin";
+import { createProjectAdmin } from "./delivery-admin";
 import { createDeliveryCore } from "./delivery-core";
-import { createDeliveryDiscovery } from "./delivery-discovery";
+import { createProjectDiscovery } from "./delivery-discovery";
+import type { ProjectContextInput } from "../../project-context";
 import {
   buildDiscoveryService,
   buildIdentityService,
   buildSocialService,
-  createGetTenantAssetAccess,
+  createGetProjectAssetAccess,
   createGetUserProfileSummary
 } from "./delivery-factories";
 import { createDeliveryPreferences } from "./delivery-preferences";
-import { createDeliveryReplicaSelection } from "./delivery-replica-selection";
+import { createProjectReplicaSelection } from "./delivery-replica-selection";
 import { createDeliverySocial } from "./delivery-social";
 import { createDeliveryStorage } from "./delivery-storage";
 import { createDeliveryStats } from "./delivery-stats";
-import { createDeliveryTenantVault } from "./delivery-tenant-vault";
+import { createDeliveryProjectVault } from "./delivery-tenant-vault";
 
 export type TelegramUserInput = {
   id: number;
@@ -37,7 +38,7 @@ export type DeliveryMessage = {
 export type DeliverySelection =
   | {
       status: "ready";
-      tenantId: string;
+      projectId: string;
       messages: DeliveryMessage[];
       title: string;
       description: string | null;
@@ -47,11 +48,12 @@ export type DeliverySelection =
   | { status: "failed"; message: string }
   | { status: "missing"; message: string };
 
-export type DeliveryIdentityService = {
+export type DeliveryProjectIdentityService = {
   selectReplicas: (userId: string, assetId: string) => Promise<DeliverySelection>;
   resolveShareCode: (shareCode: string) => Promise<string | null>;
+  upsertProjectUserFromTelegram: (user: TelegramUserInput) => Promise<void>;
   upsertTenantUserFromTelegram: (user: TelegramUserInput) => Promise<void>;
-  getTenantUserLabel: (userId: string) => Promise<string | null>;
+  getProjectUserLabel: (userId: string) => Promise<string | null>;
   getUserProfileSummary: (userId: string) => Promise<{
     displayName: string | null;
     activatedAt: Date | null;
@@ -61,27 +63,27 @@ export type DeliveryIdentityService = {
     openCount: number;
     openedShares: number;
   }>;
-  trackOpen: (tenantId: string, userId: string, assetId: string) => Promise<void>;
+  trackOpen: (projectId: string, userId: string, assetId: string) => Promise<void>;
   trackVisit: (
     userId: string,
     source: "start" | "start_payload" | "home" | "help" | "tag",
     metadata?: Record<string, unknown>
   ) => Promise<void>;
   isProjectMember: (userId: string) => Promise<boolean>;
-  isTenantUser: (userId: string) => Promise<boolean>;
   canManageProject: (userId: string) => Promise<boolean>;
-  canManageAdmins: (userId: string) => Promise<boolean>;
-  canManageCollections: (userId: string) => Promise<boolean>;
+  canManageProjectAdmins: (userId: string) => Promise<boolean>;
+  canManageProjectCollections: (userId: string) => Promise<boolean>;
 };
 
-export type DeliveryTenantSettingsService = {
+export type LegacyIdentityService = {
+};
+
+export type DeliveryIdentityCompatibilityService = LegacyIdentityService;
+export type DeliveryIdentityService = DeliveryProjectIdentityService & LegacyIdentityService;
+
+export type DeliveryProjectSettingsService = {
   getProjectSearchMode: () => Promise<"OFF" | "ENTITLED_ONLY" | "PUBLIC">;
-  getTenantSearchMode: () => Promise<"OFF" | "ENTITLED_ONLY" | "PUBLIC">;
   setProjectSearchMode: (
-    actorUserId: string,
-    mode: "OFF" | "ENTITLED_ONLY" | "PUBLIC"
-  ) => Promise<{ ok: boolean; message: string }>;
-  setTenantSearchMode: (
     actorUserId: string,
     mode: "OFF" | "ENTITLED_ONLY" | "PUBLIC"
   ) => Promise<{ ok: boolean; message: string }>;
@@ -102,9 +104,7 @@ export type DeliveryTenantSettingsService = {
     status: "ACTIVE" | "DEGRADED" | "BANNED"
   ) => Promise<{ ok: boolean; message: string }>;
   getProjectMinReplicas: () => Promise<number>;
-  getTenantMinReplicas: () => Promise<number>;
   setProjectMinReplicas: (actorUserId: string, value: number) => Promise<{ ok: boolean; message: string }>;
-  setTenantMinReplicas: (actorUserId: string, value: number) => Promise<{ ok: boolean; message: string }>;
   markReplicaBad: (assetId: string, fromChatId: string, messageId: number) => Promise<void>;
   searchAssets: (
     userId: string,
@@ -149,7 +149,13 @@ export type DeliveryTenantSettingsService = {
   }>;
 };
 
-export type DeliveryAdminService = {
+export type LegacySettingsService = {};
+
+export type DeliveryTenantSettingsCompatibilityService = LegacySettingsService;
+export type DeliverySettingsService = DeliveryProjectSettingsService & LegacySettingsService;
+export type DeliveryTenantSettingsService = DeliverySettingsService;
+
+export type DeliveryProjectAdminService = {
   listMyBroadcasts: (actorUserId: string, limit: number) => Promise<
     {
       id: string;
@@ -162,7 +168,7 @@ export type DeliveryAdminService = {
       repeatEveryMs: number | null;
       createdAt: Date;
       updatedAt: Date;
-    }[]
+    }[] 
   >;
   getBroadcastById: (
     actorUserId: string,
@@ -180,16 +186,8 @@ export type DeliveryAdminService = {
     updatedAt: Date;
   } | null>;
   getProjectStartWelcomeHtml: () => Promise<string | null>;
-  getTenantStartWelcomeHtml: () => Promise<string | null>;
   setProjectStartWelcomeHtml: (actorUserId: string, html: string | null) => Promise<{ ok: boolean; message: string }>;
-  setTenantStartWelcomeHtml: (actorUserId: string, html: string | null) => Promise<{ ok: boolean; message: string }>;
   getProjectDeliveryAdConfig: () => Promise<{
-    prevText: string;
-    nextText: string;
-    adButtonText: string | null;
-    adButtonUrl: string | null;
-  }>;
-  getTenantDeliveryAdConfig: () => Promise<{
     prevText: string;
     nextText: string;
     adButtonText: string | null;
@@ -199,36 +197,19 @@ export type DeliveryAdminService = {
     actorUserId: string,
     config: { prevText: string; nextText: string; adButtonText: string | null; adButtonUrl: string | null }
   ) => Promise<{ ok: boolean; message: string }>;
-  setTenantDeliveryAdConfig: (
-    actorUserId: string,
-    config: { prevText: string; nextText: string; adButtonText: string | null; adButtonUrl: string | null }
-  ) => Promise<{ ok: boolean; message: string }>;
   getProjectProtectContentEnabled: () => Promise<boolean>;
-  getTenantProtectContentEnabled: () => Promise<boolean>;
   setProjectProtectContentEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
-  setTenantProtectContentEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
   getProjectHidePublisherEnabled: () => Promise<boolean>;
-  getTenantHidePublisherEnabled: () => Promise<boolean>;
   setProjectHidePublisherEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
-  setTenantHidePublisherEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
   getProjectAutoCategorizeEnabled: () => Promise<boolean>;
-  getTenantAutoCategorizeEnabled: () => Promise<boolean>;
   setProjectAutoCategorizeEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
-  setTenantAutoCategorizeEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
   getProjectAutoCategorizeRules: () => Promise<{ collectionId: string; keywords: string[] }[]>;
-  getTenantAutoCategorizeRules: () => Promise<{ collectionId: string; keywords: string[] }[]>;
   setProjectAutoCategorizeRules: (
     actorUserId: string,
     rules: { collectionId: string; keywords: string[] }[]
   ) => Promise<{ ok: boolean; message: string }>;
-  setTenantAutoCategorizeRules: (
-    actorUserId: string,
-    rules: { collectionId: string; keywords: string[] }[]
-  ) => Promise<{ ok: boolean; message: string }>;
   getProjectPublicRankingEnabled: () => Promise<boolean>;
-  getTenantPublicRankingEnabled: () => Promise<boolean>;
   setProjectPublicRankingEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
-  setTenantPublicRankingEnabled: (actorUserId: string, enabled: boolean) => Promise<{ ok: boolean; message: string }>;
   createBroadcastDraft: (actorUserId: string, actorChatId: string) => Promise<{ ok: boolean; id?: string; message: string }>;
   getMyBroadcastDraft: (actorUserId: string) => Promise<{
     id: string;
@@ -271,9 +252,9 @@ export type DeliveryAdminService = {
     }[]
   >;
   getBroadcastTargetCount: (actorUserId: string) => Promise<number>;
-  listTenantAdmins: () => Promise<{ tgUserId: string; role: "OWNER" | "ADMIN" }[]>;
-  addTenantAdmin: (actorUserId: string, tgUserId: string) => Promise<{ ok: boolean; message: string }>;
-  removeTenantAdmin: (actorUserId: string, tgUserId: string) => Promise<{ ok: boolean; message: string }>;
+  listProjectManagers: () => Promise<{ tgUserId: string; role: "OWNER" | "ADMIN" }[]>;
+  addProjectManager: (actorUserId: string, tgUserId: string) => Promise<{ ok: boolean; message: string }>;
+  removeProjectManager: (actorUserId: string, tgUserId: string) => Promise<{ ok: boolean; message: string }>;
   listCollections: () => Promise<{ id: string; title: string }[]>;
   createCollection: (actorUserId: string, title: string) => Promise<{ ok: boolean; message: string; id?: string }>;
   updateCollection: (
@@ -294,6 +275,12 @@ export type DeliveryAdminService = {
     limit: number
   ) => Promise<{ assetId: string; title: string; description: string | null; shareCode: string | null; updatedAt: Date }[]>;
 };
+
+export type LegacyAdminService = {};
+
+export type DeliveryAdminCompatibilityService = LegacyAdminService;
+export type AdminService = DeliveryProjectAdminService & LegacyAdminService;
+export type DeliveryAdminService = AdminService;
 
 export type DeliveryPreferencesService = {
   getUserDefaultCollectionId: (userId: string) => Promise<string | null>;
@@ -316,67 +303,85 @@ export type DeliveryPreferencesService = {
   ) => Promise<boolean>;
 };
 
-export type DeliveryStatsService = {
-  getTenantHomeStats: () => Promise<{
-    asOfDate: string;
-    daysRunning: number;
-    totalUsers: number;
-    newUsersYesterday: number;
-    visitUsersYesterday: number;
-    storedFiles: number;
-    deliveriesTotal: number;
-    deliveriesYesterday: number;
-  }>;
-  getTenantStats: () => Promise<{
-    visitors: number;
-    visits: number;
-    opens: number;
-    openUsers: number;
-    assets: number;
-    batches: number;
-    files: number;
-    visits7d: number;
-    opens7d: number;
-  }>;
-  getTenantRanking: (range: "today" | "week" | "month", limit: number, viewerUserId?: string) => Promise<
-    {
-      assetId: string;
-      title: string;
-      shareCode: string | null;
-      opens: number;
-      publisherUserId: string | null;
-    }[]
-  >;
-  getTenantLikeRanking: (range: "today" | "week" | "month", limit: number, viewerUserId?: string) => Promise<
-    {
-      assetId: string;
-      title: string;
-      shareCode: string | null;
-      likes: number;
-      publisherUserId: string | null;
-    }[]
-  >;
-  getTenantVisitRanking: (range: "today" | "week" | "month", limit: number, viewerUserId?: string) => Promise<
-    {
-      assetId: string;
-      title: string;
-      shareCode: string | null;
-      visits: number;
-      publisherUserId: string | null;
-    }[]
-  >;
-  getTenantCommentRanking: (range: "today" | "week" | "month", limit: number, viewerUserId?: string) => Promise<
-    {
-      assetId: string;
-      title: string;
-      shareCode: string | null;
-      comments: number;
-      publisherUserId: string | null;
-    }[]
-  >;
+type DeliveryHomeStats = {
+  asOfDate: string;
+  daysRunning: number;
+  totalUsers: number;
+  newUsersYesterday: number;
+  visitUsersYesterday: number;
+  storedFiles: number;
+  deliveriesTotal: number;
+  deliveriesYesterday: number;
 };
 
-export type DeliveryDiscoveryService = {
+type DeliveryProjectStats = {
+  visitors: number;
+  visits: number;
+  opens: number;
+  openUsers: number;
+  assets: number;
+  batches: number;
+  files: number;
+  visits7d: number;
+  opens7d: number;
+};
+
+type DeliveryOpenRankingItem = {
+  assetId: string;
+  title: string;
+  shareCode: string | null;
+  opens: number;
+  publisherUserId: string | null;
+};
+
+type DeliveryLikeRankingItem = {
+  assetId: string;
+  title: string;
+  shareCode: string | null;
+  likes: number;
+  publisherUserId: string | null;
+};
+
+type DeliveryVisitRankingItem = {
+  assetId: string;
+  title: string;
+  shareCode: string | null;
+  visits: number;
+  publisherUserId: string | null;
+};
+
+type DeliveryCommentRankingItem = {
+  assetId: string;
+  title: string;
+  shareCode: string | null;
+  comments: number;
+  publisherUserId: string | null;
+};
+
+export type DeliveryProjectStatsService = {
+  getProjectHomeStats: () => Promise<DeliveryHomeStats>;
+  getProjectStats: () => Promise<DeliveryProjectStats>;
+  getProjectRanking: (range: "today" | "week" | "month", limit: number, viewerUserId?: string) => Promise<DeliveryOpenRankingItem[]>;
+  getProjectLikeRanking: (
+    range: "today" | "week" | "month",
+    limit: number,
+    viewerUserId?: string
+  ) => Promise<DeliveryLikeRankingItem[]>;
+  getProjectVisitRanking: (
+    range: "today" | "week" | "month",
+    limit: number,
+    viewerUserId?: string
+  ) => Promise<DeliveryVisitRankingItem[]>;
+  getProjectCommentRanking: (
+    range: "today" | "week" | "month",
+    limit: number,
+    viewerUserId?: string
+  ) => Promise<DeliveryCommentRankingItem[]>;
+};
+
+export type DeliveryStatsService = DeliveryProjectStatsService;
+
+export type DeliveryProjectDiscoveryService = {
   getUserAssetMeta: (
     userId: string,
     assetId: string
@@ -424,7 +429,7 @@ export type DeliveryDiscoveryService = {
       publisherUserId: string | null;
     }[];
   }>;
-  listTenantBatches: (
+  listProjectBatches: (
     viewerUserId: string,
     page: number,
     pageSize: number,
@@ -473,6 +478,12 @@ export type DeliveryDiscoveryService = {
     }[];
   }>;
 };
+
+export type LegacyDiscoveryService = {};
+
+export type DeliveryDiscoveryCompatibilityService = LegacyDiscoveryService;
+export type DiscoveryService = DeliveryProjectDiscoveryService & LegacyDiscoveryService;
+export type DeliveryDiscoveryService = DiscoveryService;
 
 export type DeliverySocialService = {
   listUserComments: (
@@ -571,16 +582,16 @@ export type DeliverySocialService = {
 };
 
 export type DeliveryService = DeliveryIdentityService &
-  DeliveryTenantSettingsService &
-  DeliveryAdminService &
+  DeliverySettingsService &
+  AdminService &
   DeliveryPreferencesService &
   DeliveryStatsService &
-  DeliveryDiscoveryService &
+  DiscoveryService &
   DeliverySocialService;
 
 export const createDeliveryService = (
   prisma: PrismaClient,
-  config: { tenantCode: string; tenantName: string }
+  config: ProjectContextInput
 ): DeliveryService => {
   const preferenceKeys = {
     defaultCollectionId: "default_collection_id",
@@ -608,13 +619,16 @@ export const createDeliveryService = (
     startOfLocalDay,
     startOfLocalWeek,
     startOfLocalMonth,
+    getRuntimeProjectContext,
+    getRuntimeProjectId,
     getTenantId,
     ensureInitialOwner,
     isTenantAdmin,
-    getTenantSearchMode,
-    setTenantSearchMode,
-    getTenantMinReplicas,
-    setTenantMinReplicas,
+    canManageProject,
+    getProjectSearchMode,
+    setProjectSearchMode,
+    getProjectMinReplicas,
+    setProjectMinReplicas,
     resolveShareCode,
     trackOpen,
     trackVisit
@@ -625,22 +639,22 @@ export const createDeliveryService = (
 
   const { getPreference, upsertPreference, deletePreference, getSetting, upsertSetting, deleteSetting } = createDeliveryStorage(
     prisma,
-    getTenantId
+    getRuntimeProjectId
   );
 
-  const { upsertTenantUserFromTelegram, getTenantUserLabel, isTenantUser, listTenantAdmins, addTenantAdmin, removeTenantAdmin, listVaultGroups, addBackupVaultGroup, removeBackupVaultGroup, setPrimaryVaultGroup, setVaultGroupStatus, markReplicaBad, listCollections, createCollection, updateCollection, deleteCollection, getCollectionImpactCounts, getPrimaryVaultChatId, getCollectionTopic, setCollectionTopicThreadId, setCollectionTopicIndexMessageId, listRecentAssetsInCollection } =
-    createDeliveryTenantVault({
+  const { upsertProjectUserFromTelegram, upsertTenantUserFromTelegram, getProjectUserLabel, isProjectMember, listProjectManagers, addProjectManager, removeProjectManager, listVaultGroups, addBackupVaultGroup, removeBackupVaultGroup, setPrimaryVaultGroup, setVaultGroupStatus, markReplicaBad, listCollections, createCollection, updateCollection, deleteCollection, getCollectionImpactCounts, getPrimaryVaultChatId, getCollectionTopic, setCollectionTopicThreadId, setCollectionTopicIndexMessageId, listRecentAssetsInCollection } =
+    createDeliveryProjectVault({
       prisma,
-      getTenantId,
-      isTenantAdmin,
+      getRuntimeProjectId,
+      canManageProject,
       ensureInitialOwner
     });
 
-  const isTenantUserSafe = async (userId: string) => isTenantUser(userId).catch(() => false);
-  const isTenantAdminSafe = async (userId: string) => isTenantAdmin(userId).catch(() => false);
+  const isProjectMemberSafe = async (userId: string) => isProjectMember(userId).catch(() => false);
+  const canManageProjectSafe = async (userId: string) => canManageProject(userId).catch(() => false);
 
-  const getUserProfileSummary = createGetUserProfileSummary({ prisma, getTenantId });
-  const getTenantAssetAccess = createGetTenantAssetAccess({ prisma, isTenantUserSafe, isTenantAdminSafe });
+  const getUserProfileSummary = createGetUserProfileSummary({ prisma, getRuntimeProjectId });
+  const getProjectAssetAccess = createGetProjectAssetAccess({ prisma, isProjectMemberSafe, canManageProjectSafe });
 
 
   const {
@@ -659,7 +673,7 @@ export const createDeliveryService = (
   } = createDeliveryPreferences({
     prisma,
     preferenceKeys,
-    getTenantId,
+    getRuntimeProjectId,
     getPreference,
     upsertPreference,
     deletePreference,
@@ -670,20 +684,20 @@ export const createDeliveryService = (
   const {
     listMyBroadcasts,
     getBroadcastById,
-    getTenantStartWelcomeHtml,
-    setTenantStartWelcomeHtml,
-    getTenantDeliveryAdConfig,
-    setTenantDeliveryAdConfig,
-    getTenantProtectContentEnabled,
-    setTenantProtectContentEnabled,
-    getTenantHidePublisherEnabled,
-    setTenantHidePublisherEnabled,
-    getTenantAutoCategorizeEnabled,
-    setTenantAutoCategorizeEnabled,
-    getTenantAutoCategorizeRules,
-    setTenantAutoCategorizeRules,
-    getTenantPublicRankingEnabled,
-    setTenantPublicRankingEnabled,
+    getProjectStartWelcomeHtml,
+    setProjectStartWelcomeHtml,
+    getProjectDeliveryAdConfig,
+    setProjectDeliveryAdConfig,
+    getProjectProtectContentEnabled,
+    setProjectProtectContentEnabled,
+    getProjectHidePublisherEnabled,
+    setProjectHidePublisherEnabled,
+    getProjectAutoCategorizeEnabled,
+    setProjectAutoCategorizeEnabled,
+    getProjectAutoCategorizeRules,
+    setProjectAutoCategorizeRules,
+    getProjectPublicRankingEnabled,
+    setProjectPublicRankingEnabled,
     getBroadcastTargetCount,
     createBroadcastDraft,
     getMyBroadcastDraft,
@@ -693,21 +707,21 @@ export const createDeliveryService = (
     cancelBroadcast,
     deleteBroadcastDraft,
     listBroadcastRuns
-  } = createDeliveryAdmin({
+  } = createProjectAdmin({
     prisma,
     settingKeys,
-    getTenantId,
-    isTenantAdmin,
+    getRuntimeProjectId,
+    canManageProject,
     getSetting,
     upsertSetting,
     deleteSetting
   });
 
-  const { selectReplicas } = createDeliveryReplicaSelection({
+  const { selectReplicas } = createProjectReplicaSelection({
     prisma,
-    getTenantId,
-    isTenantUserSafe,
-    getTenantMinReplicas,
+    getRuntimeProjectId,
+    isProjectMemberSafe,
+    getProjectMinReplicas,
     getSetting
   });
 
@@ -725,28 +739,28 @@ export const createDeliveryService = (
     listUserRecycledAssets,
     restoreUserAssets,
     listUserBatches,
-    listTenantBatches,
+    listProjectBatches,
     listUserOpenHistory,
     listUserLikedAssets
   } =
-    createDeliveryDiscovery({
+    createProjectDiscovery({
       prisma,
-      getTenantId,
-      isTenantUserSafe,
+      getRuntimeProjectId,
+      isProjectMemberSafe,
       startOfLocalDay
     });
 
   const {
-    getTenantHomeStats,
-    getTenantStats,
-    getTenantRanking,
-    getTenantLikeRanking,
-    getTenantVisitRanking,
-    getTenantCommentRanking
+    getProjectHomeStats,
+    getProjectStats,
+    getProjectRanking,
+    getProjectLikeRanking,
+    getProjectVisitRanking,
+    getProjectCommentRanking
   } = createDeliveryStats({
     prisma,
-    getTenantId,
-    isTenantUserSafe,
+    getRuntimeProjectId,
+    isProjectMemberSafe,
     formatLocalDate,
     startOfLocalDay,
     startOfLocalWeek,
@@ -768,32 +782,29 @@ export const createDeliveryService = (
     addAssetComment
   } = createDeliverySocial({
     prisma,
-    getTenantId,
-    isTenantUserSafe,
-    getTenantAssetAccess
+    getRuntimeProjectId,
+    isProjectMemberSafe,
+    getProjectAssetAccess
   });
 
   const identityService = buildIdentityService({
     selectReplicas,
     resolveShareCode,
+    upsertProjectUserFromTelegram,
     upsertTenantUserFromTelegram,
-    getTenantUserLabel,
+    getProjectUserLabel,
     getUserProfileSummary,
     trackOpen,
     trackVisit,
-    isTenantUser,
-    isTenantAdmin
+    isProjectMember,
+    canManageProject
   });
 
-  const tenantSettingsService: DeliveryTenantSettingsService = {
-    getProjectSearchMode: getTenantSearchMode,
-    getTenantSearchMode,
-    setProjectSearchMode: setTenantSearchMode,
-    setTenantSearchMode,
-    getProjectMinReplicas: getTenantMinReplicas,
-    getTenantMinReplicas,
-    setProjectMinReplicas: setTenantMinReplicas,
-    setTenantMinReplicas,
+  const settingsService: DeliverySettingsService = {
+    getProjectSearchMode,
+    setProjectSearchMode,
+    getProjectMinReplicas,
+    setProjectMinReplicas,
     listVaultGroups,
     addBackupVaultGroup,
     removeBackupVaultGroup,
@@ -807,37 +818,23 @@ export const createDeliveryService = (
     listAssetsByTagId,
   };
 
-  const adminService: DeliveryAdminService = {
+  const adminService: AdminService = {
     listMyBroadcasts,
     getBroadcastById,
-    getProjectStartWelcomeHtml: getTenantStartWelcomeHtml,
-    getTenantStartWelcomeHtml,
-    setProjectStartWelcomeHtml: setTenantStartWelcomeHtml,
-    setTenantStartWelcomeHtml,
-    getProjectDeliveryAdConfig: getTenantDeliveryAdConfig,
-    getTenantDeliveryAdConfig,
-    setProjectDeliveryAdConfig: setTenantDeliveryAdConfig,
-    setTenantDeliveryAdConfig,
-    getProjectProtectContentEnabled: getTenantProtectContentEnabled,
-    getTenantProtectContentEnabled,
-    setProjectProtectContentEnabled: setTenantProtectContentEnabled,
-    setTenantProtectContentEnabled,
-    getProjectHidePublisherEnabled: getTenantHidePublisherEnabled,
-    getTenantHidePublisherEnabled,
-    setProjectHidePublisherEnabled: setTenantHidePublisherEnabled,
-    setTenantHidePublisherEnabled,
-    getProjectAutoCategorizeEnabled: getTenantAutoCategorizeEnabled,
-    getTenantAutoCategorizeEnabled,
-    setProjectAutoCategorizeEnabled: setTenantAutoCategorizeEnabled,
-    setTenantAutoCategorizeEnabled,
-    getProjectAutoCategorizeRules: getTenantAutoCategorizeRules,
-    getTenantAutoCategorizeRules,
-    setProjectAutoCategorizeRules: setTenantAutoCategorizeRules,
-    setTenantAutoCategorizeRules,
-    getProjectPublicRankingEnabled: getTenantPublicRankingEnabled,
-    getTenantPublicRankingEnabled,
-    setProjectPublicRankingEnabled: setTenantPublicRankingEnabled,
-    setTenantPublicRankingEnabled,
+    getProjectStartWelcomeHtml,
+    setProjectStartWelcomeHtml,
+    getProjectDeliveryAdConfig,
+    setProjectDeliveryAdConfig,
+    getProjectProtectContentEnabled,
+    setProjectProtectContentEnabled,
+    getProjectHidePublisherEnabled,
+    setProjectHidePublisherEnabled,
+    getProjectAutoCategorizeEnabled,
+    setProjectAutoCategorizeEnabled,
+    getProjectAutoCategorizeRules,
+    setProjectAutoCategorizeRules,
+    getProjectPublicRankingEnabled,
+    setProjectPublicRankingEnabled,
     createBroadcastDraft,
     getMyBroadcastDraft,
     updateBroadcastDraftContent,
@@ -847,9 +844,9 @@ export const createDeliveryService = (
     deleteBroadcastDraft,
     listBroadcastRuns,
     getBroadcastTargetCount,
-    listTenantAdmins,
-    addTenantAdmin,
-    removeTenantAdmin,
+    listProjectManagers,
+    addProjectManager,
+    removeProjectManager,
     listCollections,
     createCollection,
     updateCollection,
@@ -878,15 +875,15 @@ export const createDeliveryService = (
   };
 
   const statsService: DeliveryStatsService = {
-    getTenantHomeStats,
-    getTenantStats,
-    getTenantRanking,
-    getTenantLikeRanking,
-    getTenantVisitRanking,
-    getTenantCommentRanking
+    getProjectHomeStats,
+    getProjectStats,
+    getProjectRanking,
+    getProjectLikeRanking,
+    getProjectVisitRanking,
+    getProjectCommentRanking
   };
 
-  const discoveryService = buildDiscoveryService({
+  const discoveryService: DiscoveryService = buildDiscoveryService({
     getUserAssetMeta,
     setUserAssetSearchable,
     deleteUserAsset,
@@ -895,7 +892,7 @@ export const createDeliveryService = (
     listUserRecycledAssets,
     restoreUserAssets,
     listUserBatches,
-    listTenantBatches,
+    listProjectBatches,
     listUserOpenHistory,
     listUserLikedAssets
   });
@@ -916,7 +913,7 @@ export const createDeliveryService = (
 
   return {
     ...identityService,
-    ...tenantSettingsService,
+    ...settingsService,
     ...adminService,
     ...preferencesService,
     ...statsService,

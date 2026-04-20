@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import type { Config } from "./config";
-import { registerTenantBot } from "./bot/tenant";
+import { registerProjectBot } from "./bot/project";
 import { createRedisConnection, createQueue } from "./infra/queue";
 import { prisma } from "./infra/persistence";
 import { logError } from "./infra/logging";
@@ -49,17 +49,16 @@ export const createBot = (config: Config) => {
     config.databaseUrl === "memory"
       ? createInMemoryUploadService()
       : createUploadService(prisma, queue, notifyQueue, {
-          tenantCode: config.tenantCode,
-          tenantName: config.tenantName,
+          projectContext: config.projectContext,
           vaultChatId: config.vaultChatId,
           vaultThreadId: config.vaultThreadId
         });
   const deliveryService =
     config.databaseUrl === "memory"
       ? null
-      : createDeliveryService(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
+      : createDeliveryService(prisma, config.projectContext);
 
-  registerTenantBot(bot, uploadStore, uploadService, deliveryService);
+  registerProjectBot(bot, uploadStore, uploadService, deliveryService);
 
   const shutdown = async () => {
     await Promise.all([

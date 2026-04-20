@@ -123,7 +123,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
       await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法重命名分类。", new InlineKeyboard().text("⬅️ 返回分类", "settings:collections"));
       return;
     }
-    const canManage = await deliveryService.canManageCollections(String(ctx.from.id));
+    const canManage = await deliveryService.canManageProjectCollections(String(ctx.from.id));
     if (!canManage) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可重命名分类。", new InlineKeyboard().text("⬅️ 返回分类", "settings:collections"));
       return;
@@ -153,7 +153,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
       await upsertHtml(ctx, "⚠️ 当前未启用数据库，无法删除分类。", new InlineKeyboard().text("⬅️ 返回分类", "settings:collections"));
       return;
     }
-    const canManage = await deliveryService.canManageCollections(String(ctx.from.id));
+    const canManage = await deliveryService.canManageProjectCollections(String(ctx.from.id));
     if (!canManage) {
       await upsertHtml(ctx, "🔒 无权限：仅管理员可删除分类。", new InlineKeyboard().text("⬅️ 返回分类", "settings:collections"));
       return;

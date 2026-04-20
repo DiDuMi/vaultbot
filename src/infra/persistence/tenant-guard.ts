@@ -16,6 +16,27 @@ export type TenantDiagnostics = {
   }>;
 };
 
+export type ProjectDiagnostics = {
+  currentProjectCode: string;
+  matched: boolean;
+  projects: Array<{
+    id: string;
+    code: string;
+    name: string;
+    createdAt: Date;
+    assets: number;
+    events: number;
+    users: number;
+    batches: number;
+  }>;
+};
+
+export type RuntimeProjectContext = {
+  projectId: string;
+  code: string;
+  name: string;
+};
+
 export const getTenantDiagnostics = async (prisma: PrismaClient, tenantCode: string): Promise<TenantDiagnostics> => {
   const rows = await prisma.tenant.findMany({
     orderBy: { createdAt: "asc" },
@@ -48,6 +69,15 @@ export const getTenantDiagnostics = async (prisma: PrismaClient, tenantCode: str
       users: row._count.users,
       batches: row._count.uploadBatches
     }))
+  };
+};
+
+export const getProjectDiagnostics = async (prisma: PrismaClient, projectCode: string): Promise<ProjectDiagnostics> => {
+  const result = await getTenantDiagnostics(prisma, projectCode);
+  return {
+    currentProjectCode: result.currentTenantCode,
+    matched: result.matched,
+    projects: result.tenants
   };
 };
 
@@ -89,6 +119,12 @@ export const assertTenantCodeConsistency = async (
   );
 };
 
+export const assertProjectContextConsistency = async (
+  prisma: PrismaClient,
+  projectContext: { code: string; name: string },
+  allowMismatch = process.env.ALLOW_TENANT_CODE_MISMATCH === "1"
+) => assertTenantCodeConsistency(prisma, projectContext.code, allowMismatch);
+
 const isSingleOwnerBootstrapAllowed = () => {
   const raw = (process.env.SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP || "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
@@ -122,4 +158,19 @@ export const ensureRuntimeTenant = async (
     data: { code: input.tenantCode, name: input.tenantName },
     select: { id: true, code: true, name: true }
   });
+};
+
+export const ensureRuntimeProjectContext = async (
+  prisma: PrismaClient,
+  projectContext: { code: string; name: string }
+): Promise<RuntimeProjectContext> => {
+  const tenant = await ensureRuntimeTenant(prisma, {
+    tenantCode: projectContext.code,
+    tenantName: projectContext.name
+  });
+  return {
+    projectId: tenant.id,
+    code: tenant.code,
+    name: tenant.name
+  };
 };

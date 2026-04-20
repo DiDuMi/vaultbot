@@ -56,8 +56,12 @@ else
   log "Skipped database backup: container $POSTGRES_CONTAINER is not running"
 fi
 
-if command -v node >/dev/null 2>&1 && [ -f "scripts/preflight-tenant.js" ] && [ -d "node_modules/@prisma/client" ]; then
-  node scripts/preflight-tenant.js
+if command -v node >/dev/null 2>&1 && [ -d "node_modules/@prisma/client" ]; then
+  if [ -f "scripts/preflight-project.js" ]; then
+    node scripts/preflight-project.js
+  elif [ -f "scripts/preflight-tenant.js" ]; then
+    node scripts/preflight-tenant.js
+  fi
 fi
 
 git fetch origin

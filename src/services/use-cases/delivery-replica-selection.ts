@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+﻿import type { PrismaClient } from "@prisma/client";
 import type { UploadMessage } from "./upload";
 import { buildWorkerHeartbeatLines } from "./worker-heartbeat";
 
@@ -13,7 +13,7 @@ type DeliveryMessage = {
 type DeliverySelection =
   | {
       status: "ready";
-      tenantId: string;
+      projectId: string;
       messages: DeliveryMessage[];
       title: string;
       description: string | null;
@@ -23,11 +23,11 @@ type DeliverySelection =
   | { status: "pending"; message: string }
   | { status: "failed"; message: string };
 
-export const createDeliveryReplicaSelection = (deps: {
+export const createProjectReplicaSelection = (deps: {
   prisma: PrismaClient;
-  getTenantId: () => Promise<string>;
-  isTenantUserSafe: (userId: string) => Promise<boolean>;
-  getTenantMinReplicas: () => Promise<number>;
+  getRuntimeProjectId: () => Promise<string>;
+  isProjectMemberSafe: (userId: string) => Promise<boolean>;
+  getProjectMinReplicas: () => Promise<number>;
   getSetting: (key: string) => Promise<string | null>;
 }) => {
   const selectReplicas = async (userId: string, assetId: string): Promise<DeliverySelection> => {
@@ -42,12 +42,12 @@ export const createDeliveryReplicaSelection = (deps: {
       }
     });
     if (!asset) {
-      return { status: "missing", message: "内容不存在" };
+      return { status: "missing", message: "Asset not found" };
     }
     if (asset.visibility === "RESTRICTED") {
-      const isTenant = await deps.isTenantUserSafe(userId);
-      if (!isTenant) {
-        return { status: "failed", message: "🔒 无权限或内容不存在。" };
+      const isProjectMember = await deps.isProjectMemberSafe(userId);
+      if (!isProjectMember) {
+        return { status: "failed", message: "Forbidden or missing asset" };
       }
     }
 
@@ -58,11 +58,11 @@ export const createDeliveryReplicaSelection = (deps: {
     });
     if (!batch) {
       if (asset.replicas.length === 0) {
-        return { status: "missing", message: "未找到可用副本" };
+        return { status: "missing", message: "No available replica found" };
       }
       return {
         status: "ready",
-        tenantId: asset.tenantId,
+        projectId: asset.tenantId,
         messages: asset.replicas.map((replica) => ({
           fromChatId: replica.vaultGroup.chatId.toString(),
           messageId: Number(replica.messageId),
@@ -70,7 +70,7 @@ export const createDeliveryReplicaSelection = (deps: {
           mediaGroupId: undefined,
           fileId: undefined
         })),
-        title: asset.title ?? "未命名",
+        title: asset.title ?? "Untitled",
         description: asset.description,
         publisherUserId: null
       };
@@ -120,9 +120,9 @@ export const createDeliveryReplicaSelection = (deps: {
     if (!missingReplica && messages.length > 0) {
       return {
         status: "ready",
-        tenantId: asset.tenantId,
+        projectId: asset.tenantId,
         messages,
-        title: asset.title ?? "未命名",
+        title: asset.title ?? "Untitled",
         description: asset.description,
         publisherUserId: batch.userId
       };
@@ -132,7 +132,7 @@ export const createDeliveryReplicaSelection = (deps: {
     if (failed) {
       return {
         status: "failed",
-        message: failed.lastError ? `副本写入失败：${failed.lastError}` : "副本写入失败"
+        message: failed.lastError ? `Replica write failed: ${failed.lastError}` : "Replica write failed"
       };
     }
     const pending = batch.items.some((item) => item.status === "PENDING");
@@ -140,11 +140,11 @@ export const createDeliveryReplicaSelection = (deps: {
       const total = batch.items.length;
       const done = batch.items.filter((item) => item.status === "SUCCESS").length;
       const pendingCount = batch.items.filter((item) => item.status === "PENDING").length;
-      const minReplicas = await deps.getTenantMinReplicas().catch(() => 1);
-      const tenantId = await deps.getTenantId();
+      const minReplicas = await deps.getProjectMinReplicas().catch(() => 1);
+      const projectId = await deps.getRuntimeProjectId();
       const bindings = await deps.prisma.tenantVaultBinding
         .findMany({
-          where: { tenantId, role: { in: ["PRIMARY", "BACKUP"] } },
+          where: { tenantId: projectId, role: { in: ["PRIMARY", "BACKUP"] } },
           include: { vaultGroup: true }
         })
         .catch(() => []);
@@ -162,30 +162,30 @@ export const createDeliveryReplicaSelection = (deps: {
       const ageMin = Math.max(0, Math.floor(ageMs / 60_000));
       const notEnoughVaults = availableVaults.size < minReplicas;
       const message = [
-        `副本写入中（${done}/${total}），请稍后再试。`,
-        `当前状态：PENDING ${pendingCount} · 已达标 ${done} · minReplicas ${minReplicas} · 可用存储群 ${availableVaults.size}/${uniqueVaultIds.size}`,
-        ageMin > 0 ? `批次已等待：${ageMin} 分钟` : "",
+        `Replica write in progress (${done}/${total}), please try again later.`,
+        `Current status: PENDING ${pendingCount} | reached ${done} | minReplicas ${minReplicas} | available vaults ${availableVaults.size}/${uniqueVaultIds.size}`,
+        ageMin > 0 ? `Batch waiting: ${ageMin} min` : "",
         processLine,
         replicationLine,
         notEnoughVaults
-          ? "⚠️ 可用存储群数量小于 minReplicas：请在“⚙️ 设置 → 🗄 存储群”添加备份群或降低 minReplicas。"
-          : "大量文件会受 Telegram 限流影响，可能需要几分钟。",
-        "若长时间不动，请确认已运行副本写入进程：npm run worker",
-        "Docker 部署可用：docker compose logs -f worker",
-        `批次ID：${batch.id}`
+          ? "Not enough available vaults for minReplicas. Add backup vaults or lower minReplicas."
+          : "Large batches can be delayed by Telegram rate limits.",
+        "If progress stalls, confirm the worker is running: npm run worker",
+        "Docker deployment: docker compose logs -f worker",
+        `Batch ID: ${batch.id}`
       ]
         .filter(Boolean)
         .join("\n");
       return { status: "pending", message };
     }
     if (messages.length === 0) {
-      return { status: "missing", message: "未找到可用副本" };
+      return { status: "missing", message: "No available replica found" };
     }
     return {
       status: "ready",
-      tenantId: asset.tenantId,
+      projectId: asset.tenantId,
       messages,
-      title: asset.title ?? "未命名",
+      title: asset.title ?? "Untitled",
       description: asset.description,
       publisherUserId: batch.userId
     };
@@ -193,3 +193,5 @@ export const createDeliveryReplicaSelection = (deps: {
 
   return { selectReplicas };
 };
+
+export const createDeliveryReplicaSelection = createProjectReplicaSelection;

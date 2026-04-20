@@ -4,7 +4,7 @@ import type { Bot } from "grammy";
 import type { Config } from "./config";
 import { logError } from "./infra/logging";
 import { prisma } from "./infra/persistence";
-import { getTenantDiagnostics } from "./infra/persistence/tenant-guard";
+import { getProjectDiagnostics, getTenantDiagnostics } from "./infra/persistence/tenant-guard";
 import { createRedisConnection } from "./infra/queue";
 
 const withTimeout = async <T>(promise: Promise<T>, ms: number) => {
@@ -45,7 +45,19 @@ const getClientIp = (headers: Record<string, unknown>, ip: string, trustProxy: b
   return ip;
 };
 
-export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) => {
+export const createServer = (
+  bot: Bot,
+  config: Config,
+  enableWebhook: boolean,
+  deps?: {
+    prisma?: typeof prisma;
+    getTenantDiagnostics?: typeof getTenantDiagnostics;
+    getProjectDiagnostics?: typeof getProjectDiagnostics;
+  }
+) => {
+  const prismaClient = deps?.prisma ?? prisma;
+  const loadTenantDiagnostics = deps?.getTenantDiagnostics ?? getTenantDiagnostics;
+  const loadProjectDiagnostics = deps?.getProjectDiagnostics ?? getProjectDiagnostics;
   const trustProxy = process.env.TRUST_PROXY === "1";
   const app = Fastify({ logger: { redact: ["req.headers", "res.headers"] }, trustProxy });
   const healthTimeoutMs = parseNumberWithBounds(process.env.HEALTH_CHECK_TIMEOUT_MS, 1500, 200, 10_000);
@@ -65,7 +77,7 @@ export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) =
     let database = false;
     let redis = config.redisUrl === "memory";
     try {
-      await withTimeout(prisma.$queryRawUnsafe("SELECT 1"), healthTimeoutMs);
+      await withTimeout(prismaClient.$queryRawUnsafe("SELECT 1"), healthTimeoutMs);
       database = true;
     } catch {
       database = false;
@@ -115,11 +127,18 @@ export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) =
     }
     return result;
   });
-  app.get("/ops/tenant-check", async (request, reply) => {
+  const runOpsCheck = async (
+    request: any,
+    reply: any,
+    options: {
+      op: "tenant_check" | "project_check";
+      loader: () => Promise<Record<string, unknown>>;
+    }
+  ) => {
     const now = Date.now();
     const auditBase = {
       at: new Date().toISOString(),
-      op: "tenant_check",
+      op: options.op,
       ip: getClientIp(request.headers as Record<string, unknown>, request.ip, trustProxy)
     };
     if (now - lastOpsRateLimitCleanupAt >= opsRateLimitWindowMs) {
@@ -160,10 +179,24 @@ export const createServer = (bot: Bot, config: Config, enableWebhook: boolean) =
       console.info(JSON.stringify({ ...auditBase, status: "rejected", code: 401, reason: "token_mismatch" }));
       return { ok: false };
     }
-    const result = await getTenantDiagnostics(prisma, config.tenantCode);
+    const result = await options.loader();
     console.info(JSON.stringify({ ...auditBase, status: "ok", code: 200 }));
     return { ok: true, ...result };
-  });
+  };
+
+  app.get("/ops/tenant-check", async (request, reply) =>
+    runOpsCheck(request, reply, {
+      op: "tenant_check",
+      loader: () => loadTenantDiagnostics(prismaClient, config.projectContext.code)
+    })
+  );
+
+  app.get("/ops/project-check", async (request, reply) =>
+    runOpsCheck(request, reply, {
+      op: "project_check",
+      loader: () => loadProjectDiagnostics(prismaClient, config.projectContext.code)
+    })
+  );
 
   return app;
 };

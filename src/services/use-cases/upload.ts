@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";
 import type { PrismaClient } from "@prisma/client";
 import { logError } from "../../infra/logging";
-import { ensureRuntimeTenant } from "../../infra/persistence/tenant-guard";
+import { ensureRuntimeProjectContext } from "../../infra/persistence/tenant-guard";
+import { normalizeProjectContextConfig, type ProjectContextInput } from "../../project-context";
 
 export type UploadMessage = {
   messageId: number;
@@ -207,8 +208,7 @@ export const createUploadBatchStore = () => {
 };
 
 type UploadServiceConfig = {
-  tenantCode: string;
-  tenantName: string;
+  projectContext: ProjectContextInput;
   vaultChatId: string;
   vaultThreadId?: number;
 };
@@ -223,6 +223,7 @@ export const createUploadService = (
     autoCategorizeEnabled: "auto_categorize_enabled",
     autoCategorizeRules: "auto_categorize_rules"
   } as const;
+  const projectContext = normalizeProjectContextConfig(config.projectContext);
 
   const getTenantSetting = async (tenantId: string, key: string) => {
     const row = await prisma.tenantSetting.findUnique({
@@ -401,13 +402,14 @@ export const createUploadService = (
 
   const ensureTenantAndVault = async () => {
     return prisma.$transaction(async (tx) => {
-      const tenant = await ensureRuntimeTenant(tx as PrismaClient, {
-        tenantCode: config.tenantCode,
-        tenantName: config.tenantName
+      const project = await ensureRuntimeProjectContext(tx as PrismaClient, {
+        code: projectContext.code,
+        name: projectContext.name
       });
+      const tenantId = project.projectId;
 
       const existingPrimary = await tx.tenantVaultBinding.findFirst({
-        where: { tenantId: tenant.id, role: "PRIMARY" },
+        where: { tenantId, role: "PRIMARY" },
         select: { vaultGroupId: true }
       });
       let primaryVaultGroupId = existingPrimary?.vaultGroupId ?? null;
@@ -415,27 +417,27 @@ export const createUploadService = (
         const vaultGroup = await tx.vaultGroup.upsert({
           where: {
             tenantId_chatId: {
-              tenantId: tenant.id,
+              tenantId,
               chatId: BigInt(config.vaultChatId)
             }
           },
           update: {},
           create: {
-            tenantId: tenant.id,
+            tenantId,
             chatId: BigInt(config.vaultChatId)
           }
         });
         await tx.tenantVaultBinding.upsert({
           where: {
             tenantId_vaultGroupId_role: {
-              tenantId: tenant.id,
+              tenantId,
               vaultGroupId: vaultGroup.id,
               role: "PRIMARY"
             }
           },
           update: {},
           create: {
-            tenantId: tenant.id,
+            tenantId,
             vaultGroupId: vaultGroup.id,
             role: "PRIMARY"
           }
@@ -447,7 +449,7 @@ export const createUploadService = (
         await tx.tenantTopic.upsert({
           where: {
             tenantId_vaultGroupId_collectionId_version: {
-              tenantId: tenant.id,
+              tenantId,
               vaultGroupId: primaryVaultGroupId,
               collectionId: "none",
               version: 1
@@ -457,7 +459,7 @@ export const createUploadService = (
             messageThreadId: BigInt(config.vaultThreadId)
           },
           create: {
-            tenantId: tenant.id,
+            tenantId,
             vaultGroupId: primaryVaultGroupId,
             collectionId: "none",
             messageThreadId: BigInt(config.vaultThreadId),
@@ -466,7 +468,7 @@ export const createUploadService = (
         });
       }
 
-      return { tenantId: tenant.id, vaultGroupId: primaryVaultGroupId };
+      return { tenantId, vaultGroupId: primaryVaultGroupId };
     });
   };
 

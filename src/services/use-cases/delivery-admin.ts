@@ -62,11 +62,11 @@ const normalizeAdConfig = (value: string | null) => {
   }
 };
 
-export const createDeliveryAdmin = (deps: {
+export const createProjectAdmin = (deps: {
   prisma: PrismaClient;
   settingKeys: SettingKeys;
-  getTenantId: () => Promise<string>;
-  isTenantAdmin: (userId: string) => Promise<boolean>;
+  getRuntimeProjectId: () => Promise<string>;
+  canManageProject: (userId: string) => Promise<boolean>;
   getSetting: (key: string) => Promise<string | null>;
   upsertSetting: (key: string, value: string | null) => Promise<void>;
   deleteSetting: (key: string) => Promise<void>;
@@ -96,11 +96,11 @@ export const createDeliveryAdmin = (deps: {
   });
 
   const getBroadcastTargetUserIds = async () => {
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const [users, tenantUsers, members] = await Promise.all([
-      deps.prisma.event.groupBy({ by: ["userId"], where: { tenantId } }),
-      deps.prisma.tenantUser.findMany({ where: { tenantId }, select: { tgUserId: true } }),
-      deps.prisma.tenantMember.findMany({ where: { tenantId }, select: { tgUserId: true } })
+      deps.prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
+      deps.prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } }),
+      deps.prisma.tenantMember.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
     ]);
     const excluded = new Set(members.map((m) => m.tgUserId));
     const audience = new Set<string>();
@@ -117,10 +117,9 @@ export const createDeliveryAdmin = (deps: {
     return Array.from(audience).filter((id) => !excluded.has(id));
   };
 
-  const getTenantStartWelcomeHtml = async () => deps.getSetting(deps.settingKeys.startWelcomeHtml);
-
-  const setTenantStartWelcomeHtml = async (actorUserId: string, html: string | null) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+  const getProjectStartWelcomeHtml = async () => deps.getSetting(deps.settingKeys.startWelcomeHtml);
+  const setProjectStartWelcomeHtml = async (actorUserId: string, html: string | null) => {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u6b22\u8fce\u8bcd\u3002" };
     }
     const normalized = html ? html.trim() : "";
@@ -134,17 +133,16 @@ export const createDeliveryAdmin = (deps: {
     await deps.upsertSetting(deps.settingKeys.startWelcomeHtml, normalized);
     return { ok: true, message: "\u5df2\u66f4\u65b0\u6b22\u8fce\u8bcd\u3002" };
   };
-
-  const getTenantDeliveryAdConfig = async () => {
+  const getProjectDeliveryAdConfig = async () => {
     const raw = await deps.getSetting(deps.settingKeys.deliveryAdConfig);
     return normalizeAdConfig(raw);
   };
 
-  const setTenantDeliveryAdConfig = async (
+  const setProjectDeliveryAdConfig = async (
     actorUserId: string,
     config: { prevText: string; nextText: string; adButtonText: string | null; adButtonUrl: string | null }
   ) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u914d\u7f6e\u5e7f\u544a\u3002" };
     }
     const normalized = normalizeAdConfig(JSON.stringify(config));
@@ -160,11 +158,10 @@ export const createDeliveryAdmin = (deps: {
     await deps.upsertSetting(deps.settingKeys.deliveryAdConfig, JSON.stringify(normalized));
     return { ok: true, message: "\u5df2\u66f4\u65b0\u5e7f\u544a\u914d\u7f6e\u3002" };
   };
+  const getProjectProtectContentEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.protectContentEnabled));
 
-  const getTenantProtectContentEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.protectContentEnabled));
-
-  const setTenantProtectContentEnabled = async (actorUserId: string, enabled: boolean) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+  const setProjectProtectContentEnabled = async (actorUserId: string, enabled: boolean) => {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u5185\u5bb9\u4fdd\u62a4\u3002" };
     }
     if (enabled) {
@@ -174,11 +171,10 @@ export const createDeliveryAdmin = (deps: {
     await deps.deleteSetting(deps.settingKeys.protectContentEnabled);
     return { ok: true, message: "\u5df2\u5173\u95ed\u5185\u5bb9\u4fdd\u62a4\u3002" };
   };
+  const getProjectHidePublisherEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.hidePublisherEnabled));
 
-  const getTenantHidePublisherEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.hidePublisherEnabled));
-
-  const setTenantHidePublisherEnabled = async (actorUserId: string, enabled: boolean) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+  const setProjectHidePublisherEnabled = async (actorUserId: string, enabled: boolean) => {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u9690\u85cf\u53d1\u5e03\u8005\u8bbe\u7f6e\u3002" };
     }
     if (enabled) {
@@ -188,11 +184,10 @@ export const createDeliveryAdmin = (deps: {
     await deps.deleteSetting(deps.settingKeys.hidePublisherEnabled);
     return { ok: true, message: "\u5df2\u5173\u95ed\u9690\u85cf\u53d1\u5e03\u8005\u3002" };
   };
+  const getProjectAutoCategorizeEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.autoCategorizeEnabled));
 
-  const getTenantAutoCategorizeEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.autoCategorizeEnabled));
-
-  const setTenantAutoCategorizeEnabled = async (actorUserId: string, enabled: boolean) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+  const setProjectAutoCategorizeEnabled = async (actorUserId: string, enabled: boolean) => {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u81ea\u52a8\u5f52\u7c7b\u8bbe\u7f6e\u3002" };
     }
     if (enabled) {
@@ -202,8 +197,7 @@ export const createDeliveryAdmin = (deps: {
     await deps.deleteSetting(deps.settingKeys.autoCategorizeEnabled);
     return { ok: true, message: "\u5df2\u5173\u95ed\u81ea\u52a8\u5f52\u7c7b\u3002" };
   };
-
-  const getTenantAutoCategorizeRules = async () => {
+  const getProjectAutoCategorizeRules = async () => {
     const raw = await deps.getSetting(deps.settingKeys.autoCategorizeRules);
     if (!raw) {
       return [];
@@ -240,9 +234,8 @@ export const createDeliveryAdmin = (deps: {
       return [];
     }
   };
-
-  const setTenantAutoCategorizeRules = async (actorUserId: string, rules: { collectionId: string; keywords: string[] }[]) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+  const setProjectAutoCategorizeRules = async (actorUserId: string, rules: { collectionId: string; keywords: string[] }[]) => {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u81ea\u52a8\u5f52\u7c7b\u89c4\u5219\u3002" };
     }
     const normalized: { collectionId: string; keywords: string[] }[] = [];
@@ -271,11 +264,10 @@ export const createDeliveryAdmin = (deps: {
     await deps.upsertSetting(deps.settingKeys.autoCategorizeRules, JSON.stringify(limited));
     return { ok: true, message: `\u5df2\u66f4\u65b0\u81ea\u52a8\u5f52\u7c7b\u89c4\u5219\uff08${limited.length} \u6761\uff09\u3002` };
   };
+  const getProjectPublicRankingEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.publicRankingEnabled));
 
-  const getTenantPublicRankingEnabled = async () => parseBooleanSetting(await deps.getSetting(deps.settingKeys.publicRankingEnabled));
-
-  const setTenantPublicRankingEnabled = async (actorUserId: string, enabled: boolean) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+  const setProjectPublicRankingEnabled = async (actorUserId: string, enabled: boolean) => {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u4fee\u6539\u6392\u884c\u5f00\u653e\u8bbe\u7f6e\u3002" };
     }
     if (enabled) {
@@ -285,9 +277,8 @@ export const createDeliveryAdmin = (deps: {
     await deps.deleteSetting(deps.settingKeys.publicRankingEnabled);
     return { ok: true, message: "\u5df2\u5173\u95ed\u7528\u6237\u6392\u884c\u5165\u53e3\u3002" };
   };
-
   const getBroadcastTargetCount = async (actorUserId: string) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+    if (!(await deps.canManageProject(actorUserId))) {
       return 0;
     }
     const ids = await getBroadcastTargetUserIds();
@@ -295,22 +286,22 @@ export const createDeliveryAdmin = (deps: {
   };
 
   const createBroadcastDraft = async (actorUserId: string, actorChatId: string) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u521b\u5efa\u63a8\u9001\u3002" };
     }
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const draft = await deps.prisma.broadcast.create({
-      data: { tenantId, creatorUserId: actorUserId, creatorChatId: actorChatId, status: "DRAFT", contentHtml: "" },
+      data: { tenantId: projectId, creatorUserId: actorUserId, creatorChatId: actorChatId, status: "DRAFT", contentHtml: "" },
       select: { id: true }
     });
     return { ok: true, id: draft.id, message: "\u5df2\u521b\u5efa\u63a8\u9001\u8349\u7a3f\u3002" };
   };
 
   const listMyBroadcasts = async (actorUserId: string, limit: number) => {
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const take = normalizeLimit(limit, { defaultLimit: 10, maxLimit: 30 });
     const rows = await deps.prisma.broadcast.findMany({
-      where: { tenantId, creatorUserId: actorUserId },
+      where: { tenantId: projectId, creatorUserId: actorUserId },
       orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
       take
     });
@@ -318,9 +309,9 @@ export const createDeliveryAdmin = (deps: {
   };
 
   const getBroadcastById = async (actorUserId: string, broadcastId: string) => {
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const row = await deps.prisma.broadcast.findFirst({
-      where: { id: broadcastId, tenantId, creatorUserId: actorUserId }
+      where: { id: broadcastId, tenantId: projectId, creatorUserId: actorUserId }
     });
     return row ? toBroadcastSummary(row) : null;
   };
@@ -335,12 +326,12 @@ export const createDeliveryAdmin = (deps: {
     draftId: string,
     input: { contentHtml: string; mediaKind: string | null; mediaFileId: string | null }
   ) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002" };
     }
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: draftId, tenantId, creatorUserId: actorUserId, status: "DRAFT" },
+      where: { id: draftId, tenantId: projectId, creatorUserId: actorUserId, status: "DRAFT" },
       select: { id: true }
     });
     if (!existing) {
@@ -361,12 +352,12 @@ export const createDeliveryAdmin = (deps: {
   };
 
   const updateBroadcastDraftButtons = async (actorUserId: string, draftId: string, buttons: { text: string; url: string }[]) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002" };
     }
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: draftId, tenantId, creatorUserId: actorUserId, status: "DRAFT" },
+      where: { id: draftId, tenantId: projectId, creatorUserId: actorUserId, status: "DRAFT" },
       select: { id: true }
     });
     if (!existing) {
@@ -395,12 +386,12 @@ export const createDeliveryAdmin = (deps: {
     draftId: string,
     schedule: { nextRunAt: Date; repeatEveryMs?: number | null }
   ) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u53d1\u8d77\u63a8\u9001\u3002" };
     }
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const draft = await deps.prisma.broadcast.findFirst({
-      where: { id: draftId, tenantId, creatorUserId: actorUserId, status: "DRAFT" }
+      where: { id: draftId, tenantId: projectId, creatorUserId: actorUserId, status: "DRAFT" }
     });
     if (!draft) {
       return { ok: false, message: "\u8349\u7a3f\u4e0d\u5b58\u5728\u6216\u5df2\u4e0d\u53ef\u63a8\u9001\u3002" };
@@ -421,12 +412,12 @@ export const createDeliveryAdmin = (deps: {
   };
 
   const cancelBroadcast = async (actorUserId: string, broadcastId: string) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u53d6\u6d88\u63a8\u9001\u3002" };
     }
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: broadcastId, tenantId, creatorUserId: actorUserId, status: { in: ["SCHEDULED", "RUNNING"] } },
+      where: { id: broadcastId, tenantId: projectId, creatorUserId: actorUserId, status: { in: ["SCHEDULED", "RUNNING"] } },
       select: { id: true }
     });
     if (!existing) {
@@ -437,12 +428,12 @@ export const createDeliveryAdmin = (deps: {
   };
 
   const deleteBroadcastDraft = async (actorUserId: string, draftId: string) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+    if (!(await deps.canManageProject(actorUserId))) {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u5220\u9664\u8349\u7a3f\u3002" };
     }
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: draftId, tenantId, creatorUserId: actorUserId, status: "DRAFT" },
+      where: { id: draftId, tenantId: projectId, creatorUserId: actorUserId, status: "DRAFT" },
       select: { id: true }
     });
     if (!existing) {
@@ -453,12 +444,12 @@ export const createDeliveryAdmin = (deps: {
   };
 
   const listBroadcastRuns = async (actorUserId: string, broadcastId: string, limit: number) => {
-    if (!(await deps.isTenantAdmin(actorUserId))) {
+    if (!(await deps.canManageProject(actorUserId))) {
       return [];
     }
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: broadcastId, tenantId, creatorUserId: actorUserId },
+      where: { id: broadcastId, tenantId: projectId, creatorUserId: actorUserId },
       select: { id: true }
     });
     if (!existing) {
@@ -484,20 +475,20 @@ export const createDeliveryAdmin = (deps: {
   return {
     listMyBroadcasts,
     getBroadcastById,
-    getTenantStartWelcomeHtml,
-    setTenantStartWelcomeHtml,
-    getTenantDeliveryAdConfig,
-    setTenantDeliveryAdConfig,
-    getTenantProtectContentEnabled,
-    setTenantProtectContentEnabled,
-    getTenantHidePublisherEnabled,
-    setTenantHidePublisherEnabled,
-    getTenantAutoCategorizeEnabled,
-    setTenantAutoCategorizeEnabled,
-    getTenantAutoCategorizeRules,
-    setTenantAutoCategorizeRules,
-    getTenantPublicRankingEnabled,
-    setTenantPublicRankingEnabled,
+    getProjectStartWelcomeHtml,
+    setProjectStartWelcomeHtml,
+    getProjectDeliveryAdConfig,
+    setProjectDeliveryAdConfig,
+    getProjectProtectContentEnabled,
+    setProjectProtectContentEnabled,
+    getProjectHidePublisherEnabled,
+    setProjectHidePublisherEnabled,
+    getProjectAutoCategorizeEnabled,
+    setProjectAutoCategorizeEnabled,
+    getProjectAutoCategorizeRules,
+    setProjectAutoCategorizeRules,
+    getProjectPublicRankingEnabled,
+    setProjectPublicRankingEnabled,
     getBroadcastTargetCount,
     createBroadcastDraft,
     getMyBroadcastDraft,
@@ -509,3 +500,5 @@ export const createDeliveryAdmin = (deps: {
     listBroadcastRuns
   };
 };
+
+export const createDeliveryAdmin = createProjectAdmin;

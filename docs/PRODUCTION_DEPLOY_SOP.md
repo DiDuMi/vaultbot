@@ -26,7 +26,7 @@ chmod +x scripts/deploy-production.sh
 1. 备份 `.env`
 2. 备份 `docker-compose.yml`
 3. 备份 PostgreSQL
-4. 执行 tenant 预检
+4. 执行 project 预检
 5. 拉取目标分支
 6. 默认恢复生产机原有 `docker-compose.yml`
 7. `docker compose up -d --build`
@@ -70,7 +70,7 @@ chmod +x scripts/deploy-production.sh
 - 不要把 `.env` 设成 `777`
 - 保持：
   - `SINGLE_OWNER_MODE=1`
-  - `EXPECTED_TENANT_CODE=<生产 tenant code>`
+  - `EXPECTED_TENANT_CODE=<production project code>`
   - `REQUIRE_EXISTING_TENANT=1`
   - `ALLOW_TENANT_CODE_MISMATCH=`
   - `SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP=`
@@ -81,11 +81,12 @@ chmod +x scripts/deploy-production.sh
 
 1. `docker compose ps`
 2. `/health/ready`
-3. 旧 `shareCode` 打开
-4. 新上传作品
-5. 搜索
-6. 标签
-7. 推送
+3. `/ops/project-check`
+4. 旧 `shareCode` 打开
+5. 新上传作品
+6. 搜索
+7. 标签
+8. 推送
 
 ## 回滚建议
 

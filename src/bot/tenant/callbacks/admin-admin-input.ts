@@ -24,12 +24,12 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const canManageAdmins = await deliveryService.canManageProject(actorUserId);
-    if (!canManageAdmins) {
+    const canManageProjectAdmins = await deliveryService.canManageProjectAdmins(actorUserId);
+    if (!canManageProjectAdmins) {
       await upsertHtml(ctx, buildBlockingHint("无权限：仅管理员可管理管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
       return;
     }
-    const admins = await deliveryService.listTenantAdmins().catch(() => []);
+    const admins = await deliveryService.listProjectManagers().catch(() => []);
     const adminIds = admins.filter((m) => m.role !== "OWNER").map((m) => m.tgUserId);
     const pageSize = 10;
     const totalPages = Math.max(1, Math.ceil(adminIds.length / pageSize));
@@ -97,8 +97,8 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const canManageAdmins = await deliveryService.canManageProject(actorUserId);
-    if (!canManageAdmins) {
+    const canManageProjectAdmins = await deliveryService.canManageProjectAdmins(actorUserId);
+    if (!canManageProjectAdmins) {
       await upsertHtml(ctx, buildBlockingHint("无权限：仅管理员可添加管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
       return;
     }
@@ -181,8 +181,8 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const canManageAdmins = await deliveryService.canManageProject(actorUserId);
-    if (!canManageAdmins) {
+    const canManageProjectAdmins = await deliveryService.canManageProjectAdmins(actorUserId);
+    if (!canManageProjectAdmins) {
       await ctx.answerCallbackQuery();
       await upsertHtml(ctx, buildBlockingHint("无权限：仅管理员可移除管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
       return;
@@ -217,15 +217,15 @@ export const registerAdminAndInputCallbacks = (bot: Bot, deps: TenantCallbackDep
       return;
     }
     const actorUserId = String(ctx.from.id);
-    const canManageAdmins = await deliveryService.canManageProject(actorUserId);
-    if (!canManageAdmins) {
+    const canManageProjectAdmins = await deliveryService.canManageProjectAdmins(actorUserId);
+    if (!canManageProjectAdmins) {
       await ctx.answerCallbackQuery();
       await upsertHtml(ctx, buildBlockingHint("无权限：仅管理员可移除管理员。"), new InlineKeyboard().text("⬅️ 返回设置", "help:settings"));
       return;
     }
     const targetId = ctx.match?.[1] ?? "";
     const page = Number(ctx.match?.[2] ?? "1");
-    const result = await deliveryService.removeTenantAdmin(actorUserId, targetId);
+    const result = await deliveryService.removeProjectManager(actorUserId, targetId);
     await ctx.answerCallbackQuery({ text: result.message }).catch(() => ctx.answerCallbackQuery());
     await renderAdminManage(ctx, Number.isFinite(page) ? page : 1);
   });

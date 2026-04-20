@@ -7,33 +7,34 @@ import type {
 
 type DeliveryUserSummaryDeps = {
   prisma: PrismaClient;
-  getTenantId: () => Promise<string>;
+  getRuntimeProjectId: () => Promise<string>;
 };
 
 type DeliveryAssetAccessDeps = {
   prisma: PrismaClient;
-  isTenantUserSafe: (userId: string) => Promise<boolean>;
-  isTenantAdminSafe: (userId: string) => Promise<boolean>;
+  isProjectMemberSafe: (userId: string) => Promise<boolean>;
+  canManageProjectSafe: (userId: string) => Promise<boolean>;
 };
 
 type IdentityServiceDeps = {
   selectReplicas: DeliveryIdentityService["selectReplicas"];
   resolveShareCode: DeliveryIdentityService["resolveShareCode"];
+  upsertProjectUserFromTelegram: DeliveryIdentityService["upsertProjectUserFromTelegram"];
   upsertTenantUserFromTelegram: DeliveryIdentityService["upsertTenantUserFromTelegram"];
-  getTenantUserLabel: DeliveryIdentityService["getTenantUserLabel"];
+  getProjectUserLabel: DeliveryIdentityService["getProjectUserLabel"];
   getUserProfileSummary: DeliveryIdentityService["getUserProfileSummary"];
   trackOpen: DeliveryIdentityService["trackOpen"];
   trackVisit: DeliveryIdentityService["trackVisit"];
-  isTenantUser: DeliveryIdentityService["isTenantUser"];
-  isTenantAdmin: DeliveryIdentityService["canManageAdmins"];
+  isProjectMember: DeliveryIdentityService["isProjectMember"];
+  canManageProject: DeliveryIdentityService["canManageProject"];
 };
 
 export const createGetUserProfileSummary = ({
   prisma,
-  getTenantId
+  getRuntimeProjectId
 }: DeliveryUserSummaryDeps): DeliveryIdentityService["getUserProfileSummary"] => {
   return async (userId) => {
-    const tenantId = await getTenantId();
+    const tenantId = await getRuntimeProjectId();
     const [row, visitCount, openCount, openedRows] = await Promise.all([
       prisma.tenantUser.findUnique({
         where: { tenantId_tgUserId: { tenantId, tgUserId: userId } },
@@ -65,7 +66,7 @@ export const createGetUserProfileSummary = ({
   };
 };
 
-export const createGetTenantAssetAccess = ({ prisma, isTenantUserSafe, isTenantAdminSafe }: DeliveryAssetAccessDeps) => {
+export const createGetProjectAssetAccess = ({ prisma, isProjectMemberSafe, canManageProjectSafe }: DeliveryAssetAccessDeps) => {
   return async (tenantId: string, userId: string, assetId: string) => {
     const asset = await prisma.asset.findFirst({
       where: { id: assetId, tenantId },
@@ -77,12 +78,12 @@ export const createGetTenantAssetAccess = ({ prisma, isTenantUserSafe, isTenantA
     if (asset.visibility === "PUBLIC" || asset.visibility === "PROTECTED") {
       return { status: "ok" as const, asset };
     }
-    const isTenant = await isTenantUserSafe(userId);
-    if (!isTenant) {
+    const isProjectMember = await isProjectMemberSafe(userId);
+    if (!isProjectMember) {
       return { status: "forbidden" as const };
     }
     const [isAdmin, owned] = await Promise.all([
-      isTenantAdminSafe(userId),
+      canManageProjectSafe(userId),
       prisma.uploadBatch.findFirst({
         where: { tenantId, assetId, userId, status: "COMMITTED" },
         select: { id: true }
@@ -95,30 +96,33 @@ export const createGetTenantAssetAccess = ({ prisma, isTenantUserSafe, isTenantA
   };
 };
 
+export const createGetTenantAssetAccess = createGetProjectAssetAccess;
+
 export const buildIdentityService = ({
   selectReplicas,
   resolveShareCode,
+  upsertProjectUserFromTelegram,
   upsertTenantUserFromTelegram,
-  getTenantUserLabel,
+  getProjectUserLabel,
   getUserProfileSummary,
   trackOpen,
   trackVisit,
-  isTenantUser,
-  isTenantAdmin
+  isProjectMember,
+  canManageProject
 }: IdentityServiceDeps): DeliveryIdentityService => {
   return {
     selectReplicas,
     resolveShareCode,
+    upsertProjectUserFromTelegram,
     upsertTenantUserFromTelegram,
-    getTenantUserLabel,
+    getProjectUserLabel,
     getUserProfileSummary,
     trackOpen,
     trackVisit,
-    isProjectMember: isTenantUser,
-    isTenantUser,
-    canManageProject: isTenantAdmin,
-    canManageAdmins: isTenantAdmin,
-    canManageCollections: isTenantAdmin
+    isProjectMember,
+    canManageProject,
+    canManageProjectAdmins: canManageProject,
+    canManageProjectCollections: canManageProject
   };
 };
 

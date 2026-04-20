@@ -2,16 +2,16 @@ import { Bot } from "grammy";
 import { PrismaClient } from "@prisma/client";
 import { Queue, Worker } from "bullmq";
 import { loadConfig } from "../config";
-import { assertTenantCodeConsistency } from "../infra/persistence/tenant-guard";
+import { assertProjectContextConsistency } from "../infra/persistence/tenant-guard";
 import { createRedisConnection } from "../infra/queue";
 import { withTelegramRetry } from "../infra/telegram";
 import { createDeliveryService } from "../services/use-cases";
 import { startBroadcastScheduler } from "./broadcast-scheduler";
 import {
-  backfillTenantUsers,
+  backfillProjectUsers,
   computeNextBroadcastRunAt,
-  ensureTenantId,
-  getBroadcastTargetUserIds,
+  ensureRuntimeProjectId,
+  getProjectBroadcastTargetUserIds,
   parseNumberWithBounds,
   sendMediaGroupWithRetry,
   sleep
@@ -27,8 +27,8 @@ const start = async () => {
   const config = loadConfig();
   const bot = new Bot(config.botToken);
   const prisma = new PrismaClient();
-  await assertTenantCodeConsistency(prisma, config.tenantCode);
-  const deliveryService = createDeliveryService(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
+  await assertProjectContextConsistency(prisma, config.projectContext);
+  const deliveryService = createDeliveryService(prisma, config.projectContext);
   const me = await Promise.race([
     bot.api.getMe(),
     sleep(5000).then(() => null)
@@ -45,15 +45,15 @@ const start = async () => {
   }
 
   if (process.env.SYNC_USERS === "1") {
-    const tenantId = await ensureTenantId(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
-    await backfillTenantUsers(bot, prisma, tenantId);
+    const projectId = await ensureRuntimeProjectId(prisma, config.projectContext);
+    await backfillProjectUsers(bot, prisma, projectId);
     if (connection) {
       await connection.quit().catch((error) => logWorkerError({ op: "redis_quit_after_sync_users" }, error));
     }
     await prisma.$disconnect().catch((error) => logWorkerError({ op: "prisma_disconnect_after_sync_users" }, error));
     return;
   }
-  const runtimeTenantId = await ensureTenantId(prisma, { tenantCode: config.tenantCode, tenantName: config.tenantName });
+  const runtimeProjectId = await ensureRuntimeProjectId(prisma, config.projectContext);
 
   const replicateBatch = createReplicateBatch({
     bot,
@@ -69,7 +69,7 @@ const start = async () => {
         return;
       }
       const keyboard = buildBroadcastKeyboard(broadcast.buttons);
-      const targetUserIds = await getBroadcastTargetUserIds(prisma, broadcast.tenantId);
+      const targetUserIds = await getProjectBroadcastTargetUserIds(prisma, broadcast.tenantId);
       await prisma.broadcastRun.update({ where: { id: runId }, data: { targetCount: targetUserIds.length } });
 
       let successCount = 0;
@@ -227,7 +227,7 @@ const start = async () => {
           bot.api.sendMessage(chatId, text, { parse_mode: "HTML", link_preview_options: { is_disabled: true } })
         );
       } catch (error) {
-        logWorkerError({ op: "follow_notify_send", scope: `asset:${asset.id}:user:${chatId}`, tenantId: asset.tenantId }, error);
+        logWorkerError({ op: "follow_notify_send", scope: `asset:${asset.id}:user:${chatId}`, projectId: asset.tenantId }, error);
         continue;
       }
       await sleep(30);
@@ -347,12 +347,12 @@ const start = async () => {
   let replicationTimer: NodeJS.Timeout | null = null;
   replicationTimer = startReplicationScheduler({
     prisma,
-    runtimeTenantId,
+    runtimeProjectId,
     replicationQueue,
     replicationBackfillQueue,
     replicateBatch,
-    upsertWorkerProcessHeartbeat: (tenantId, ts) => upsertWorkerProcessHeartbeat(prisma, tenantId, ts),
-    upsertWorkerReplicationHeartbeat: (tenantId, ts) => upsertWorkerReplicationHeartbeat(prisma, tenantId, ts),
+    upsertWorkerProcessHeartbeat: (projectId, ts) => upsertWorkerProcessHeartbeat(prisma, projectId, ts),
+    upsertWorkerReplicationHeartbeat: (projectId, ts) => upsertWorkerReplicationHeartbeat(prisma, projectId, ts),
     parseNumberWithBounds,
     logError: (meta, error) => logWorkerError(meta, error)
   });

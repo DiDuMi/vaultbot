@@ -158,7 +158,7 @@ export const buildFollowInputKeyboard = () => {
 export const buildNotifyKeyboard = (options: { followEnabled: boolean; commentEnabled: boolean }) => {
   return addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "my:show")
     .row()
-    .text(`关注通知：${options.followEnabled ? "开" : "关"}`, "notify:noop")
+    .text(`收藏通知：${options.followEnabled ? "开" : "关"}`, "notify:noop")
     .text(options.followEnabled ? "关闭" : "开启", options.followEnabled ? "notify:toggle:follow:0" : "notify:toggle:follow:1")
     .row()
     .text(`评论通知：${options.commentEnabled ? "开" : "关"}`, "notify:noop")
@@ -170,7 +170,7 @@ export const buildNotifyKeyboard = (options: { followEnabled: boolean; commentEn
 export const buildMyKeyboard = () => {
   return new InlineKeyboard()
     .text("👣 足迹", "user:history")
-    .text("🔔 关注", "follow:show")
+    .text("⭐ 收藏", "follow:show")
     .row()
     .text("🔕 通知", "notify:show")
     .text("🔄 刷新", "my:show")
@@ -179,7 +179,7 @@ export const buildMyKeyboard = () => {
 };
 
 export const buildSettingsKeyboard = (
-  options: { canManageAdmins: boolean; adminIds: string[]; canManageCollections: boolean },
+  options: { canManageProjectAdmins: boolean; adminIds: string[]; canManageProjectCollections: boolean },
   showMoreActions = false
 ) => {
   const keyboard = addBackHomeRow(new InlineKeyboard(), "⬅️ 返回", "help:show");
@@ -197,7 +197,7 @@ export const buildSettingsKeyboard = (
       return b.localeCompare(a);
     }
   });
-  if (options.canManageAdmins) {
+  if (options.canManageProjectAdmins) {
     keyboard.row().text("👥 管理员列表", "settings:admin:list:1").text("➕ 添加管理员", "settings:admin:add");
   }
   if (showMoreActions) {

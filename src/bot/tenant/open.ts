@@ -324,7 +324,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
                 await deliveryService.markReplicaBad(assetId, item.fromChatId, item.messageId).catch((markError) =>
                   logErrorThrottled(
                     {
-                      component: "tenant_open",
+                      component: "project_open",
                       op: "mark_replica_bad",
                       scope: "copy_message_fallback",
                       assetId,
@@ -404,7 +404,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
         keyboard ? { reply_markup: keyboard, protect_content: protectContent } : { protect_content: protectContent }
       );
       if (currentPage === 1) {
-        await deliveryService.trackOpen(selection.tenantId, String(ctx.from.id), assetId);
+        await deliveryService.trackOpen(selection.projectId, String(ctx.from.id), assetId);
       }
       return "opened" as const;
     } finally {
@@ -439,7 +439,7 @@ export const createOpenHandler = (deliveryService: DeliveryService | null) => {
       .text(`${liked ? "⭐️ 已收藏" : "⭐️ 收藏"} ${likeHint}`, likeAction)
       .text(`💬 评论 ${commentHint}`, `comment:list:${assetId}:1:${page}`);
     await ctx.editMessageReplyMarkup({ reply_markup: sanitizeInlineKeyboard(keyboard) }).catch((error) =>
-      logErrorThrottled({ component: "tenant_open", op: "edit_message_reply_markup", scope: "refresh_actions", assetId }, error, {
+      logErrorThrottled({ component: "project_open", op: "edit_message_reply_markup", scope: "refresh_actions", assetId }, error, {
         intervalMs: 30_000
       })
     );

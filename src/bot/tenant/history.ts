@@ -54,7 +54,7 @@ export const createHistoryRenderer = (deps: {
     let data =
       selectedScope === "mine"
         ? await deps.deliveryService.listUserBatches(historyUserId, page, deps.historyPageSize, { collectionId: filter, date: selectedDate })
-        : await deps.deliveryService.listTenantBatches(historyUserId, page, deps.historyPageSize, { collectionId: filter, date: selectedDate });
+        : await deps.deliveryService.listProjectBatches(historyUserId, page, deps.historyPageSize, { collectionId: filter, date: selectedDate });
 
     const totalPages = Math.max(1, Math.ceil(data.total / deps.historyPageSize));
     const currentPage = Math.min(Math.max(page, 1), totalPages);
@@ -62,7 +62,7 @@ export const createHistoryRenderer = (deps: {
       data =
         selectedScope === "mine"
           ? await deps.deliveryService.listUserBatches(historyUserId, currentPage, deps.historyPageSize, { collectionId: filter, date: selectedDate })
-          : await deps.deliveryService.listTenantBatches(historyUserId, currentPage, deps.historyPageSize, { collectionId: filter, date: selectedDate });
+          : await deps.deliveryService.listProjectBatches(historyUserId, currentPage, deps.historyPageSize, { collectionId: filter, date: selectedDate });
     }
 
     const username = ctx.me?.username;

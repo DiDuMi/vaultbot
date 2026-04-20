@@ -9,6 +9,7 @@
 - 日常运行心智已接近个人项目
 - 多管理员与多存储群治理已被明显收口
 - tenant 漂移风险已显著下降
+- 顶层服务装配、worker 边界与运维入口已经开始明确以 `project` 为主语
 - 但底层 schema 仍保留多租户结构，尚未进入破坏性清理
 
 ## 已完成项
@@ -42,10 +43,26 @@
 - `getProjectAutoCategorizeEnabled / setProjectAutoCategorizeEnabled`
 - `getProjectAutoCategorizeRules / setProjectAutoCategorizeRules`
 - `getProjectPublicRankingEnabled / setProjectPublicRankingEnabled`
+- `upsertProjectUserFromTelegram`
 
 这些接口当前仍映射到底层 `tenant-*` 实现，但外层调用已经开始切换。
 
-### 4. 用户侧交互收口
+### 4. 运行边界与模块主入口收口
+
+以下能力已经形成 project-first 的入口或包装：
+
+- `projectContext`
+- `assertProjectContextConsistency`
+- `getProjectDiagnostics`
+- `ensureRuntimeProjectContext`
+- `/ops/project-check`
+- `preflight:project`
+- `createDeliveryProjectVault`
+- `createProjectAdmin`
+- `createProjectDiscovery`
+- `createProjectReplicaSelection`
+
+### 5. 用户侧交互收口
 
 以下外层流程已大面积改为 project 语义：
 
@@ -58,7 +75,7 @@
 - 管理输入
 - 推送管理
 
-### 5. 防漂移增强
+### 6. 防漂移增强
 
 已新增关键保护：
 
@@ -74,9 +91,9 @@
 - Prisma schema 仍保留 `Tenant`
 - 业务表仍大量保留 `tenantId`
 - 仍存在 `TenantMember / TenantVaultBinding / TenantTopic`
-- worker / service 内部仍保留大量 `tenant*` 命名
+- worker / service 内部仍保留一部分 `tenant*` 命名与 Prisma 查询字段
 - 文件目录仍然是 `bot/tenant/*`
-- 兼容层仍保留大量 `tenant-*` API
+- 兼容层仍保留少量 `tenant-*` API 和别名入口
 
 这意味着：
 
@@ -103,7 +120,7 @@
 当前如果要按“个人项目方式”继续运行，建议至少固定以下环境变量：
 
 - `SINGLE_OWNER_MODE=1`
-- `EXPECTED_TENANT_CODE=<生产 tenant code>`
+- `EXPECTED_TENANT_CODE=<production project code>`
 - `REQUIRE_EXISTING_TENANT=1`
 - `ALLOW_TENANT_CODE_MISMATCH=` 保持为空
 - `SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP=` 保持为空
@@ -138,7 +155,8 @@
 
 建议做法：
 
-- 继续把外层残留 `tenant-*` 调用切到 `project-*`
+- 继续清理 service / worker / bot 内部残留的 tenant 局部命名
+- 补做文档与执行矩阵同步，避免“文档进度落后于代码进度”
 - 收敛类型名、注释、状态文案
 - 保持 schema 不动
 

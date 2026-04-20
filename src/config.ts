@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createProjectContextConfigFromTenant, type ProjectContextConfig } from "./project-context";
 
 export type Config = {
   botToken: string;
@@ -8,6 +9,7 @@ export type Config = {
   opsToken?: string;
   databaseUrl: string;
   redisUrl: string;
+  projectContext: ProjectContextConfig;
   tenantCode: string;
   tenantName: string;
   vaultChatId: string;
@@ -63,6 +65,8 @@ const assertTelegramId = (name: string, value: string) => {
 
 export const loadConfig = (): Config => {
   const webhookPath = normalizePath(readEnv("WEBHOOK_PATH", "/telegram/webhook"));
+  const tenantCode = readEnv("TENANT_CODE");
+  const tenantName = readEnv("TENANT_NAME");
   const config: Config = {
     botToken: readEnv("BOT_TOKEN"),
     webhookPath,
@@ -71,8 +75,9 @@ export const loadConfig = (): Config => {
     opsToken: process.env.OPS_TOKEN,
     databaseUrl: readEnv("DATABASE_URL"),
     redisUrl: readEnv("REDIS_URL"),
-    tenantCode: readEnv("TENANT_CODE"),
-    tenantName: readEnv("TENANT_NAME"),
+    projectContext: createProjectContextConfigFromTenant({ tenantCode, tenantName }),
+    tenantCode,
+    tenantName,
     vaultChatId: assertTelegramId("VAULT_CHAT_ID", readEnv("VAULT_CHAT_ID")),
     vaultThreadId: readOptionalInt("VAULT_THREAD_ID"),
     host: readEnv("HOST", "0.0.0.0"),

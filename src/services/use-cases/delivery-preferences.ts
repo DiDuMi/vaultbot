@@ -18,7 +18,7 @@ type NotifyState = {
 export const createDeliveryPreferences = (deps: {
   prisma: PrismaClient;
   preferenceKeys: PreferenceKeys;
-  getTenantId: () => Promise<string>;
+  getRuntimeProjectId: () => Promise<string>;
   getPreference: (tgUserId: string, key: string) => Promise<string | null>;
   upsertPreference: (tgUserId: string, key: string, value: string | null) => Promise<void>;
   deletePreference: (tgUserId: string, key: string) => Promise<void>;
@@ -148,7 +148,7 @@ export const createDeliveryPreferences = (deps: {
   };
 
   const listFollowKeywordSubscriptions = async () => {
-    const tenantId = await deps.getTenantId();
+    const tenantId = await deps.getRuntimeProjectId();
     const rows = await deps.prisma.userPreference.findMany({
       where: { tenantId, key: deps.preferenceKeys.followKeywords },
       select: { tgUserId: true, value: true }

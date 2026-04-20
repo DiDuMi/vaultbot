@@ -3,9 +3,9 @@ import { normalizePage, normalizePageSize } from "./delivery-strategy";
 
 export const createDeliverySocial = (deps: {
   prisma: PrismaClient;
-  getTenantId: () => Promise<string>;
-  isTenantUserSafe: (userId: string) => Promise<boolean>;
-  getTenantAssetAccess: (
+  getRuntimeProjectId: () => Promise<string>;
+  isProjectMemberSafe: (userId: string) => Promise<boolean>;
+  getProjectAssetAccess: (
     tenantId: string,
     userId: string,
     assetId: string
@@ -18,17 +18,17 @@ export const createDeliverySocial = (deps: {
     pageSize: number,
     options?: { since?: Date }
   ) => {
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize);
-    const isTenant = await deps.isTenantUserSafe(userId);
+    const isProjectMember = await deps.isProjectMemberSafe(userId);
     const since = options?.since;
     const where = {
-      tenantId,
+      tenantId: projectId,
       authorUserId: userId,
       replyToCommentId: kind === "reply" ? { not: null } : null,
       ...(since ? { createdAt: { gte: since } } : {}),
-      ...(isTenant ? {} : { asset: { visibility: { not: "RESTRICTED" as const } } })
+      ...(isProjectMember ? {} : { asset: { visibility: { not: "RESTRICTED" as const } } })
     };
     const [total, comments] = await Promise.all([
       deps.prisma.assetComment.count({ where }),
@@ -73,17 +73,17 @@ export const createDeliverySocial = (deps: {
   };
 
   const listAssetComments = async (userId: string, assetId: string, page: number, pageSize: number) => {
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize, { maxSize: 50 });
-    const access = await deps.getTenantAssetAccess(tenantId, userId, assetId);
+    const access = await deps.getProjectAssetAccess(projectId, userId, assetId);
     if (access.status !== "ok") {
       return { total: 0, items: [] };
     }
     const [total, comments] = await Promise.all([
-      deps.prisma.assetComment.count({ where: { tenantId, assetId } }),
+      deps.prisma.assetComment.count({ where: { tenantId: projectId, assetId } }),
       deps.prisma.assetComment.findMany({
-        where: { tenantId, assetId },
+        where: { tenantId: projectId, assetId },
         orderBy: { createdAt: "desc" },
         take: safeSize,
         skip: (safePage - 1) * safeSize,
@@ -102,18 +102,18 @@ export const createDeliverySocial = (deps: {
   };
 
   const getAssetCommentCount = async (userId: string, assetId: string) => {
-    const tenantId = await deps.getTenantId();
-    const access = await deps.getTenantAssetAccess(tenantId, userId, assetId);
+    const projectId = await deps.getRuntimeProjectId();
+    const access = await deps.getProjectAssetAccess(projectId, userId, assetId);
     if (access.status !== "ok") {
       return 0;
     }
-    return deps.prisma.assetComment.count({ where: { tenantId, assetId } });
+    return deps.prisma.assetComment.count({ where: { tenantId: projectId, assetId } });
   };
 
   const getAssetCommentContext = async (userId: string, commentId: string) => {
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const comment = await deps.prisma.assetComment.findFirst({
-      where: { id: commentId, tenantId },
+      where: { id: commentId, tenantId: projectId },
       select: {
         id: true,
         assetId: true,
@@ -125,7 +125,7 @@ export const createDeliverySocial = (deps: {
     if (!comment) {
       return null;
     }
-    const access = await deps.getTenantAssetAccess(tenantId, userId, comment.assetId);
+    const access = await deps.getProjectAssetAccess(projectId, userId, comment.assetId);
     if (access.status !== "ok") {
       return null;
     }
@@ -133,30 +133,30 @@ export const createDeliverySocial = (deps: {
   };
 
   const locateAssetComment = async (userId: string, commentId: string, pageSize: number) => {
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const safeSize = normalizePageSize(pageSize, { maxSize: 50 });
     const comment = await deps.prisma.assetComment.findFirst({
-      where: { id: commentId, tenantId },
+      where: { id: commentId, tenantId: projectId },
       select: { id: true, assetId: true, createdAt: true }
     });
     if (!comment) {
       return null;
     }
-    const access = await deps.getTenantAssetAccess(tenantId, userId, comment.assetId);
+    const access = await deps.getProjectAssetAccess(projectId, userId, comment.assetId);
     if (access.status !== "ok") {
       return null;
     }
     const newerCount = await deps.prisma.assetComment.count({
-      where: { tenantId, assetId: comment.assetId, createdAt: { gt: comment.createdAt } }
+      where: { tenantId: projectId, assetId: comment.assetId, createdAt: { gt: comment.createdAt } }
     });
     const page = Math.floor(newerCount / safeSize) + 1;
     return { assetId: comment.assetId, page: page < 1 ? 1 : page };
   };
 
   const getCommentThread = async (userId: string, rootCommentId: string) => {
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const root = await deps.prisma.assetComment.findFirst({
-      where: { id: rootCommentId, tenantId },
+      where: { id: rootCommentId, tenantId: projectId },
       select: {
         id: true,
         assetId: true,
@@ -170,12 +170,12 @@ export const createDeliverySocial = (deps: {
     if (!root) {
       return null;
     }
-    const access = await deps.getTenantAssetAccess(tenantId, userId, root.assetId);
+    const access = await deps.getProjectAssetAccess(projectId, userId, root.assetId);
     if (access.status !== "ok") {
       return null;
     }
     const replies = await deps.prisma.assetComment.findMany({
-      where: { tenantId, assetId: root.assetId, replyToCommentId: root.id },
+      where: { tenantId: projectId, assetId: root.assetId, replyToCommentId: root.id },
       orderBy: { createdAt: "asc" },
       take: 100,
       select: { id: true, authorUserId: true, authorName: true, content: true, createdAt: true }
@@ -196,49 +196,49 @@ export const createDeliverySocial = (deps: {
   };
 
   const toggleAssetCommentLike = async (userId: string, commentId: string) => {
-    const tenantId = await deps.getTenantId();
+    const projectId = await deps.getRuntimeProjectId();
     const context = await getAssetCommentContext(userId, commentId);
     if (!context) {
       return { ok: false, message: "⚠️ 评论不存在或无权限。" };
     }
     const existing = await deps.prisma.assetCommentLike.findFirst({
-      where: { tenantId, commentId, userId },
+      where: { tenantId: projectId, commentId, userId },
       select: { id: true }
     });
     if (existing) {
       await deps.prisma.assetCommentLike.delete({ where: { id: existing.id } });
-      const count = await deps.prisma.assetCommentLike.count({ where: { tenantId, commentId } });
+      const count = await deps.prisma.assetCommentLike.count({ where: { tenantId: projectId, commentId } });
       return { ok: true, message: "✅ 已取消收藏。", liked: false, count, assetId: context.assetId };
     }
     await deps.prisma.assetCommentLike.create({
-      data: { tenantId, commentId, userId }
+      data: { tenantId: projectId, commentId, userId }
     });
-    const count = await deps.prisma.assetCommentLike.count({ where: { tenantId, commentId } });
+    const count = await deps.prisma.assetCommentLike.count({ where: { tenantId: projectId, commentId } });
     return { ok: true, message: "⭐️ 已收藏。", liked: true, count, assetId: context.assetId };
   };
 
   const getAssetLikeCount = async (userId: string, assetId: string) => {
-    const tenantId = await deps.getTenantId();
-    const access = await deps.getTenantAssetAccess(tenantId, userId, assetId);
+    const projectId = await deps.getRuntimeProjectId();
+    const access = await deps.getProjectAssetAccess(projectId, userId, assetId);
     if (access.status !== "ok") {
       return 0;
     }
-    return deps.prisma.assetLike.count({ where: { tenantId, assetId } });
+    return deps.prisma.assetLike.count({ where: { tenantId: projectId, assetId } });
   };
 
   const hasAssetLiked = async (userId: string, assetId: string) => {
-    const tenantId = await deps.getTenantId();
-    const access = await deps.getTenantAssetAccess(tenantId, userId, assetId);
+    const projectId = await deps.getRuntimeProjectId();
+    const access = await deps.getProjectAssetAccess(projectId, userId, assetId);
     if (access.status !== "ok") {
       return false;
     }
-    const found = await deps.prisma.assetLike.findFirst({ where: { tenantId, assetId, userId }, select: { id: true } });
+    const found = await deps.prisma.assetLike.findFirst({ where: { tenantId: projectId, assetId, userId }, select: { id: true } });
     return Boolean(found);
   };
 
   const toggleAssetLike = async (userId: string, assetId: string) => {
-    const tenantId = await deps.getTenantId();
-    const access = await deps.getTenantAssetAccess(tenantId, userId, assetId);
+    const projectId = await deps.getRuntimeProjectId();
+    const access = await deps.getProjectAssetAccess(projectId, userId, assetId);
     if (access.status === "missing") {
       return { ok: false, message: "⚠️ 内容不存在或已删除。" };
     }
@@ -246,16 +246,16 @@ export const createDeliverySocial = (deps: {
       return { ok: false, message: "🔒 无权限或内容不存在。" };
     }
     const existing = await deps.prisma.assetLike.findFirst({
-      where: { tenantId, assetId, userId },
+      where: { tenantId: projectId, assetId, userId },
       select: { id: true }
     });
     if (existing) {
       await deps.prisma.assetLike.delete({ where: { id: existing.id } });
-      const count = await deps.prisma.assetLike.count({ where: { tenantId, assetId } });
+      const count = await deps.prisma.assetLike.count({ where: { tenantId: projectId, assetId } });
       return { ok: true, message: "✅ 已取消收藏。", liked: false, count };
     }
-    await deps.prisma.assetLike.create({ data: { tenantId, assetId, userId } });
-    const count = await deps.prisma.assetLike.count({ where: { tenantId, assetId } });
+    await deps.prisma.assetLike.create({ data: { tenantId: projectId, assetId, userId } });
+    const count = await deps.prisma.assetLike.count({ where: { tenantId: projectId, assetId } });
     return { ok: true, message: "⭐️ 已收藏。", liked: true, count };
   };
 
@@ -264,8 +264,8 @@ export const createDeliverySocial = (deps: {
     assetId: string,
     input: { authorName: string | null; content: string; replyToCommentId?: string | null }
   ) => {
-    const tenantId = await deps.getTenantId();
-    const access = await deps.getTenantAssetAccess(tenantId, userId, assetId);
+    const projectId = await deps.getRuntimeProjectId();
+    const access = await deps.getProjectAssetAccess(projectId, userId, assetId);
     if (access.status === "missing") {
       return { ok: false, message: "⚠️ 内容不存在或已删除。" };
     }
@@ -282,9 +282,9 @@ export const createDeliverySocial = (deps: {
     const authorName = input.authorName?.trim() ? input.authorName.trim().slice(0, 100) : null;
     const replyToCommentId = input.replyToCommentId ?? null;
     const [asset, publisherBatch] = await Promise.all([
-      deps.prisma.asset.findFirst({ where: { id: assetId, tenantId }, select: { title: true, shareCode: true } }),
+      deps.prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select: { title: true, shareCode: true } }),
       deps.prisma.uploadBatch.findFirst({
-        where: { tenantId, assetId, status: "COMMITTED" },
+        where: { tenantId: projectId, assetId, status: "COMMITTED" },
         orderBy: { createdAt: "desc" },
         select: { userId: true }
       })
@@ -293,7 +293,7 @@ export const createDeliverySocial = (deps: {
     let replyToAuthorUserId: string | null = null;
     if (replyToCommentId) {
       const exists = await deps.prisma.assetComment.findFirst({
-        where: { id: replyToCommentId, tenantId, assetId },
+        where: { id: replyToCommentId, tenantId: projectId, assetId },
         select: { id: true, authorUserId: true }
       });
       if (!exists) {
@@ -303,7 +303,7 @@ export const createDeliverySocial = (deps: {
     }
     const comment = await deps.prisma.assetComment.create({
       data: {
-        tenantId,
+        tenantId: projectId,
         assetId,
         authorUserId: userId,
         authorName,

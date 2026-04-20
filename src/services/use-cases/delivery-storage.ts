@@ -1,59 +1,59 @@
 import type { PrismaClient } from "@prisma/client";
 import { logError } from "../../infra/logging";
 
-export const createDeliveryStorage = (prisma: PrismaClient, getTenantId: () => Promise<string>) => {
+export const createDeliveryStorage = (prisma: PrismaClient, getRuntimeProjectId: () => Promise<string>) => {
   const getPreference = async (tgUserId: string, key: string) => {
-    const tenantId = await getTenantId();
+    const projectId = await getRuntimeProjectId();
     const row = await prisma.userPreference.findUnique({
-      where: { tenantId_tgUserId_key: { tenantId, tgUserId, key } },
+      where: { tenantId_tgUserId_key: { tenantId: projectId, tgUserId, key } },
       select: { value: true }
     });
     return row?.value ?? null;
   };
 
   const upsertPreference = async (tgUserId: string, key: string, value: string | null) => {
-    const tenantId = await getTenantId();
+    const projectId = await getRuntimeProjectId();
     await prisma.userPreference.upsert({
-      where: { tenantId_tgUserId_key: { tenantId, tgUserId, key } },
+      where: { tenantId_tgUserId_key: { tenantId: projectId, tgUserId, key } },
       update: { value },
-      create: { tenantId, tgUserId, key, value }
+      create: { tenantId: projectId, tgUserId, key, value }
     });
   };
 
   const deletePreference = async (tgUserId: string, key: string) => {
-    const tenantId = await getTenantId();
+    const projectId = await getRuntimeProjectId();
     await prisma.userPreference
       .delete({
-        where: { tenantId_tgUserId_key: { tenantId, tgUserId, key } }
+        where: { tenantId_tgUserId_key: { tenantId: projectId, tgUserId, key } }
       })
-      .catch((error) => logError({ component: "delivery_storage", op: "delete_preference", tenantId, tgUserId, key }, error));
+      .catch((error) => logError({ component: "delivery_storage", op: "delete_preference", projectId, tgUserId, key }, error));
   };
 
   const getSetting = async (key: string) => {
-    const tenantId = await getTenantId();
+    const projectId = await getRuntimeProjectId();
     const row = await prisma.tenantSetting.findUnique({
-      where: { tenantId_key: { tenantId, key } },
+      where: { tenantId_key: { tenantId: projectId, key } },
       select: { value: true }
     });
     return row?.value ?? null;
   };
 
   const upsertSetting = async (key: string, value: string | null) => {
-    const tenantId = await getTenantId();
+    const projectId = await getRuntimeProjectId();
     await prisma.tenantSetting.upsert({
-      where: { tenantId_key: { tenantId, key } },
+      where: { tenantId_key: { tenantId: projectId, key } },
       update: { value },
-      create: { tenantId, key, value }
+      create: { tenantId: projectId, key, value }
     });
   };
 
   const deleteSetting = async (key: string) => {
-    const tenantId = await getTenantId();
+    const projectId = await getRuntimeProjectId();
     await prisma.tenantSetting
       .delete({
-        where: { tenantId_key: { tenantId, key } }
+        where: { tenantId_key: { tenantId: projectId, key } }
       })
-      .catch((error) => logError({ component: "delivery_storage", op: "delete_setting", tenantId, key }, error));
+      .catch((error) => logError({ component: "delivery_storage", op: "delete_setting", projectId, key }, error));
   };
 
   return { getPreference, upsertPreference, deletePreference, getSetting, upsertSetting, deleteSetting };

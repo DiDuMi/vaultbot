@@ -65,7 +65,7 @@ export const createTenantRenderers = (deps: {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可查看统计。`, buildHomeKeyboard());
       return;
     }
-    const stats = await deps.deliveryService.getTenantStats();
+    const stats = await deps.deliveryService.getProjectStats();
     const text = [
       "📊 统计",
       "",
@@ -102,7 +102,7 @@ export const createTenantRenderers = (deps: {
     const userId = String(ctx.from.id);
     const isTenant = await deps.deliveryService.isProjectMember(userId).catch(() => false);
     if (!isTenant) {
-      const enabled = await deps.deliveryService.getTenantPublicRankingEnabled().catch(() => false);
+      const enabled = await deps.deliveryService.getProjectPublicRankingEnabled().catch(() => false);
       if (!enabled) {
         await upsertHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放排行。`, new InlineKeyboard().text("👣 足迹", "user:history"));
         return;
@@ -110,12 +110,12 @@ export const createTenantRenderers = (deps: {
     }
     const items =
       metric === "like"
-        ? await deps.deliveryService.getTenantLikeRanking(range, 10, userId)
+        ? await deps.deliveryService.getProjectLikeRanking(range, 10, userId)
         : metric === "visit"
-          ? await deps.deliveryService.getTenantVisitRanking(range, 10, userId)
+          ? await deps.deliveryService.getProjectVisitRanking(range, 10, userId)
           : metric === "comment"
-            ? await deps.deliveryService.getTenantCommentRanking(range, 10, userId)
-            : await deps.deliveryService.getTenantRanking(range, 10, userId);
+            ? await deps.deliveryService.getProjectCommentRanking(range, 10, userId)
+            : await deps.deliveryService.getProjectRanking(range, 10, userId);
     if (items.length === 0) {
       const emptyText =
         metric === "like"
@@ -182,8 +182,8 @@ export const createTenantRenderers = (deps: {
     const userId = String(ctx.from.id);
     const [isTenant, searchMode, rankPublic] = await Promise.all([
       deps.deliveryService.isProjectMember(userId).catch(() => false),
-      deps.deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const),
-      deps.deliveryService.getTenantPublicRankingEnabled().catch(() => false)
+      deps.deliveryService.getProjectSearchMode().catch(() => "ENTITLED_ONLY" as const),
+      deps.deliveryService.getProjectPublicRankingEnabled().catch(() => false)
     ]);
 
     if (isTenant) {
@@ -238,7 +238,7 @@ export const createTenantRenderers = (deps: {
       "发送 标签 可查看热门标签。",
       "",
       "👤 我的",
-      "“我的”包含足迹、关注与通知设置。"
+      "“我的”包含足迹、收藏与通知设置。"
     ].join("\n");
     const keyboard = new InlineKeyboard()
       .text("📚 列表", "help:list")
@@ -251,7 +251,7 @@ export const createTenantRenderers = (deps: {
   const renderFollow = async (ctx: Context) => {
     deps.syncSessionForView(ctx);
     if (!deps.deliveryService) {
-      await upsertHtml(ctx, buildDbDisabledHint("使用关注"), buildHelpKeyboard(getLocale(ctx)));
+      await upsertHtml(ctx, buildDbDisabledHint("使用收藏"), buildHelpKeyboard(getLocale(ctx)));
       return;
     }
     if (!ctx.from) {
@@ -264,11 +264,11 @@ export const createTenantRenderers = (deps: {
     });
     const list = keywords.length === 0 ? "暂无关键词。" : keywords.map((k, i) => `${i + 1}. ${escapeHtml(k)}`).join("\n");
     const text = [
-      "🔔 关注",
+      "⭐ 收藏",
       "",
-      "设置最多 5 个关键词；当发布内容的标题/描述命中关键词时，我会通知你。",
+      "设置最多 5 个收藏关键词；当发布内容的标题/描述命中关键词时，我会通知你。",
       "",
-      "当前关键词",
+      "当前收藏关键词",
       list
     ].join("\n");
     await upsertHtml(ctx, text, buildFollowKeyboard({ keywords }));
@@ -335,7 +335,7 @@ export const createTenantRenderers = (deps: {
     const text = [
       "🔕 通知设置",
       "",
-      `关注命中通知：${settings.followEnabled ? "已开启" : "已关闭"}`,
+      `收藏命中通知：${settings.followEnabled ? "已开启" : "已关闭"}`,
       `评论/回复通知：${settings.commentEnabled ? "已开启" : "已关闭"}`,
       "",
       "提示：为避免打扰，系统会做去重与频控。"
@@ -359,11 +359,11 @@ export const createTenantRenderers = (deps: {
       await upsertHtml(ctx, `🔒 仅${getMemberScopeLabel()}可打开设置。`, buildHelpKeyboard(getLocale(ctx)));
       return;
     }
-    const canManageAdmins = await deps.deliveryService.canManageProject(userId);
-    const canManageCollections = await deps.deliveryService.canManageCollections(userId);
+    const canManageProjectAdmins = await deps.deliveryService.canManageProjectAdmins(userId);
+    const canManageProjectCollections = await deps.deliveryService.canManageProjectCollections(userId);
     const singleOwnerMode = isSingleOwnerModeEnabled();
-    const stats = await deps.deliveryService.getTenantHomeStats().catch(() => null);
-    const admins = await deps.deliveryService.listTenantAdmins();
+    const stats = await deps.deliveryService.getProjectHomeStats().catch(() => null);
+    const admins = await deps.deliveryService.listProjectManagers();
     const owners = admins.filter((m) => m.role === "OWNER");
     const adminOnly = admins.filter((m) => m.role !== "OWNER");
     const preview = admins
@@ -403,7 +403,7 @@ export const createTenantRenderers = (deps: {
       "",
       singleOwnerMode
         ? "当前为单人项目模式：已收起多人管理员扩展，只保留项目拥有者视角。"
-        : canManageAdmins
+        : canManageProjectAdmins
           ? "点击“👥 管理员列表”进行移除，点击“➕ 添加管理员”新增管理员。"
           : "🔒 仅管理员可添加/移除管理员。"
     ]
@@ -412,7 +412,14 @@ export const createTenantRenderers = (deps: {
     await upsertHtml(
       ctx,
       text,
-      buildSettingsKeyboard({ canManageAdmins: singleOwnerMode ? false : canManageAdmins, adminIds, canManageCollections }, showMoreActions)
+      buildSettingsKeyboard(
+        {
+          canManageProjectAdmins: singleOwnerMode ? false : canManageProjectAdmins,
+          adminIds,
+          canManageProjectCollections
+        },
+        showMoreActions
+      )
     );
   };
 

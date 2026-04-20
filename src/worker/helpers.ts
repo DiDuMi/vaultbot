@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Bot } from "grammy";
-import { ensureRuntimeTenant } from "../infra/persistence/tenant-guard";
+import { ensureRuntimeProjectContext, ensureRuntimeTenant } from "../infra/persistence/tenant-guard";
 import { withTelegramRetry } from "../infra/telegram";
 import { logWorkerError } from "./strategy";
 
@@ -29,11 +29,11 @@ export const sendMediaGroupWithRetry = async (
   return withTelegramRetry(run);
 };
 
-export const getBroadcastTargetUserIds = async (prisma: PrismaClient, tenantId: string) => {
+export const getProjectBroadcastTargetUserIds = async (prisma: PrismaClient, projectId: string) => {
   const [users, tenantUsers, members] = await Promise.all([
-    prisma.event.groupBy({ by: ["userId"], where: { tenantId } }),
-    prisma.tenantUser.findMany({ where: { tenantId }, select: { tgUserId: true } }),
-    prisma.tenantMember.findMany({ where: { tenantId }, select: { tgUserId: true } })
+    prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
+    prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } }),
+    prisma.tenantMember.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
   ]);
   const excluded = new Set(members.map((m) => m.tgUserId));
   const audience = new Set<string>();
@@ -50,6 +50,8 @@ export const getBroadcastTargetUserIds = async (prisma: PrismaClient, tenantId: 
   return Array.from(audience).filter((id) => !excluded.has(id));
 };
 
+export const getBroadcastTargetUserIds = getProjectBroadcastTargetUserIds;
+
 export const computeNextBroadcastRunAt = (input: { previousNextRunAt: Date | null; repeatEveryMs: number; now?: Date }) => {
   const nowMs = (input.now ?? new Date()).getTime();
   const baseMs = input.previousNextRunAt?.getTime() ?? nowMs;
@@ -65,6 +67,11 @@ export const ensureTenantId = async (prisma: PrismaClient, config: { tenantCode:
   return tenant.id;
 };
 
+export const ensureRuntimeProjectId = async (prisma: PrismaClient, projectContext: { code: string; name: string }) => {
+  const project = await ensureRuntimeProjectContext(prisma, projectContext);
+  return project.projectId;
+};
+
 export const isSafeTelegramNumericId = (value: string) => {
   const numericId = Number(value);
   if (!Number.isSafeInteger(numericId)) {
@@ -76,7 +83,7 @@ export const isSafeTelegramNumericId = (value: string) => {
   return numericId;
 };
 
-export const backfillTenantUsers = async (bot: Bot, prisma: PrismaClient, tenantId: string) => {
+export const backfillProjectUsers = async (bot: Bot, prisma: PrismaClient, projectId: string) => {
   const limit = (() => {
     const raw = Number(process.env.SYNC_USERS_LIMIT ?? "");
     if (!Number.isFinite(raw)) {
@@ -86,11 +93,11 @@ export const backfillTenantUsers = async (bot: Bot, prisma: PrismaClient, tenant
   })();
 
   const [eventUsers, commentUsers, batchUsers, members, existingUsers] = await Promise.all([
-    prisma.event.groupBy({ by: ["userId"], where: { tenantId } }),
-    prisma.assetComment.groupBy({ by: ["authorUserId"], where: { tenantId } }),
-    prisma.uploadBatch.groupBy({ by: ["userId"], where: { tenantId } }),
-    prisma.tenantMember.findMany({ where: { tenantId }, select: { tgUserId: true } }),
-    prisma.tenantUser.findMany({ where: { tenantId }, select: { tgUserId: true } })
+    prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
+    prisma.assetComment.groupBy({ by: ["authorUserId"], where: { tenantId: projectId } }),
+    prisma.uploadBatch.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
+    prisma.tenantMember.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } }),
+    prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
   ]);
 
   const existing = new Set(existingUsers.map((u) => u.tgUserId));
@@ -128,10 +135,10 @@ export const backfillTenantUsers = async (bot: Bot, prisma: PrismaClient, tenant
     const now = new Date();
     await prisma.tenantUser
       .upsert({
-        where: { tenantId_tgUserId: { tenantId, tgUserId: id } },
+        where: { tenantId_tgUserId: { tenantId: projectId, tgUserId: id } },
         update: { username, firstName, lastName, lastSeenAt: now },
         create: {
-          tenantId,
+          tenantId: projectId,
           tgUserId: id,
           username,
           firstName,
@@ -141,7 +148,9 @@ export const backfillTenantUsers = async (bot: Bot, prisma: PrismaClient, tenant
           lastSeenAt: now
         }
       })
-      .catch((error) => logWorkerError({ op: "tenant_user_upsert", tenantId, scope: `tgUserId:${id}` }, error));
+      .catch((error) => logWorkerError({ op: "project_user_upsert", projectId, scope: `tgUserId:${id}` }, error));
     await sleep(200);
   }
 };
+
+export const backfillTenantUsers = backfillProjectUsers;

@@ -15,7 +15,7 @@ export const registerTenantMiddlewares = (
   bot.use(async (ctx, next) => {
     if (deps.deliveryService && ctx.from) {
       await deps.deliveryService
-        .upsertTenantUserFromTelegram({
+        .upsertProjectUserFromTelegram({
           id: ctx.from.id,
           is_bot: ctx.from.is_bot,
           first_name: ctx.from.first_name,
@@ -24,7 +24,7 @@ export const registerTenantMiddlewares = (
           language_code: ctx.from.language_code
         })
         .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "upsert_tenant_user" }, error, { intervalMs: 30_000 })
+          logErrorThrottled({ component: "project_bot", op: "upsert_project_user" }, error, { intervalMs: 30_000 })
         );
     }
     await next();
@@ -50,7 +50,7 @@ export const registerTenantMiddlewares = (
           })
           .catch((error) =>
             logErrorThrottled(
-              { component: "tenant", op: "hydrate_user_default_collection", userId },
+              { component: "project_bot", op: "hydrate_user_default_collection", userId },
               error,
               { intervalMs: 30_000 }
             )
@@ -65,7 +65,7 @@ export const registerTenantMiddlewares = (
             deps.historyFilterStates.set(key, value);
           })
           .catch((error) =>
-            logErrorThrottled({ component: "tenant", op: "hydrate_user_history_filter", userId }, error, { intervalMs: 30_000 })
+            logErrorThrottled({ component: "project_bot", op: "hydrate_user_history_filter", userId }, error, { intervalMs: 30_000 })
           )
       );
     }
@@ -79,7 +79,7 @@ export const registerTenantMiddlewares = (
             }
           })
           .catch((error) =>
-            logErrorThrottled({ component: "tenant", op: "hydrate_user_history_date", userId }, error, { intervalMs: 30_000 })
+            logErrorThrottled({ component: "project_bot", op: "hydrate_user_history_date", userId }, error, { intervalMs: 30_000 })
           )
       );
     }

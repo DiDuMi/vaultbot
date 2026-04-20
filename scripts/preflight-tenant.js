@@ -1,18 +1,18 @@
 require("dotenv/config");
 const { PrismaClient } = require("@prisma/client");
 
-const tenantCode = (process.env.TENANT_CODE || "").trim();
+const projectCode = (process.env.TENANT_CODE || "").trim();
 const expectedTenantCode = (process.env.EXPECTED_TENANT_CODE || "").trim();
 const allowMismatch = process.env.ALLOW_TENANT_CODE_MISMATCH === "1";
 const requireExisting = process.env.REQUIRE_EXISTING_TENANT === "1";
 
-if (!tenantCode) {
-  console.error("❌ 缺少 TENANT_CODE");
+if (!projectCode) {
+  console.error("❌ Missing TENANT_CODE");
   process.exit(1);
 }
 
-if (expectedTenantCode && tenantCode !== expectedTenantCode) {
-  console.error(`❌ TENANT_CODE 校验失败：当前=${tenantCode}，期望=${expectedTenantCode}`);
+if (expectedTenantCode && projectCode !== expectedTenantCode) {
+  console.error(`❌ Project code check failed: current=${projectCode}, expected=${expectedTenantCode}`);
   process.exit(1);
 }
 
@@ -20,7 +20,7 @@ const prisma = new PrismaClient();
 
 const run = async () => {
   const existing = await prisma.tenant.findUnique({
-    where: { code: tenantCode },
+    where: { code: projectCode },
     select: { id: true, code: true, name: true, createdAt: true }
   });
   if (existing) {
@@ -31,7 +31,7 @@ const run = async () => {
       prisma.uploadBatch.count({ where: { tenantId: existing.id } })
     ]);
     console.log(
-      `✅ TENANT_CODE 校验通过：${tenantCode} | assets=${assets} events=${events} users=${users} batches=${batches}`
+      `✅ Project preflight passed: ${projectCode} | assets=${assets} events=${events} users=${users} batches=${batches}`
     );
     return;
   }
@@ -42,26 +42,26 @@ const run = async () => {
   });
   if (tenants.length === 0) {
     if (requireExisting) {
-      console.error("❌ 数据库中尚无租户数据：已阻止启动，避免连到空库/新库导致设置与统计被重置");
+      console.error("❌ No existing project data found in database: startup blocked to avoid writing into an empty or wrong database");
       process.exit(1);
     }
-    console.log(`✅ TENANT_CODE 校验通过：${tenantCode}（库中暂无租户或允许新建）`);
+    console.log(`✅ Project preflight passed: ${projectCode} (database is empty or new project creation is allowed)`);
     return;
   }
   if (allowMismatch) {
-    console.log(`✅ TENANT_CODE 校验通过：${tenantCode}（允许新建租户）`);
+    console.log(`✅ Project preflight passed: ${projectCode} (new project creation allowed)`);
     return;
   }
   const summary = tenants.map((row) => row.code).filter(Boolean).join(", ");
-  console.error(`❌ TENANT_CODE 不匹配：当前=${tenantCode}，数据库已有租户=${summary}`);
-  console.error("可设置 ALLOW_TENANT_CODE_MISMATCH=1 放行新租户创建");
+  console.error(`❌ Project code mismatch: current=${projectCode}, existing database codes=${summary}`);
+  console.error("You can set ALLOW_TENANT_CODE_MISMATCH=1 to allow creating a new project context");
   process.exit(1);
 };
 
 run()
   .catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`❌ preflight 执行失败：${message}`);
+    console.error(`❌ Project preflight failed: ${message}`);
     process.exit(1);
   })
   .finally(async () => {

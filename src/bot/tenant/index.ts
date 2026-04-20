@@ -396,7 +396,7 @@ export const registerTenantBot = (
     const key = toMetaKey(ctx.from.id, chatId);
     const selectedId = collectionStates.get(key) ?? null;
     const currentPage = options.page ?? collectionPickerStates.get(key)?.page ?? 1;
-    const canManage = await deliveryService.canManageCollections(userId);
+    const canManage = await deliveryService.canManageProjectCollections(userId);
     const collections = await deliveryService.listCollections();
     const selectedTitle = getCollectionTitle(collections, selectedId);
     const text =
@@ -464,7 +464,7 @@ export const registerTenantBot = (
       threadId = created.message_thread_id;
       await deliveryService
         .setCollectionTopicThreadId(collectionId, threadId)
-        .catch((error) => logError({ component: "tenant", op: "set_collection_topic_thread_id", collectionId }, error));
+        .catch((error) => logError({ component: "project_bot", op: "set_collection_topic_thread_id", collectionId }, error));
       topic = await deliveryService.getCollectionTopic(collectionId).catch(() => null);
     }
     if (!threadId) {
@@ -472,7 +472,7 @@ export const registerTenantBot = (
     }
     await ctx.api
       .editForumTopic(vaultChatId, threadId, { name: normalizedTitle })
-      .catch((error) => logError({ component: "tenant", op: "edit_forum_topic", collectionId, vaultChatId, threadId }, error));
+      .catch((error) => logError({ component: "project_bot", op: "edit_forum_topic", collectionId, vaultChatId, threadId }, error));
 
     const botUsername = ctx.me?.username ?? null;
     const items = await deliveryService.listRecentAssetsInCollection(collectionId, 20).catch(() => []);
@@ -513,13 +513,13 @@ export const registerTenantBot = (
           await deliveryService
             .setCollectionTopicIndexMessageId(collectionId, null)
             .catch((error) =>
-              logError({ component: "tenant", op: "set_collection_topic_index_message_id", collectionId, indexMessageId: null }, error)
+              logError({ component: "project_bot", op: "set_collection_topic_index_message_id", collectionId, indexMessageId: null }, error)
             );
         });
       await ctx.api
         .pinChatMessage(vaultChatId, currentIndexMessageId, { disable_notification: true })
         .catch((error) =>
-          logError({ component: "tenant", op: "pin_chat_message", collectionId, vaultChatId, messageId: currentIndexMessageId }, error)
+          logError({ component: "project_bot", op: "pin_chat_message", collectionId, vaultChatId, messageId: currentIndexMessageId }, error)
         );
       return;
     }
@@ -537,13 +537,13 @@ export const registerTenantBot = (
     await ctx.api
       .pinChatMessage(vaultChatId, sent.message_id, { disable_notification: true })
       .catch((error) =>
-        logError({ component: "tenant", op: "pin_chat_message", collectionId, vaultChatId, messageId: sent.message_id }, error)
+        logError({ component: "project_bot", op: "pin_chat_message", collectionId, vaultChatId, messageId: sent.message_id }, error)
       );
     await deliveryService
       .setCollectionTopicIndexMessageId(collectionId, sent.message_id)
       .catch((error) =>
         logError(
-          { component: "tenant", op: "set_collection_topic_index_message_id", collectionId, indexMessageId: sent.message_id },
+          { component: "project_bot", op: "set_collection_topic_index_message_id", collectionId, indexMessageId: sent.message_id },
           error
         )
       );
@@ -622,14 +622,14 @@ export const registerTenantBot = (
             return stripHtmlTags(collections.find((c) => c.id === id)?.title ?? "未分类");
           };
           void updateVaultTopicIndexByCollection(ctx, prevMeta.collectionId, titleOf(prevMeta.collectionId)).catch((error) =>
-            logError({ component: "tenant", op: "update_vault_topic_index", scope: "prev_collection", assetId: state.assetId }, error)
+            logError({ component: "project_bot", op: "update_vault_topic_index", scope: "prev_collection", assetId: state.assetId }, error)
           );
           void updateVaultTopicIndexByCollection(ctx, nextMeta.collectionId, titleOf(nextMeta.collectionId)).catch((error) =>
-            logError({ component: "tenant", op: "update_vault_topic_index", scope: "next_collection", assetId: state.assetId }, error)
+            logError({ component: "project_bot", op: "update_vault_topic_index", scope: "next_collection", assetId: state.assetId }, error)
           );
         } else {
           void updateVaultTopicIndexByAssetId(ctx, state.assetId).catch((error) =>
-            logError({ component: "tenant", op: "update_vault_topic_index", scope: "asset", assetId: state.assetId }, error)
+            logError({ component: "project_bot", op: "update_vault_topic_index", scope: "asset", assetId: state.assetId }, error)
           );
         }
       }
@@ -869,144 +869,6 @@ export const registerTenantBot = (
     renderTagIndex: renderTagIndexModule,
     renderFootprint
   });
-
-  const buildTagAssetsKeyboard = (tagId: string, currentPage: number, totalPages: number) => {
-    const keyboard = new InlineKeyboard();
-    if (totalPages > 1) {
-      if (currentPage > 1) {
-        keyboard.text("⬅️ 上一页", safeCallbackData(`tag:page:${tagId}:${currentPage - 1}`, "asset:noop"));
-      }
-      if (currentPage < totalPages) {
-        keyboard.text("下一页 ➡️", safeCallbackData(`tag:page:${tagId}:${currentPage + 1}`, "asset:noop"));
-      }
-      keyboard.row().text("🔄 刷新", safeCallbackData(`tag:refresh:${tagId}:${currentPage}`, "asset:noop"));
-    } else {
-      keyboard.row().text("🔄 刷新", safeCallbackData(`tag:refresh:${tagId}:1`, "asset:noop"));
-    }
-    keyboard.row().text("🏷 标签", "tags:show").text("📚 列表", "help:list").text("🏠 首页", "home:back");
-    return keyboard;
-  };
-
-  const buildTagIndexKeyboard = (items: { tagId: string; name: string }[]) => {
-    const keyboard = new InlineKeyboard();
-    for (const item of items.slice(0, 20)) {
-      keyboard.row().text(`#${item.name}`, safeCallbackData(`tag:open:${item.tagId}:1`, "asset:noop"));
-    }
-    keyboard.row().text("🔄 刷新", "tags:refresh").text("📚 列表", "help:list").text("🏠 首页", "home:back");
-    return keyboard;
-  };
-
-  const renderTagIndex = async (ctx: Context, mode: "reply" | "edit") => {
-    if (!deliveryService) {
-      await replyHtml(ctx, buildDbDisabledHint("查看标签"), { reply_markup: mainKeyboard });
-      return;
-    }
-    if (!ctx.from) {
-      await replyHtml(ctx, "⚠️ 无法识别当前用户。", { reply_markup: mainKeyboard });
-      return;
-    }
-    const userId = String(ctx.from.id);
-    const searchMode = await deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
-    if (searchMode === "OFF") {
-      await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}已关闭搜索。`, { reply_markup: buildHelpKeyboard() });
-      return;
-    }
-    const isTenant = await deliveryService.isProjectMember(userId).catch(() => false);
-    const canManageViewer = isTenant ? await deliveryService.canManageProject(userId).catch(() => false) : false;
-    if (!isTenant) {
-      if (searchMode !== "PUBLIC") {
-        await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放搜索。`, { reply_markup: buildHelpKeyboard() });
-        return;
-      }
-    }
-    const items = await deliveryService.listTopTags(50).catch(() => []);
-    const content =
-      items.length === 0
-        ? "📭 暂无标签。\n发布内容时在标题/描述里写 <code>#标签</code>，保存后会自动归档。"
-        : items
-            .slice(0, 20)
-            .map((t, i) => `${i + 1}. <b>#${escapeHtml(t.name)}</b>（${t.count}）`)
-            .join("\n");
-    const text = ["<b>🏷 标签</b>", "", "发送 <code>#标签</code> 可查看合集。", "", content].join("\n");
-    const keyboard = buildTagIndexKeyboard(items);
-    if (mode === "edit") {
-      await editHtml(ctx, text, { reply_markup: keyboard });
-    } else {
-      await replyHtml(ctx, text, { reply_markup: keyboard });
-    }
-  };
-
-  const renderTagAssets = async (ctx: Context, tagId: string, page: number, mode: "reply" | "edit") => {
-    if (!deliveryService) {
-      await replyHtml(ctx, buildDbDisabledHint("查看标签"), { reply_markup: mainKeyboard });
-      return;
-    }
-    if (!ctx.from) {
-      await replyHtml(ctx, "⚠️ 无法识别当前用户。", { reply_markup: mainKeyboard });
-      return;
-    }
-    const userId = String(ctx.from.id);
-    const searchMode = await deliveryService.getTenantSearchMode().catch(() => "ENTITLED_ONLY" as const);
-    if (searchMode === "OFF") {
-      await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}已关闭搜索。`, { reply_markup: buildHelpKeyboard() });
-      return;
-    }
-    const isTenant = await deliveryService.isProjectMember(userId).catch(() => false);
-    const canManageViewer = isTenant ? await deliveryService.canManageProject(userId).catch(() => false) : false;
-    if (!isTenant) {
-      if (searchMode !== "PUBLIC") {
-        await replyHtml(ctx, `🔒 ${getMemberScopeLabel()}未开放搜索。`, { reply_markup: buildHelpKeyboard() });
-        return;
-      }
-    }
-    const tag = await deliveryService.getTagById(tagId).catch(() => null);
-    if (!tag) {
-      const text = "⚠️ 标签不存在或已删除。";
-      if (mode === "edit") {
-        await editHtml(ctx, text, { reply_markup: new InlineKeyboard().text("🏷 标签", "tags:show") });
-      } else {
-        await replyHtml(ctx, text, { reply_markup: new InlineKeyboard().text("🏷 标签", "tags:show") });
-      }
-      return;
-    }
-    const safePage = Number.isFinite(page) ? page : 1;
-    const pageSize = 10;
-    const data = await deliveryService.listAssetsByTagId(userId, tagId, safePage, pageSize).catch(() => null);
-    if (!data || data.total === 0) {
-      const text = `🔎 未找到内容：<code>#${escapeHtml(tag.name)}</code>`;
-      const keyboard = buildTagAssetsKeyboard(tagId, 1, 1);
-      if (mode === "edit") {
-        await editHtml(ctx, text, { reply_markup: keyboard });
-      } else {
-        await replyHtml(ctx, text, { reply_markup: keyboard });
-      }
-      return;
-    }
-    const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
-    const currentPage = Math.min(Math.max(safePage, 1), totalPages);
-    const username = ctx.me?.username;
-    const content = data.items
-      .map((item) => {
-        const safeTitle = sanitizeTelegramHtml(item.title);
-        const titleLine = safeTitle ? `<b>${safeTitle}</b>` : "";
-        const actionLine = buildAssetActionLineModule({
-          username,
-          shareCode: item.shareCode,
-          assetId: item.assetId,
-          canManage: canManageViewer
-        });
-        return [titleLine, actionLine].filter(Boolean).join("\n");
-      })
-      .filter(Boolean)
-      .join("\n\n");
-    const text = `🏷 标签：<code>#${escapeHtml(tag.name)}</code>\n（第 ${currentPage}/${totalPages} 页，共 ${data.total} 条）\n\n${content}`;
-    const keyboard = buildTagAssetsKeyboard(tagId, currentPage, totalPages);
-    if (mode === "edit") {
-      await editHtml(ctx, text, { reply_markup: keyboard });
-    } else {
-      await replyHtml(ctx, text, { reply_markup: keyboard });
-    }
-  };
 
   registerTenantCallbackRoutes(bot, {
     services: {

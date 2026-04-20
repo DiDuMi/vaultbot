@@ -11,14 +11,14 @@ type QueueLike = {
 
 export const startReplicationScheduler = (deps: {
   prisma: PrismaClient;
-  runtimeTenantId: string;
+  runtimeProjectId: string;
   replicationQueue: QueueLike | null;
   replicationBackfillQueue: QueueLike | null;
   replicateBatch: (batchId: string, options?: { includeOptional?: boolean }) => Promise<void>;
-  upsertWorkerProcessHeartbeat: (tenantId: string, ts: number) => Promise<void>;
-  upsertWorkerReplicationHeartbeat: (tenantId: string, ts: number) => Promise<void>;
+  upsertWorkerProcessHeartbeat: (projectId: string, ts: number) => Promise<void>;
+  upsertWorkerReplicationHeartbeat: (projectId: string, ts: number) => Promise<void>;
   parseNumberWithBounds: (raw: string | undefined, fallback: number, min: number, max: number) => number;
-  logError: (meta: { op: string; tenantId?: string; batchId?: string }, error: unknown) => void;
+  logError: (meta: { op: string; projectId?: string; batchId?: string }, error: unknown) => void;
 }) => {
   const replicationEnqueuedAt = new Map<string, number>();
   const replicationEnqueuedTtlMs = deps.parseNumberWithBounds(
@@ -90,8 +90,8 @@ export const startReplicationScheduler = (deps: {
   const tick = async () => {
     const now = Date.now();
     cleanupReplicationEnqueuedAt(now);
-    await deps.upsertWorkerProcessHeartbeat(deps.runtimeTenantId, now).catch((error) =>
-      deps.logError({ op: "heartbeat_process_upsert", tenantId: deps.runtimeTenantId }, error)
+    await deps.upsertWorkerProcessHeartbeat(deps.runtimeProjectId, now).catch((error) =>
+      deps.logError({ op: "heartbeat_process_upsert", projectId: deps.runtimeProjectId }, error)
     );
     const batches = await deps.prisma.uploadBatch.findMany({
       where: { status: "COMMITTED", items: { some: { status: { in: ["PENDING", "FAILED"] } } } },
@@ -99,7 +99,7 @@ export const startReplicationScheduler = (deps: {
       orderBy: { createdAt: "desc" },
       select: { id: true, tenantId: true }
     });
-    const replicationHeartbeatTenantIds = new Set<string>();
+    const replicationHeartbeatProjectIds = new Set<string>();
     for (const batch of batches) {
       const last = replicationEnqueuedAt.get(batch.id) ?? 0;
       if (now - last < 10_000) {
@@ -115,29 +115,29 @@ export const startReplicationScheduler = (deps: {
           )
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_enqueue_poll", tenantId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_enqueue_poll", projectId: batch.tenantId, batchId: batch.id }, error);
             return false;
           });
         if (enqueued) {
-          replicationHeartbeatTenantIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batch.tenantId);
         }
       } else {
         const replicated = await deps.replicateBatch(batch.id, { includeOptional: false })
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_direct_poll", tenantId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_direct_poll", projectId: batch.tenantId, batchId: batch.id }, error);
             return false;
           });
         if (replicated) {
-          replicationHeartbeatTenantIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batch.tenantId);
         }
       }
     }
 
     if (!replicationBackfillEnabled || replicationBackfillTake <= 0 || batches.length > 0) {
-      for (const tenantId of replicationHeartbeatTenantIds) {
-        await deps.upsertWorkerReplicationHeartbeat(tenantId, now).catch((error) =>
-          deps.logError({ op: "heartbeat_replication_upsert", tenantId }, error)
+      for (const projectId of replicationHeartbeatProjectIds) {
+        await deps.upsertWorkerReplicationHeartbeat(projectId, now).catch((error) =>
+          deps.logError({ op: "heartbeat_replication_upsert", projectId }, error)
         );
       }
       return;
@@ -169,11 +169,11 @@ export const startReplicationScheduler = (deps: {
           )
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_enqueue_backfill", tenantId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_enqueue_backfill", projectId: batch.tenantId, batchId: batch.id }, error);
             return false;
           });
         if (enqueued) {
-          replicationHeartbeatTenantIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batch.tenantId);
         }
       } else if (deps.replicationQueue) {
         const enqueued = await deps.replicationQueue
@@ -184,28 +184,28 @@ export const startReplicationScheduler = (deps: {
           )
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_enqueue_backfill", tenantId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_enqueue_backfill", projectId: batch.tenantId, batchId: batch.id }, error);
             return false;
           });
         if (enqueued) {
-          replicationHeartbeatTenantIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batch.tenantId);
         }
       } else {
         const replicated = await deps.replicateBatch(batch.id, { includeOptional: true })
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_direct_backfill", tenantId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_direct_backfill", projectId: batch.tenantId, batchId: batch.id }, error);
             return false;
           });
         if (replicated) {
-          replicationHeartbeatTenantIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batch.tenantId);
         }
       }
     }
 
-    for (const tenantId of replicationHeartbeatTenantIds) {
-      await deps.upsertWorkerReplicationHeartbeat(tenantId, now).catch((error) =>
-        deps.logError({ op: "heartbeat_replication_upsert", tenantId }, error)
+    for (const projectId of replicationHeartbeatProjectIds) {
+      await deps.upsertWorkerReplicationHeartbeat(projectId, now).catch((error) =>
+        deps.logError({ op: "heartbeat_replication_upsert", projectId }, error)
       );
     }
   };

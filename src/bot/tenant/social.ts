@@ -438,6 +438,7 @@ export const createTenantSocial = (deps: {
       command === "搜索" ||
       command === "足迹" ||
       command === "关注" ||
+      command === "收藏" ||
       command === "设置"
     ) {
       await replyHtml(ctx, buildInputExitHint("评论", { afterExitHtml: "再点击消息里的 <b>⬅️ 返回内容</b> 或继续输入评论。" }), {
