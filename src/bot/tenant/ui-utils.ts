@@ -317,22 +317,22 @@ export const resolveUserLabel = async (ctx: Context, userId: string, deliverySer
   if (deliveryService) {
     const stored = await deliveryService.getProjectUserLabel(userId).catch(() => null);
     if (stored) {
-      const normalizedStored = truncatePlainText(stored.replace(/\s+/g, " "), 30) || "鍖垮悕鐢ㄦ埛";
+      const normalizedStored = truncatePlainText(stored.replace(/\s+/g, " "), 30) || "匿名用户";
       setCachedUserLabel(userId, normalizedStored);
       return normalizedStored;
     }
   }
   const selfId = ctx.from?.id;
   if (typeof selfId === "number" && Number.isFinite(selfId) && String(selfId) === userId) {
-    const selfLabel = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name?.trim() || "鍖垮悕鐢ㄦ埛";
-    const normalizedSelf = truncatePlainText(selfLabel.replace(/\s+/g, " "), 30) || "鍖垮悕鐢ㄦ埛";
+    const selfLabel = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name?.trim() || "匿名用户";
+    const normalizedSelf = truncatePlainText(selfLabel.replace(/\s+/g, " "), 30) || "匿名用户";
     setCachedUserLabel(userId, normalizedSelf);
     return normalizedSelf;
   }
   const numericId = Number(userId);
   if (!Number.isFinite(numericId)) {
-    setCachedUserLabel(userId, "鍖垮悕鐢ㄦ埛");
-    return "鍖垮悕鐢ㄦ埛";
+    setCachedUserLabel(userId, "匿名用户");
+    return "匿名用户";
   }
   const chat = await ctx.api.getChat(numericId).catch(() => null);
   const username = (chat as { username?: string | null } | null)?.username;
@@ -340,9 +340,9 @@ export const resolveUserLabel = async (ctx: Context, userId: string, deliverySer
   const lastName = (chat as { last_name?: string | null } | null)?.last_name;
   const title = (chat as { title?: string | null } | null)?.title;
   const fullName = [firstName?.trim(), lastName?.trim()].filter(Boolean).join(" ");
-  const fallbackId = `鐢ㄦ埛#${String(Math.trunc(numericId)).slice(-6)}`;
+  const fallbackId = `用户#${String(Math.trunc(numericId)).slice(-6)}`;
   const label = username ? `@${username}` : fullName || title?.trim() || fallbackId;
-  const normalized = truncatePlainText(label.replace(/\s+/g, " "), 30) || "鍖垮悕鐢ㄦ埛";
+  const normalized = truncatePlainText(label.replace(/\s+/g, " "), 30) || "匿名用户";
   setCachedUserLabel(userId, normalized);
   return normalized;
 };
@@ -356,7 +356,7 @@ export const buildPublisherLine = async (
     return "";
   }
   const label = await resolveUserLabel(ctx, publisherUserId, deliveryService);
-  return `鍙戝竷鑰咃細<a href="tg://user?id=${escapeHtml(publisherUserId)}">${escapeHtml(label)}</a>`;
+  return `发布者：<a href="tg://user?id=${escapeHtml(publisherUserId)}">${escapeHtml(label)}</a>`;
 };
 
 export const shouldShowPublisherLine = async (options: {

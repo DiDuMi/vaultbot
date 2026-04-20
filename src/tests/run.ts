@@ -8,7 +8,7 @@ import { createOpenHandler } from "../bot/tenant/open";
 import { commentListCallbackRe } from "../bot/tenant/callbacks/social";
 import { createTenantSocial } from "../bot/tenant/social";
 import { createUploadBatchStore } from "../services/use-cases";
-import { extractStartPayloadFromText, resolveUserLabel, toMetaKey } from "../bot/tenant/ui-utils";
+import { buildPublisherLine, extractStartPayloadFromText, resolveUserLabel, toMetaKey } from "../bot/tenant/ui-utils";
 import {
   footMoreCallbackRe,
   historyMoreCallbackRe,
@@ -410,6 +410,16 @@ test("ui-utils: resolveUserLabel prefers project label alias", async () => {
 
   assert.equal(label, "@project-user");
   assert.equal(projectCalls, 1);
+});
+
+test("ui-utils: buildPublisherLine uses readable publisher label", async () => {
+  const { ctx } = createMockCtx();
+  const line = await buildPublisherLine(ctx, "123", {
+    getProjectUserLabel: async () => "@publisher"
+  } as never);
+
+  assert.ok(line.includes("发布者："));
+  assert.ok(line.includes("@publisher"));
 });
 
 test("admin-input: broadcastInput 无数据库时会退出并提示", async () => {
