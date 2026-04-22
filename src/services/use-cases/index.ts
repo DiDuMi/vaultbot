@@ -8,5 +8,6 @@ export * from "./delivery-replica-selection";
 export * from "./delivery-social";
 export * from "./delivery-storage";
 export * from "./delivery-stats";
+export * from "./delivery-project-vault";
 export * from "./delivery-tenant-vault";
 export * from "./delivery-strategy";

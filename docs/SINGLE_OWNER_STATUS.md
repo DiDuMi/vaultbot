@@ -10,6 +10,8 @@
 - 多管理员与多存储群治理已被明显收口
 - tenant 漂移风险已显著下降
 - 顶层服务装配、worker 边界与运维入口已经开始明确以 `project` 为主语
+- 阶段 A 的 P0 `projectId` 兼容字段方案已经完成三轮复演验证
+- 阶段 B 已开始进入“P0 双写 + 低风险切读”执行期
 - 但底层 schema 仍保留多租户结构，尚未进入破坏性清理
 
 ## 已完成项
@@ -84,6 +86,75 @@
 
 这是目前最重要的底层保护之一，因为它直接减少了“配置漂移后悄悄写进新 tenant”的风险。
 
+### 7. 阶段 A 已完成三轮复演
+
+阶段 A 当前已不只是设计稿，而是已经完成：
+
+- 本地当前库演练通过
+- 独立 shadow 库复演通过
+- 生产备份恢复库复演通过
+
+当前已确认：
+
+- P0 表的 `projectId` 字段方案可落地
+- A1 migration 可重复执行
+- A2 backfill 可重复执行
+- 对应影子环境 `preflight:project`、`build`、`test` 均已通过
+
+### 8. 生产数据现实已确认
+
+通过生产备份恢复库复演，当前已经确认：
+
+- 当前生产运行命中的 `TENANT_CODE` 是 `vault`
+- 生产数据库中仍然实际存在两个 tenant：
+  - `vault`
+  - `prod`
+
+这意味着：
+
+- 当前可以按“单项目运行心智”继续推进
+- 但还不能把数据库误判成“物理单项目态”
+- 后续阶段 B/C 设计必须同时考虑：
+  - 当前运行路径命中 `vault`
+  - 历史 `prod` 数据仍需保持可读
+
+### 9. 阶段 B 已开始落地
+
+当前已落地的阶段 B 范围：
+
+- P0 双写已进入代码
+  - `delivery-storage`
+  - `delivery-tenant-vault`
+  - `delivery-core`
+  - `upload`
+  - `delivery-admin`
+- 低风险切读已开始落地
+  - `delivery-storage`
+  - `delivery-tenant-vault`
+  - `delivery-admin`
+  - `delivery-core`
+  - `upload`
+- discovery 管理链路的 project-first fallback 已开始落地
+  - `getUserAssetMeta`
+  - `listUserBatches`
+  - `listProjectBatches`
+  - `listUserRecycledAssets`
+  - `deleteUserAsset`
+  - `recycleUserAsset`
+  - `restoreUserAsset`
+
+当前阶段 B 的执行特征是：
+
+- 仍然保持旧 `tenantId` 路径可回退
+- 只在局部入口上改成“先 `projectId`，后 `tenantId`”
+- discovery 已进入“管理链路/列表链路”的封闭入口切读
+- discovery 已开始进入搜索入口切读（`searchAssets` 已实现 project-first fallback）
+- discovery 已开始进入标签索引/标签资产列表入口切读（`listTopTags` / `listAssetsByTagId` 已实现 project-first fallback）
+- discovery 管理链路补齐：`setUserAssetSearchable` 已实现 project-first fallback
+- discovery 用户历史链路开始切读：`listUserOpenHistory` 已实现 project-first fallback
+- discovery 用户点赞链路开始切读：`listUserLikedAssets` 已实现 project-first fallback
+- discovery Tag 查询入口补齐：`getTagById` / `getTagByName` 已实现安全回退（通过 `assetTag` 关联验证归属）
+
 ## 仍然保留的结构
 
 以下内容仍然存在，因此还不能说“底层已经彻底去租户化”：
@@ -99,6 +170,7 @@
 
 - 当前更像“单 tenant 的兼容收口版”
 - 不是“彻底删除多租户结构的最终版”
+- 并且生产数据库现实仍是“多 tenant 兼容内核 + 当前运行命中单项目”
 
 ## 风险判断
 
@@ -114,6 +186,7 @@
 - `TENANT_CODE` 与数据库命中逻辑仍然是核心约束
 - 若错误修改生产环境变量，底层仍可能出现 tenant 相关问题
 - 若继续做更深层清理，可能触碰 schema / 数据兼容边界
+- 阶段 B 以后若误把“当前运行 tenant = vault”当作“库里只有 vault”，会直接误伤 `prod` 历史数据
 
 ## 生产建议
 
@@ -155,20 +228,21 @@
 
 建议做法：
 
-- 继续清理 service / worker / bot 内部残留的 tenant 局部命名
-- 补做文档与执行矩阵同步，避免“文档进度落后于代码进度”
-- 收敛类型名、注释、状态文案
-- 保持 schema 不动
+- 继续推进阶段 B
+- 优先扩展 P0 范围内双写与低风险切读
+- 继续沿 discovery 的单点入口推进，而不是一次性切整条搜索/标签链
+- 保持所有读路径继续支持 `tenantId` 回退
+- 在更高风险发现链路切读前，先持续同步文档与执行矩阵
 
 ### 方案 C：进入 schema 清理准备
 
 适用场景：
 
-- 你确认未来不会再回到多租户模式
-- 你愿意接受更高风险、换取更彻底的结构清理
+- 你希望在阶段 B 稳定后，继续规划更深层结构收口
+- 但仍然不直接进入破坏性数据库清理
 
 建议做法：
 
-- 先做数据迁移方案设计
-- 明确哪些表和字段可以废弃
-- 在真正动 Prisma schema 前，先准备回滚方案
+- 先完成阶段 B 设计与低风险落地
+- 再评估哪些表可进入下一轮切读
+- 暂不进入 `Tenant*` / `tenantId` 物理清理

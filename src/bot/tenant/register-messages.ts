@@ -199,7 +199,7 @@ export const registerTenantMessageHandlers = (
               .notifyCommentTargets(ctx, { content: text, commentId: result.commentId, notify: result.notify })
               .catch((error) =>
                 logErrorThrottled(
-                  { component: "tenant", op: "comment_notify_targets", scope: "reply_comment", commentId: result.commentId, assetId: context.assetId },
+                  { component: "project_bot", op: "comment_notify_targets", scope: "reply_comment", commentId: result.commentId, assetId: context.assetId },
                   error,
                   { intervalMs: 30_000 }
                 )
@@ -290,7 +290,7 @@ export const registerTenantMessageHandlers = (
             const normalizedTitle = text.trim().replace(/\s+/g, " ") || "未分类";
             void deps.updateVaultTopicIndexByCollection(ctx, inputState.collectionId ?? "", normalizedTitle).catch((error) =>
               logError(
-                { component: "tenant", op: "update_vault_topic_index", scope: "rename_collection", collectionId: inputState.collectionId ?? "" },
+                { component: "project_bot", op: "update_vault_topic_index", scope: "rename_collection", collectionId: inputState.collectionId ?? "" },
                 error
               )
             );
@@ -307,7 +307,7 @@ export const registerTenantMessageHandlers = (
           if (result.id) {
             const normalizedTitle = text.trim().replace(/\s+/g, " ") || "未分类";
             void deps.updateVaultTopicIndexByCollection(ctx, result.id, normalizedTitle).catch((error) =>
-              logError({ component: "tenant", op: "update_vault_topic_index", scope: "create_collection", collectionId: result.id }, error)
+              logError({ component: "project_bot", op: "update_vault_topic_index", scope: "create_collection", collectionId: result.id }, error)
             );
           }
           deps.setSessionMode(key, "idle");
@@ -415,7 +415,7 @@ export const registerTenantMessageHandlers = (
             .setUserHistoryListDate(String(ctx.from.id), today)
             .catch((error) =>
               logErrorThrottled(
-                { component: "tenant", op: "set_user_history_list_date", scope: "menu_list", userId: String(ctx.from.id) },
+                { component: "project_bot", op: "set_user_history_list_date", scope: "menu_list", userId: String(ctx.from.id) },
                 error,
                 { intervalMs: 30_000 }
               )

@@ -31,10 +31,10 @@ export const registerTenantCommands = (
       return;
     }
     if (deps.deliveryService && ctx.from) {
-      await deps.deliveryService
+        await deps.deliveryService
         .trackVisit(String(ctx.from.id), "start")
         .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "start" }, error, { intervalMs: 30_000 })
+          logErrorThrottled({ component: "project_bot", op: "track_visit", scope: "start" }, error, { intervalMs: 30_000 })
         );
     }
     await deps.renderStartHome(ctx);
@@ -43,10 +43,10 @@ export const registerTenantCommands = (
   bot.command("help", async (ctx) => {
     await deps.resetSessionForCommand(ctx);
     if (deps.deliveryService && ctx.from) {
-      await deps.deliveryService
+        await deps.deliveryService
         .trackVisit(String(ctx.from.id), "help")
         .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "help" }, error, { intervalMs: 30_000 })
+          logErrorThrottled({ component: "project_bot", op: "track_visit", scope: "help" }, error, { intervalMs: 30_000 })
         );
     }
     await deps.renderHelp(ctx);
@@ -63,10 +63,10 @@ export const registerTenantCommands = (
   bot.command("tag", async (ctx) => {
     await deps.resetSessionForCommand(ctx);
     if (deps.deliveryService && ctx.from) {
-      await deps.deliveryService
+        await deps.deliveryService
         .trackVisit(String(ctx.from.id), "tag")
         .catch((error) =>
-          logErrorThrottled({ component: "tenant", op: "track_visit", scope: "tag" }, error, { intervalMs: 30_000 })
+          logErrorThrottled({ component: "project_bot", op: "track_visit", scope: "tag" }, error, { intervalMs: 30_000 })
         );
     }
     await deps.renderTagIndex(ctx, "reply");

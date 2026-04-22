@@ -8,11 +8,9 @@ type LabelOptions = {
 export const getManagerLabel = (options?: LabelOptions) =>
   isSingleOwnerModeEnabled() ? t("role.project_owner", options) : t("role.admin", options);
 
-export const getMemberLabel = (options?: LabelOptions) =>
-  isSingleOwnerModeEnabled() ? t("role.project_member", options) : t("role.tenant_member", options);
+export const getMemberLabel = (options?: LabelOptions) => t("role.project_member", options);
 
-export const getMemberScopeLabel = (options?: LabelOptions) =>
-  isSingleOwnerModeEnabled() ? t("scope.project_member", options) : t("scope.tenant", options);
+export const getMemberScopeLabel = (options?: LabelOptions) => t("scope.project_member", options);
 
 export const getStorageGroupLabel = (options?: LabelOptions) => t("resource.storage_group", options);
 

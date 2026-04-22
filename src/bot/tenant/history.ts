@@ -45,7 +45,7 @@ export const createHistoryRenderer = (deps: {
     const historyUserId = String(ctx.from.id);
     await deps.deliveryService.setUserHistoryListDate(historyUserId, selectedDate).catch((error) =>
       logErrorThrottled(
-        { component: "tenant", op: "set_user_history_list_date", scope: "render_history", userId: historyUserId },
+        { component: "project_bot", op: "set_user_history_list_date", scope: "render_history", userId: historyUserId },
         error,
         { intervalMs: 30_000 }
       )

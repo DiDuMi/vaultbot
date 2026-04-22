@@ -24,7 +24,7 @@ export const createReplicateBatch = (deps: {
     if (!batch) {
       return;
     }
-    const projectId = batch.tenantId;
+    const projectId = batch.projectId ?? batch.tenantId;
 
     const asset = await deps.prisma.asset.findUnique({
       where: { id: batch.assetId },
@@ -78,13 +78,21 @@ export const createReplicateBatch = (deps: {
       ? [{ binding: required, required: true }, ...optional.map((b) => ({ binding: b, required: false }))]
       : [{ binding: required, required: true }];
 
-    const rawMinReplicas = await deps.prisma.tenantSetting
-      .findUnique({
-        where: { tenantId_key: { tenantId: projectId, key: "min_replicas" } },
-        select: { value: true }
-      })
-      .then((row) => row?.value ?? null)
-      .catch(() => null);
+    const rawMinReplicas =
+      (await deps.prisma.tenantSetting
+        .findUnique({
+          where: { projectId_key: { projectId, key: "min_replicas" } },
+          select: { value: true }
+        })
+        .then((row) => row?.value ?? null)
+        .catch(() => null)) ??
+      (await deps.prisma.tenantSetting
+        .findUnique({
+          where: { tenantId_key: { tenantId: projectId, key: "min_replicas" } },
+          select: { value: true }
+        })
+        .then((row) => row?.value ?? null)
+        .catch(() => null));
     const parsedMin = rawMinReplicas ? Number(rawMinReplicas) : 1;
     const minReplicas = isSingleOwnerModeEnabled()
       ? 1

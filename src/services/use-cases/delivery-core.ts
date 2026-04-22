@@ -52,7 +52,9 @@ export const createDeliveryCore = (deps: {
     const keys = entries.map((entry) => entry.key);
     const existing = await deps.prisma.tenantSetting.findMany({ where: { tenantId: projectId, key: { in: keys } }, select: { key: true } });
     const existingKeys = new Set(existing.map((row) => row.key));
-    const missing = entries.filter((entry) => !existingKeys.has(entry.key)).map((entry) => ({ tenantId: projectId, key: entry.key, value: "1" }));
+    const missing = entries
+      .filter((entry) => !existingKeys.has(entry.key))
+      .map((entry) => ({ tenantId: projectId, projectId, key: entry.key, value: "1" }));
     if (missing.length === 0) {
       return;
     }
@@ -152,12 +154,19 @@ export const createDeliveryCore = (deps: {
       return 1;
     }
     const tenantId = await getTenantId();
-    const row = await deps.prisma.tenantSetting
-      .findUnique({
-        where: { tenantId_key: { tenantId, key: "min_replicas" } },
-        select: { value: true }
-      })
-      .catch(() => null);
+    const row =
+      (await deps.prisma.tenantSetting
+        .findUnique({
+          where: { projectId_key: { projectId: tenantId, key: "min_replicas" } },
+          select: { value: true }
+        })
+        .catch(() => null)) ??
+      (await deps.prisma.tenantSetting
+        .findUnique({
+          where: { tenantId_key: { tenantId, key: "min_replicas" } },
+          select: { value: true }
+        })
+        .catch(() => null));
     const raw = row?.value ?? null;
     const parsed = raw ? Number(raw) : 1;
     return normalizeMinReplicas(parsed);
@@ -174,8 +183,8 @@ export const createDeliveryCore = (deps: {
     const next = normalizeMinReplicas(value);
     await deps.prisma.tenantSetting.upsert({
       where: { tenantId_key: { tenantId, key: "min_replicas" } },
-      update: { value: String(next) },
-      create: { tenantId, key: "min_replicas", value: String(next) }
+      update: { projectId: tenantId, value: String(next) },
+      create: { tenantId, projectId: tenantId, key: "min_replicas", value: String(next) }
     });
     return { ok: true, message: `✅ 已设置副本最小成功数：<b>${next}</b>` };
   };
@@ -186,7 +195,7 @@ export const createDeliveryCore = (deps: {
   };
 
   const trackOpen = async (projectId: string, userId: string, assetId: string) => {
-    await deps.prisma.event.create({ data: { tenantId: projectId, userId, assetId, type: "OPEN" } });
+    await deps.prisma.event.create({ data: { tenantId: projectId, projectId, userId, assetId, type: "OPEN" } });
   };
 
   const trackVisit = async (
@@ -195,7 +204,7 @@ export const createDeliveryCore = (deps: {
     metadata?: Record<string, unknown>
   ) => {
     const tenantId = await getTenantId();
-    await deps.prisma.event.create({ data: { tenantId, userId, type: "IMPRESSION", payload: { source, ...metadata } } });
+    await deps.prisma.event.create({ data: { tenantId, projectId: tenantId, userId, type: "IMPRESSION", payload: { source, ...metadata } } });
   };
 
   return {

@@ -265,7 +265,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
       historyDateStates.get(key) ??
       (await deliveryService.getUserHistoryListDate(String(ctx.from.id)).catch((error) => {
         logErrorThrottled(
-          { component: "tenant_social_callbacks", op: "get_user_history_list_date", scope: "day_prev", userId: String(ctx.from.id) },
+          { component: "project_social_callbacks", op: "get_user_history_list_date", scope: "day_prev", userId: String(ctx.from.id) },
           error,
           { intervalMs: 30_000 }
         );
@@ -276,7 +276,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     historyDateStates.set(key, selectedDate);
     await deliveryService.setUserHistoryListDate(String(ctx.from.id), selectedDate).catch((error) =>
       logErrorThrottled(
-        { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "day_prev", userId: String(ctx.from.id) },
+        { component: "project_social_callbacks", op: "set_user_history_list_date", scope: "day_prev", userId: String(ctx.from.id) },
         error,
         { intervalMs: 30_000 }
       )
@@ -301,7 +301,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
       historyDateStates.get(key) ??
       (await deliveryService.getUserHistoryListDate(String(ctx.from.id)).catch((error) => {
         logErrorThrottled(
-          { component: "tenant_social_callbacks", op: "get_user_history_list_date", scope: "day_next", userId: String(ctx.from.id) },
+          { component: "project_social_callbacks", op: "get_user_history_list_date", scope: "day_next", userId: String(ctx.from.id) },
           error,
           { intervalMs: 30_000 }
         );
@@ -313,7 +313,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     historyDateStates.set(key, selectedDate);
     await deliveryService.setUserHistoryListDate(String(ctx.from.id), selectedDate).catch((error) =>
       logErrorThrottled(
-        { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "day_next", userId: String(ctx.from.id) },
+        { component: "project_social_callbacks", op: "set_user_history_list_date", scope: "day_next", userId: String(ctx.from.id) },
         error,
         { intervalMs: 30_000 }
       )
@@ -337,7 +337,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
     historyDateStates.set(key, todayStart);
     await deliveryService.setUserHistoryListDate(String(ctx.from.id), todayStart).catch((error) =>
       logErrorThrottled(
-        { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "day_today", userId: String(ctx.from.id) },
+        { component: "project_social_callbacks", op: "set_user_history_list_date", scope: "day_today", userId: String(ctx.from.id) },
         error,
         { intervalMs: 30_000 }
       )
@@ -392,7 +392,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
       if (deliveryService) {
         await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), undefined).catch((error) =>
           logErrorThrottled(
-            { component: "tenant_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_all", userId: String(ctx.from.id) },
+            { component: "project_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_all", userId: String(ctx.from.id) },
             error,
             { intervalMs: 30_000 }
           )
@@ -410,7 +410,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
       if (deliveryService) {
         await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), null).catch((error) =>
           logErrorThrottled(
-            { component: "tenant_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_none", userId: String(ctx.from.id) },
+            { component: "project_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_none", userId: String(ctx.from.id) },
             error,
             { intervalMs: 30_000 }
           )
@@ -429,7 +429,7 @@ export const registerHistoryCallbacks = (bot: Bot, deps: TenantCallbackDeps) => 
       if (deliveryService) {
         await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), collectionId).catch((error) =>
           logErrorThrottled(
-            { component: "tenant_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_collection", userId: String(ctx.from.id), collectionId },
+            { component: "project_social_callbacks", op: "set_user_history_collection_filter", scope: "filter_collection", userId: String(ctx.from.id), collectionId },
             error,
             { intervalMs: 30_000 }
           )
@@ -575,7 +575,7 @@ export const registerHelpCallbacks = (bot: Bot, deps: TenantCallbackDeps) => {
         historyDateStates.set(key, today);
         await deliveryService.setUserHistoryListDate(String(ctx.from.id), today).catch((error) =>
           logErrorThrottled(
-            { component: "tenant_social_callbacks", op: "set_user_history_list_date", scope: "help_list", userId: String(ctx.from.id) },
+            { component: "project_social_callbacks", op: "set_user_history_list_date", scope: "help_list", userId: String(ctx.from.id) },
             error,
             { intervalMs: 30_000 }
           )

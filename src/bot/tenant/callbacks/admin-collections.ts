@@ -65,7 +65,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
     if (deliveryService) {
       await deliveryService.setUserDefaultCollectionId(String(ctx.from.id), null).catch((error) =>
         logErrorThrottled(
-          { component: "tenant_admin", op: "set_user_default_collection_id", scope: "select_none", userId: String(ctx.from.id) },
+          { component: "project_admin", op: "set_user_default_collection_id", scope: "select_none", userId: String(ctx.from.id) },
           error,
           { intervalMs: 30_000 }
         )
@@ -94,7 +94,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
     if (deliveryService) {
       await deliveryService.setUserDefaultCollectionId(String(ctx.from.id), collectionId).catch((error) =>
         logErrorThrottled(
-          { component: "tenant_admin", op: "set_user_default_collection_id", scope: "select_collection", userId: String(ctx.from.id), collectionId },
+          { component: "project_admin", op: "set_user_default_collection_id", scope: "select_collection", userId: String(ctx.from.id), collectionId },
           error,
           { intervalMs: 30_000 }
         )
@@ -197,7 +197,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
       collectionStates.set(key, null);
       await deliveryService.setUserDefaultCollectionId(String(ctx.from.id), null).catch((error) =>
         logErrorThrottled(
-          { component: "tenant_admin", op: "set_user_default_collection_id", scope: "delete_collection_cleanup", userId: String(ctx.from.id) },
+          { component: "project_admin", op: "set_user_default_collection_id", scope: "delete_collection_cleanup", userId: String(ctx.from.id) },
           error,
           { intervalMs: 30_000 }
         )
@@ -207,7 +207,7 @@ export const registerCollectionsCallbacks = (bot: Bot, deps: TenantCallbackDeps)
       historyFilterStates.delete(key);
       await deliveryService.setUserHistoryCollectionFilter(String(ctx.from.id), undefined).catch((error) =>
         logErrorThrottled(
-          { component: "tenant_admin", op: "set_user_history_collection_filter", scope: "delete_collection_cleanup", userId: String(ctx.from.id) },
+          { component: "project_admin", op: "set_user_history_collection_filter", scope: "delete_collection_cleanup", userId: String(ctx.from.id) },
           error,
           { intervalMs: 30_000 }
         )

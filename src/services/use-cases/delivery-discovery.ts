@@ -61,12 +61,20 @@ export const createProjectDiscovery = (deps: {
     if (existingCount > 0) {
       return;
     }
-    const assets = await deps.prisma.asset
+    let assets = await deps.prisma.asset
       .findMany({
-        where: { tenantId: projectId },
+        where: { projectId },
         select: { id: true, title: true, description: true }
       })
       .catch(() => []);
+    if (assets.length === 0) {
+      assets = await deps.prisma.asset
+        .findMany({
+          where: { tenantId: projectId },
+          select: { id: true, title: true, description: true }
+        })
+        .catch(() => []);
+    }
     if (assets.length === 0) {
       return;
     }
@@ -106,47 +114,55 @@ export const createProjectDiscovery = (deps: {
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize, { maxSize: 50 });
     const collectionId = options?.collectionId;
-    const where =
-      collectionId === undefined
-        ? {
-            tenantId: projectId,
-            searchable: true,
-            ...buildPublicAssetVisibilityWhere(isProjectViewer),
-            OR: [
-              { title: { contains: safeQuery, mode: "insensitive" as const } },
-              { description: { contains: safeQuery, mode: "insensitive" as const } }
-            ]
+
+    const baseWhere = {
+      searchable: true,
+      ...buildPublicAssetVisibilityWhere(isProjectViewer),
+      OR: [
+        { title: { contains: safeQuery, mode: "insensitive" as const } },
+        { description: { contains: safeQuery, mode: "insensitive" as const } }
+      ]
+    };
+
+    const queryAssets = async (where: Record<string, unknown>) => {
+      const [total, assets] = await Promise.all([
+        deps.prisma.asset.count({ where: where as never }),
+        deps.prisma.asset.findMany({
+          where: where as never,
+          orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+          take: safeSize,
+          skip: (safePage - 1) * safeSize,
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            shareCode: true,
+            uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
           }
-        : {
-            tenantId: projectId,
-            searchable: true,
-            collectionId,
-            ...buildPublicAssetVisibilityWhere(isProjectViewer),
-            OR: [
-              { title: { contains: safeQuery, mode: "insensitive" as const } },
-              { description: { contains: safeQuery, mode: "insensitive" as const } }
-            ]
-          };
-    const [total, assets] = await Promise.all([
-      deps.prisma.asset.count({ where }),
-      deps.prisma.asset.findMany({
-        where,
-        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-        take: safeSize,
-        skip: (safePage - 1) * safeSize,
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          shareCode: true,
-          uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
-        }
-      })
-    ]);
+        })
+      ]);
+      return { total, assets };
+    };
+
+    const projectWhere =
+      collectionId === undefined
+        ? { projectId, ...baseWhere }
+        : { projectId, collectionId, ...baseWhere };
+    const tenantWhere =
+      collectionId === undefined
+        ? { tenantId: projectId, ...baseWhere }
+        : { tenantId: projectId, collectionId, ...baseWhere };
+
+    let result = await queryAssets(projectWhere);
+    if (result.total === 0) {
+      result = await queryAssets(tenantWhere);
+    }
+    const { total, assets } = result;
     await deps.prisma.event
       .create({
         data: {
           tenantId: projectId,
+          projectId,
           userId,
           type: "SEARCH",
           payload: { q: safeQuery, page: safePage }
@@ -169,7 +185,27 @@ export const createProjectDiscovery = (deps: {
 
   const getTagById = async (tagId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const tag = await deps.prisma.tag.findFirst({ where: { id: tagId, tenantId: projectId }, select: { id: true, name: true } });
+    const direct = await deps.prisma.tag.findFirst({ where: { id: tagId, tenantId: projectId }, select: { id: true, name: true } });
+    if (direct) {
+      return { tagId: direct.id, name: direct.name };
+    }
+
+    // Safe fallback: only resolve the tag if it's actually referenced by this project.
+    const link =
+      (await deps.prisma.assetTag
+        .findFirst({
+          where: { tenantId: projectId, tagId, asset: { projectId } },
+          select: { tag: { select: { id: true, name: true } } }
+        })
+        .catch(() => null)) ??
+      (await deps.prisma.assetTag
+        .findFirst({
+          where: { tenantId: projectId, tagId, asset: { tenantId: projectId } },
+          select: { tag: { select: { id: true, name: true } } }
+        })
+        .catch(() => null));
+
+    const tag = link?.tag ?? null;
     return tag ? { tagId: tag.id, name: tag.name } : null;
   };
 
@@ -183,7 +219,26 @@ export const createProjectDiscovery = (deps: {
       where: { tenantId_name: { tenantId: projectId, name: normalized } },
       select: { id: true, name: true }
     });
-    return tag ? { tagId: tag.id, name: tag.name } : null;
+    if (tag) {
+      return { tagId: tag.id, name: tag.name };
+    }
+
+    const link =
+      (await deps.prisma.assetTag
+        .findFirst({
+          where: { tenantId: projectId, tag: { name: normalized }, asset: { projectId } },
+          select: { tag: { select: { id: true, name: true } } }
+        })
+        .catch(() => null)) ??
+      (await deps.prisma.assetTag
+        .findFirst({
+          where: { tenantId: projectId, tag: { name: normalized }, asset: { tenantId: projectId } },
+          select: { tag: { select: { id: true, name: true } } }
+        })
+        .catch(() => null));
+
+    const resolved = link?.tag ?? null;
+    return resolved ? { tagId: resolved.id, name: resolved.name } : null;
   };
 
   async function listTopTags(
@@ -206,13 +261,23 @@ export const createProjectDiscovery = (deps: {
     const assetVisibilityWhere = buildPublicAssetVisibilityWhere(isProjectViewer);
     if (typeof pageSize !== "number") {
       const safeLimit = normalizeLimit(limitOrPage, { defaultLimit: 20, maxLimit: 50 });
-      const grouped = await deps.prisma.assetTag.groupBy({
+      const groupedByProject = await deps.prisma.assetTag.groupBy({
         by: ["tagId"],
-        where: { tenantId: projectId, asset: { searchable: true, ...assetVisibilityWhere } },
+        where: { tenantId: projectId, asset: { projectId, searchable: true, ...assetVisibilityWhere } },
         _count: { tagId: true },
         orderBy: [{ _count: { tagId: "desc" } }, { tagId: "asc" }],
         take: safeLimit
       });
+      const grouped =
+        groupedByProject.length > 0
+          ? groupedByProject
+          : await deps.prisma.assetTag.groupBy({
+              by: ["tagId"],
+              where: { tenantId: projectId, asset: { searchable: true, ...assetVisibilityWhere } },
+              _count: { tagId: true },
+              orderBy: [{ _count: { tagId: "desc" } }, { tagId: "asc" }],
+              take: safeLimit
+            });
       const tagIds = grouped.map((g) => g.tagId);
       if (tagIds.length === 0) {
         return [];
@@ -232,20 +297,33 @@ export const createProjectDiscovery = (deps: {
     }
     const safePage = normalizePage(limitOrPage);
     const safePageSize = normalizePageSize(pageSize, { defaultSize: 20, maxSize: 50 });
-    const where = { tenantId: projectId, asset: { searchable: true, ...assetVisibilityWhere } };
-    const [total, grouped] = await Promise.all([
-      deps.prisma.tag.count({
-        where: { tenantId: projectId, assets: { some: { asset: { searchable: true, ...assetVisibilityWhere } } } }
-      }),
-      deps.prisma.assetTag.groupBy({
-        by: ["tagId"],
-        where,
-        _count: { tagId: true },
-        orderBy: [{ _count: { tagId: "desc" } }, { tagId: "asc" }],
-        skip: (safePage - 1) * safePageSize,
-        take: safePageSize
-      })
-    ]);
+
+    const queryTagIndex = async (assetWhere: Record<string, unknown>) => {
+      const [total, grouped] = await Promise.all([
+        deps.prisma.tag.count({
+          where: { tenantId: projectId, assets: { some: { asset: assetWhere as never } } } as never
+        }),
+        deps.prisma.assetTag.groupBy({
+          by: ["tagId"],
+          where: { tenantId: projectId, asset: assetWhere as never } as never,
+          _count: { tagId: true },
+          orderBy: [{ _count: { tagId: "desc" } }, { tagId: "asc" }],
+          skip: (safePage - 1) * safePageSize,
+          take: safePageSize
+        })
+      ]);
+      return { total, grouped };
+    };
+
+    const projectAssetWhere = { projectId, searchable: true, ...assetVisibilityWhere };
+    const tenantAssetWhere = { searchable: true, ...assetVisibilityWhere };
+
+    let index = await queryTagIndex(projectAssetWhere);
+    if (index.total === 0) {
+      index = await queryTagIndex(tenantAssetWhere);
+    }
+
+    const { total, grouped } = index;
     const tagIds = grouped.map((g) => g.tagId);
     if (tagIds.length === 0) {
       return { total, items: [] };
@@ -270,31 +348,44 @@ export const createProjectDiscovery = (deps: {
     const isProjectViewer = await deps.isProjectMemberSafe(userId);
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize, { maxSize: 50 });
-    const where = {
-      tenantId: projectId,
+    const baseWhere = {
       searchable: true,
       ...buildPublicAssetVisibilityWhere(isProjectViewer),
       tags: { some: { tagId } }
     };
-    const [total, assets] = await Promise.all([
-      deps.prisma.asset.count({ where }),
-      deps.prisma.asset.findMany({
-        where,
-        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-        take: safeSize,
-        skip: (safePage - 1) * safeSize,
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          shareCode: true,
-          uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
-        }
-      })
-    ]);
+
+    const queryAssets = async (where: Record<string, unknown>) => {
+      const [total, assets] = await Promise.all([
+        deps.prisma.asset.count({ where: where as never }),
+        deps.prisma.asset.findMany({
+          where: where as never,
+          orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+          take: safeSize,
+          skip: (safePage - 1) * safeSize,
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            shareCode: true,
+            uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
+          }
+        })
+      ]);
+      return { total, assets };
+    };
+
+    const projectWhere = { projectId, ...baseWhere };
+    const tenantWhere = { tenantId: projectId, ...baseWhere };
+
+    let result = await queryAssets(projectWhere);
+    if (result.total === 0) {
+      result = await queryAssets(tenantWhere);
+    }
+
+    const { total, assets } = result;
     await deps.prisma.event
       .create({
-        data: { tenantId: projectId, userId, type: "SEARCH", payload: { tagId, page: safePage } }
+        data: { tenantId: projectId, projectId, userId, type: "SEARCH", payload: { tagId, page: safePage } }
       })
       .catch((error) =>
         logError({ component: "delivery_discovery", op: "event_create_search_tag", projectId, userId, tagId, page: safePage }, error)
@@ -312,11 +403,18 @@ export const createProjectDiscovery = (deps: {
   };
 
   const getUserAssetMeta = async (userId: string, assetId: string) => {
-    const batch = await deps.prisma.uploadBatch.findFirst({
-      where: { userId, assetId, status: "COMMITTED" },
-      orderBy: { createdAt: "desc" },
-      include: { asset: true }
-    });
+    const projectId = await deps.getRuntimeProjectId();
+    const batch =
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { projectId, userId, assetId, status: "COMMITTED" },
+        orderBy: { createdAt: "desc" },
+        include: { asset: true }
+      })) ??
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
+        orderBy: { createdAt: "desc" },
+        include: { asset: true }
+      }));
     if (!batch?.asset) {
       return null;
     }
@@ -333,14 +431,21 @@ export const createProjectDiscovery = (deps: {
 
   const setUserAssetSearchable = async (userId: string, assetId: string, searchable: boolean) => {
     const projectId = await deps.getRuntimeProjectId();
-    const ownerBatch = await deps.prisma.uploadBatch.findFirst({
-      where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
-      select: { id: true }
-    });
+    const ownerBatch =
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { projectId, userId, assetId, status: "COMMITTED" },
+        select: { id: true }
+      })) ??
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
+        select: { id: true }
+      }));
     if (!ownerBatch) {
       return { ok: false, message: "🔒 无权限或内容不存在。" };
     }
-    const existing = await deps.prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select: { id: true, searchable: true } });
+    const existing =
+      (await deps.prisma.asset.findFirst({ where: { id: assetId, projectId }, select: { id: true, searchable: true } })) ??
+      (await deps.prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select: { id: true, searchable: true } }));
     if (!existing) {
       return { ok: false, message: "⚠️ 内容不存在或已删除。" };
     }
@@ -353,25 +458,39 @@ export const createProjectDiscovery = (deps: {
 
   const deleteUserAsset = async (userId: string, assetId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const ownerBatch = await deps.prisma.uploadBatch.findFirst({
-      where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
-      select: { id: true }
-    });
+    const ownerBatch =
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { projectId, userId, assetId, status: "COMMITTED" },
+        select: { id: true }
+      })) ??
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
+        select: { id: true }
+      }));
     if (!ownerBatch) {
       return { ok: false, message: "🔒 无权限或内容不存在。" };
     }
-    const existing = await deps.prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select: { id: true } });
+    const existing =
+      (await deps.prisma.asset.findFirst({ where: { id: assetId, projectId }, select: { id: true } })) ??
+      (await deps.prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select: { id: true } }));
     if (!existing) {
       return { ok: true, message: "✅ 内容不存在或已删除。" };
     }
     await deps.prisma.$transaction(async (tx) => {
+      await tx.tenantSetting.deleteMany({ where: { projectId, key: recycledVisibilityKey(existing.id) } });
       await tx.tenantSetting.deleteMany({ where: { tenantId: projectId, key: recycledVisibilityKey(existing.id) } });
+      await tx.assetCommentLike.deleteMany({ where: { comment: { asset: { projectId, id: existing.id } } } });
       await tx.assetCommentLike.deleteMany({ where: { tenantId: projectId, comment: { assetId: existing.id } } });
+      await tx.assetComment.deleteMany({ where: { asset: { projectId, id: existing.id } } });
       await tx.assetComment.deleteMany({ where: { tenantId: projectId, assetId: existing.id } });
+      await tx.assetLike.deleteMany({ where: { asset: { projectId, id: existing.id } } });
       await tx.assetLike.deleteMany({ where: { tenantId: projectId, assetId: existing.id } });
+      await tx.assetTag.deleteMany({ where: { asset: { projectId, id: existing.id } } });
       await tx.assetTag.deleteMany({ where: { tenantId: projectId, assetId: existing.id } });
       await tx.assetReplica.deleteMany({ where: { assetId: existing.id } });
+      await tx.uploadItem.deleteMany({ where: { batch: { projectId, assetId: existing.id } } });
       await tx.uploadItem.deleteMany({ where: { batch: { tenantId: projectId, assetId: existing.id } } });
+      await tx.uploadBatch.deleteMany({ where: { projectId, assetId: existing.id } });
       await tx.uploadBatch.deleteMany({ where: { tenantId: projectId, assetId: existing.id } });
       await tx.asset.delete({ where: { id: existing.id } });
     });
@@ -380,17 +499,27 @@ export const createProjectDiscovery = (deps: {
 
   const recycleUserAsset = async (userId: string, assetId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const ownerBatch = await deps.prisma.uploadBatch.findFirst({
-      where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
-      select: { id: true }
-    });
+    const ownerBatch =
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { projectId, userId, assetId, status: "COMMITTED" },
+        select: { id: true }
+      })) ??
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
+        select: { id: true }
+      }));
     if (!ownerBatch) {
       return { ok: false, message: "🔒 无权限或内容不存在。" };
     }
-    const existing = await deps.prisma.asset.findFirst({
-      where: { id: assetId, tenantId: projectId },
-      select: { id: true, searchable: true, visibility: true }
-    });
+    const existing =
+      (await deps.prisma.asset.findFirst({
+        where: { id: assetId, projectId },
+        select: { id: true, searchable: true, visibility: true }
+      })) ??
+      (await deps.prisma.asset.findFirst({
+        where: { id: assetId, tenantId: projectId },
+        select: { id: true, searchable: true, visibility: true }
+      }));
     if (!existing) {
       return { ok: true, message: "✅ 内容不存在或已删除。" };
     }
@@ -400,8 +529,8 @@ export const createProjectDiscovery = (deps: {
     await deps.prisma.$transaction(async (tx) => {
       await tx.tenantSetting.upsert({
         where: { tenantId_key: { tenantId: projectId, key: recycledVisibilityKey(existing.id) } },
-        update: { value: existing.visibility },
-        create: { tenantId: projectId, key: recycledVisibilityKey(existing.id), value: existing.visibility }
+        update: { projectId, value: existing.visibility },
+        create: { tenantId: projectId, projectId, key: recycledVisibilityKey(existing.id), value: existing.visibility }
       });
       await tx.asset.update({ where: { id: existing.id }, data: { searchable: false, visibility: "RESTRICTED" } });
     });
@@ -410,35 +539,53 @@ export const createProjectDiscovery = (deps: {
 
   const restoreUserAsset = async (userId: string, assetId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const ownerBatch = await deps.prisma.uploadBatch.findFirst({
-      where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
-      select: { id: true }
-    });
+    const ownerBatch =
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { projectId, userId, assetId, status: "COMMITTED" },
+        select: { id: true }
+      })) ??
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
+        select: { id: true }
+      }));
     if (!ownerBatch) {
       return { ok: false, message: "🔒 无权限或内容不存在。" };
     }
-    const existing = await deps.prisma.asset.findFirst({
-      where: { id: assetId, tenantId: projectId },
-      select: { id: true, searchable: true, visibility: true }
-    });
+    const existing =
+      (await deps.prisma.asset.findFirst({
+        where: { id: assetId, projectId },
+        select: { id: true, searchable: true, visibility: true }
+      })) ??
+      (await deps.prisma.asset.findFirst({
+        where: { id: assetId, tenantId: projectId },
+        select: { id: true, searchable: true, visibility: true }
+      }));
     if (!existing) {
       return { ok: false, message: "⚠️ 内容不存在或已删除。" };
     }
     if (existing.searchable && existing.visibility !== "RESTRICTED") {
       return { ok: true, message: "✅ 当前已是正常状态。" };
     }
-    const previousVisibility = await deps.prisma.tenantSetting
-      .findUnique({
-        where: { tenantId_key: { tenantId: projectId, key: recycledVisibilityKey(existing.id) } },
-        select: { value: true }
-      })
-      .then((row) => row?.value ?? null);
+    const previousVisibility =
+      (await deps.prisma.tenantSetting
+        .findUnique({
+          where: { projectId_key: { projectId, key: recycledVisibilityKey(existing.id) } },
+          select: { value: true }
+        })
+        .then((row) => row?.value ?? null)) ??
+      (await deps.prisma.tenantSetting
+        .findUnique({
+          where: { tenantId_key: { tenantId: projectId, key: recycledVisibilityKey(existing.id) } },
+          select: { value: true }
+        })
+        .then((row) => row?.value ?? null));
     const restoredVisibility =
       previousVisibility === "PUBLIC" || previousVisibility === "PROTECTED" || previousVisibility === "RESTRICTED"
         ? previousVisibility
         : "PROTECTED";
     await deps.prisma.$transaction(async (tx) => {
       await tx.asset.update({ where: { id: existing.id }, data: { searchable: true, visibility: restoredVisibility } });
+      await tx.tenantSetting.deleteMany({ where: { projectId, key: recycledVisibilityKey(existing.id) } });
       await tx.tenantSetting.deleteMany({ where: { tenantId: projectId, key: recycledVisibilityKey(existing.id) } });
     });
     return { ok: true, message: "✅ 已恢复该内容。" };
@@ -448,22 +595,22 @@ export const createProjectDiscovery = (deps: {
     const tenantId = await deps.getRuntimeProjectId();
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize);
-    const where = {
-      tenantId,
+    const projectWhere = {
+      projectId: tenantId,
       searchable: false,
       visibility: "RESTRICTED" as const,
       uploadBatches: {
         some: {
-          tenantId,
+          projectId: tenantId,
           userId,
           status: "COMMITTED" as const
         }
       }
     };
-    const [total, assets] = await Promise.all([
-      deps.prisma.asset.count({ where }),
+    const [projectTotal, projectAssets] = await Promise.all([
+      deps.prisma.asset.count({ where: projectWhere }),
       deps.prisma.asset.findMany({
-        where,
+        where: projectWhere,
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
         take: safeSize,
         skip: (safePage - 1) * safeSize,
@@ -476,6 +623,39 @@ export const createProjectDiscovery = (deps: {
         }
       })
     ]);
+    const [total, assets] =
+      projectTotal > 0 || projectAssets.length > 0
+        ? [projectTotal, projectAssets]
+        : await (async () => {
+            const tenantWhere = {
+              tenantId,
+              searchable: false,
+              visibility: "RESTRICTED" as const,
+              uploadBatches: {
+                some: {
+                  tenantId,
+                  userId,
+                  status: "COMMITTED" as const
+                }
+              }
+            };
+            return Promise.all([
+              deps.prisma.asset.count({ where: tenantWhere }),
+              deps.prisma.asset.findMany({
+                where: tenantWhere,
+                orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+                take: safeSize,
+                skip: (safePage - 1) * safeSize,
+                select: {
+                  id: true,
+                  title: true,
+                  description: true,
+                  shareCode: true,
+                  updatedAt: true
+                }
+              })
+            ]);
+          })();
     return {
       total,
       items: assets.map((asset) => ({
@@ -511,8 +691,10 @@ export const createProjectDiscovery = (deps: {
     collectionId?: string | null;
     date?: Date;
     viewerUserId?: string;
+    scopeKey?: "tenantId" | "projectId";
   }) => {
     const tenantId = await deps.getRuntimeProjectId();
+    const scopeKey = options.scopeKey ?? "tenantId";
     const dayStart = options.date ? deps.startOfLocalDay(options.date) : undefined;
     const dayEnd = dayStart ? new Date(dayStart.getTime() + 24 * 60 * 60 * 1000) : undefined;
     const isProjectViewer = options.viewerUserId ? await deps.isProjectMemberSafe(options.viewerUserId) : true;
@@ -520,11 +702,12 @@ export const createProjectDiscovery = (deps: {
       ...(options.collectionId === undefined ? {} : { collectionId: options.collectionId }),
       ...buildPublicAssetVisibilityWhere(isProjectViewer)
     };
+    const scopedAssetWhere = Object.keys(assetWhere).length > 0 ? { ...assetWhere, [scopeKey]: tenantId } : assetWhere;
     const where = {
-      tenantId,
+      [scopeKey]: tenantId,
       status: "COMMITTED" as const,
       ...(options.userId ? { userId: options.userId } : {}),
-      ...(Object.keys(assetWhere).length > 0 ? { asset: assetWhere } : {}),
+      ...(Object.keys(scopedAssetWhere).length > 0 ? { asset: scopedAssetWhere } : {}),
       ...(dayStart && dayEnd ? { createdAt: { gte: dayStart, lt: dayEnd } } : {})
     };
     return where;
@@ -538,22 +721,45 @@ export const createProjectDiscovery = (deps: {
   ) => {
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize);
-    const where = await buildBatchListWhere({
+    const projectWhere = await buildBatchListWhere({
       userId,
       collectionId: options?.collectionId,
       date: options?.date,
-      viewerUserId: userId
+      viewerUserId: userId,
+      scopeKey: "projectId"
     });
-    const [total, batches] = await Promise.all([
-      deps.prisma.uploadBatch.count({ where }),
+    const [projectTotal, projectBatches] = await Promise.all([
+      deps.prisma.uploadBatch.count({ where: projectWhere }),
       deps.prisma.uploadBatch.findMany({
-        where,
+        where: projectWhere,
         orderBy: { createdAt: "desc" },
         take: safeSize,
         skip: (safePage - 1) * safeSize,
         include: { asset: true, items: { select: { id: true } } }
       })
     ]);
+    const [total, batches] =
+      projectTotal > 0 || projectBatches.length > 0
+        ? [projectTotal, projectBatches]
+        : await (async () => {
+            const tenantWhere = await buildBatchListWhere({
+              userId,
+              collectionId: options?.collectionId,
+              date: options?.date,
+              viewerUserId: userId,
+              scopeKey: "tenantId"
+            });
+            return Promise.all([
+              deps.prisma.uploadBatch.count({ where: tenantWhere }),
+              deps.prisma.uploadBatch.findMany({
+                where: tenantWhere,
+                orderBy: { createdAt: "desc" },
+                take: safeSize,
+                skip: (safePage - 1) * safeSize,
+                include: { asset: true, items: { select: { id: true } } }
+              })
+            ]);
+          })();
     return {
       total,
       items: batches.map((batch) => ({
@@ -575,21 +781,43 @@ export const createProjectDiscovery = (deps: {
   ) => {
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize);
-    const where = await buildBatchListWhere({
+    const projectWhere = await buildBatchListWhere({
       collectionId: options?.collectionId,
       date: options?.date,
-      viewerUserId
+      viewerUserId,
+      scopeKey: "projectId"
     });
-    const [total, batches] = await Promise.all([
-      deps.prisma.uploadBatch.count({ where }),
+    const [projectTotal, projectBatches] = await Promise.all([
+      deps.prisma.uploadBatch.count({ where: projectWhere }),
       deps.prisma.uploadBatch.findMany({
-        where,
+        where: projectWhere,
         orderBy: { createdAt: "desc" },
         take: safeSize,
         skip: (safePage - 1) * safeSize,
         include: { asset: true, items: { select: { id: true } } }
       })
     ]);
+    const [total, batches] =
+      projectTotal > 0 || projectBatches.length > 0
+        ? [projectTotal, projectBatches]
+        : await (async () => {
+            const tenantWhere = await buildBatchListWhere({
+              collectionId: options?.collectionId,
+              date: options?.date,
+              viewerUserId,
+              scopeKey: "tenantId"
+            });
+            return Promise.all([
+              deps.prisma.uploadBatch.count({ where: tenantWhere }),
+              deps.prisma.uploadBatch.findMany({
+                where: tenantWhere,
+                orderBy: { createdAt: "desc" },
+                take: safeSize,
+                skip: (safePage - 1) * safeSize,
+                include: { asset: true, items: { select: { id: true } } }
+              })
+            ]);
+          })();
     return {
       total,
       items: batches.map((batch) => ({
@@ -608,40 +836,69 @@ export const createProjectDiscovery = (deps: {
     const safePage = normalizePage(page);
     const safeSize = normalizePageSize(pageSize);
     const since = options?.since;
-    const where = {
-      tenantId,
+
+    const buildWhere = (scopeKey: "projectId" | "tenantId") => ({
+      [scopeKey]: tenantId,
       userId,
       type: "OPEN" as const,
       assetId: { not: null },
       ...(since ? { createdAt: { gte: since } } : {})
+    });
+
+    const queryHistory = async (where: Record<string, unknown>) => {
+      const [distinctAssets, grouped] = await Promise.all([
+        deps.prisma.event.findMany({ where: where as never, distinct: ["assetId"], select: { assetId: true } }),
+        deps.prisma.event.groupBy({
+          by: ["assetId"],
+          where: where as never,
+          _max: { createdAt: true },
+          orderBy: { _max: { createdAt: "desc" } },
+          take: safeSize,
+          skip: (safePage - 1) * safeSize
+        })
+      ]);
+      return { total: distinctAssets.length, grouped };
     };
-    const [distinctAssets, grouped] = await Promise.all([
-      deps.prisma.event.findMany({ where, distinct: ["assetId"], select: { assetId: true } }),
-      deps.prisma.event.groupBy({
-        by: ["assetId"],
-        where,
-        _max: { createdAt: true },
-        orderBy: { _max: { createdAt: "desc" } },
-        take: safeSize,
-        skip: (safePage - 1) * safeSize
-      })
-    ]);
-    const total = distinctAssets.length;
+
+    const projectWhere = buildWhere("projectId");
+    const tenantWhere = buildWhere("tenantId");
+
+    let result = await queryHistory(projectWhere);
+    if (result.total === 0) {
+      result = await queryHistory(tenantWhere);
+    }
+
+    const { total, grouped } = result;
     const assetIds = grouped.map((g) => g.assetId).filter((id): id is string => typeof id === "string" && id.length > 0);
     if (assetIds.length === 0) {
       return { total, items: [] };
     }
-    const assets = await deps.prisma.asset.findMany({
-      where: { id: { in: assetIds } },
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        shareCode: true,
-        uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
-      }
-    });
-    const assetMap = new Map(assets.map((asset) => [asset.id, asset]));
+    const assets = await deps.prisma.asset
+      .findMany({
+        where: { id: { in: assetIds }, projectId: tenantId },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          shareCode: true,
+          uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
+        }
+      })
+      .then((rows) => (rows.length > 0 ? rows : null))
+      .catch(() => null);
+    const finalAssets =
+      assets ??
+      (await deps.prisma.asset.findMany({
+        where: { id: { in: assetIds }, tenantId },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          shareCode: true,
+          uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
+        }
+      }));
+    const assetMap = new Map(finalAssets.map((asset) => [asset.id, asset]));
     const items = grouped
       .map((g) => {
         const assetId = g.assetId;
@@ -669,29 +926,51 @@ export const createProjectDiscovery = (deps: {
     const safeSize = normalizePageSize(pageSize);
     const isProjectMember = await deps.isProjectMemberSafe(userId);
     const since = options?.since;
-    const where = isProjectMember ? { tenantId, userId } : { tenantId, userId, asset: buildPublicAssetVisibilityWhere(false) };
-    const finalWhere = since ? { ...where, createdAt: { gte: since } } : where;
-    const [total, likes] = await Promise.all([
-      deps.prisma.assetLike.count({ where: finalWhere }),
-      deps.prisma.assetLike.findMany({
-        where: finalWhere,
-        orderBy: { createdAt: "desc" },
-        take: safeSize,
-        skip: (safePage - 1) * safeSize,
-        select: {
-          assetId: true,
-          createdAt: true,
-          asset: {
-            select: {
-              title: true,
-              description: true,
-              shareCode: true,
-              uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
+    const visibilityWhere = buildPublicAssetVisibilityWhere(!isProjectMember ? false : true);
+
+    const buildLikeWhere = (scopeKey: "projectId" | "tenantId") => {
+      const base = {
+        tenantId,
+        userId,
+        asset: { ...visibilityWhere, [scopeKey]: tenantId }
+      };
+      return since ? { ...base, createdAt: { gte: since } } : base;
+    };
+
+    const queryLikes = async (where: Record<string, unknown>) => {
+      const [total, likes] = await Promise.all([
+        deps.prisma.assetLike.count({ where: where as never }),
+        deps.prisma.assetLike.findMany({
+          where: where as never,
+          orderBy: { createdAt: "desc" },
+          take: safeSize,
+          skip: (safePage - 1) * safeSize,
+          select: {
+            assetId: true,
+            createdAt: true,
+            asset: {
+              select: {
+                title: true,
+                description: true,
+                shareCode: true,
+                uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
+              }
             }
           }
-        }
-      })
-    ]);
+        })
+      ]);
+      return { total, likes };
+    };
+
+    const projectWhere = buildLikeWhere("projectId");
+    const tenantWhere = buildLikeWhere("tenantId");
+
+    let result = await queryLikes(projectWhere);
+    if (result.total === 0) {
+      result = await queryLikes(tenantWhere);
+    }
+
+    const { total, likes } = result;
     return {
       total,
       items: likes.map((row) => ({

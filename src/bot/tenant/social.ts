@@ -377,7 +377,7 @@ export const createTenantSocial = (deps: {
             ctx.api.sendMessage(chatId, textLines.join("\n"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } })
           ).catch((error) =>
             logErrorThrottled(
-              { component: "tenant_social", op: "comment_notify_send", scope: "reply_to" },
+              { component: "project_social", op: "comment_notify_send", scope: "reply_to" },
               error,
               { intervalMs: 30_000 }
             )
@@ -398,7 +398,7 @@ export const createTenantSocial = (deps: {
             ctx.api.sendMessage(chatId, textLines.join("\n"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } })
           ).catch((error) =>
             logErrorThrottled(
-              { component: "tenant_social", op: "comment_notify_send", scope: "publisher" },
+              { component: "project_social", op: "comment_notify_send", scope: "publisher" },
               error,
               { intervalMs: 30_000 }
             )
@@ -460,7 +460,7 @@ export const createTenantSocial = (deps: {
     if (result.ok && result.notify && result.commentId) {
       await notifyCommentTargets(ctx, { content: text, commentId: result.commentId, notify: result.notify }).catch((error) =>
         logErrorThrottled(
-          { component: "tenant_social", op: "comment_notify_targets", commentId: result.commentId, assetId: state.assetId },
+          { component: "project_social", op: "comment_notify_targets", commentId: result.commentId, assetId: state.assetId },
           error,
           { intervalMs: 30_000 }
         )

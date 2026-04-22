@@ -31,18 +31,23 @@ export const createDeliveryProjectVault = (deps: {
     const isBot = Boolean(user.is_bot);
     await deps.prisma.tenantUser.upsert({
       where: { tenantId_tgUserId: { tenantId: projectId, tgUserId } },
-      update: { username, firstName, lastName, languageCode, isBot, lastSeenAt: now },
-      create: { tenantId: projectId, tgUserId, username, firstName, lastName, languageCode, isBot, lastSeenAt: now }
+      update: { projectId, username, firstName, lastName, languageCode, isBot, lastSeenAt: now },
+      create: { tenantId: projectId, projectId, tgUserId, username, firstName, lastName, languageCode, isBot, lastSeenAt: now }
     });
   };
   const upsertTenantUserFromTelegram = upsertProjectUserFromTelegram;
 
   const getProjectUserLabel = async (userId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const row = await deps.prisma.tenantUser.findUnique({
-      where: { tenantId_tgUserId: { tenantId: projectId, tgUserId: userId } },
-      select: { username: true, firstName: true, lastName: true }
-    });
+    const row =
+      (await deps.prisma.tenantUser.findUnique({
+        where: { projectId_tgUserId: { projectId, tgUserId: userId } },
+        select: { username: true, firstName: true, lastName: true }
+      })) ??
+      (await deps.prisma.tenantUser.findUnique({
+        where: { tenantId_tgUserId: { tenantId: projectId, tgUserId: userId } },
+        select: { username: true, firstName: true, lastName: true }
+      }));
     if (!row) {
       return null;
     }

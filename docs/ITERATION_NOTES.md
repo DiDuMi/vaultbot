@@ -2070,3 +2070,216 @@
 
 - This round is still wrapper-only and does not change bot behavior.
 - The goal is to make later import-path cleanup incremental and low risk.
+
+## 2026-04-21 - P2-1 bot high-frequency log components continue moving to project wording
+
+### Goal
+
+- Continue phase `P2-1` by reducing tenant-oriented log context in high-frequency bot paths.
+- Keep behavior unchanged and avoid touching directory layout.
+- Limit scope to command tracking, message flows, and collection-management callbacks.
+
+### Changes
+
+- Updated log components in:
+  - `src/bot/tenant/register-commands.ts`
+  - `src/bot/tenant/register-messages.ts`
+  - `src/bot/tenant/callbacks/admin-collections.ts`
+- Replaced the most visible bot log components with project-oriented names such as:
+  - `project_bot`
+  - `project_admin`
+
+### Verification
+
+- Planned verification:
+  - `npm run typecheck`
+  - `npm run build`
+  - `npm run test`
+
+### Notes
+
+- This round changes only log `component` metadata.
+- No bot behavior or routing logic was changed.
+
+## 2026-04-21 05:49 - 生产人工验收记录
+
+### 结果
+
+- 版本：`99d696514d769d52e221acd59b3ccc22ff8a3ca9`
+- 验收人：`didumi`
+- 基础可用性：通过
+- 旧链接兼容性：通过
+- 新上传链路：通过
+- 设置读写：通过
+- 搜索与标签：通过
+- 历史 / 列表：通过
+- 推送链路：通过
+- Worker / 副本：通过
+- 权限边界：通过
+- 结论：可以稳定运行
+- 备注：可继续执行
+
+### 判断
+
+- 当前版本已满足进入 schema 清理设计阶段的前置条件之一：生产人工验收通过。
+- 下一步应优先进行 schema 清理设计与回滚方案设计，暂不直接执行破坏性数据库迁移。
+
+## 2026-04-21 - 阶段 A 三轮复演完成，阶段 B 已开始进入 P0 双写与低风险切读
+
+### 本轮目标
+
+- 把 schema 清理准备从“文档设计”推进到“真实可复演”
+- 用生产备份恢复库验证阶段 A 的 P0 方案
+- 在此基础上启动阶段 B，但只处理 P0 范围内最集中的双写和低风险切读
+
+### 实际改动
+
+- 完成了阶段 A 的真实落地与复演链：
+  - 修改 `prisma/schema.prisma`，为 P0 表加入 nullable `projectId`
+  - 生成 `prisma/migrations/20260421090000_add_project_id_phase_a_p0/migration.sql`
+  - 新增 `scripts/schema-phase-a-backfill.sql`
+  - 新增并补齐阶段 A 文档链
+- 完成了三轮阶段 A 复演：
+  - 本地当前库
+  - 独立 shadow 库
+  - 生产备份恢复库
+- 通过生产备份恢复库确认了一个关键事实：
+  - 当前生产运行命中 `vault`
+  - 但数据库内仍存在真实历史 tenant `prod`
+- 在此基础上启动了阶段 B 的 P0 双写：
+  - `src/services/use-cases/delivery-storage.ts`
+  - `src/services/use-cases/delivery-tenant-vault.ts`
+  - `src/services/use-cases/delivery-core.ts`
+  - `src/services/use-cases/upload.ts`
+  - `src/services/use-cases/delivery-admin.ts`
+- 启动了阶段 B 的低风险切读，当前已落地：
+  - `src/services/use-cases/delivery-storage.ts`
+  - `src/services/use-cases/delivery-tenant-vault.ts`
+  - `src/services/use-cases/delivery-admin.ts`
+  - `src/services/use-cases/delivery-core.ts`
+  - `src/services/use-cases/upload.ts`
+- 补充并更新了对应测试，确保：
+  - 双写入口会同时落 `tenantId/projectId`
+  - 切读入口遵循“先 `projectId`，后 `tenantId` 回退”
+
+### 已验证内容
+
+- 阶段 A 三轮复演全部通过
+- 生产备份恢复库上的 A1/A2 通过
+- 当前代码验证持续通过：
+  - `npm run build`
+  - `npm run test`
+
+### 未解决问题
+
+- 阶段 B 目前仍只覆盖 P0 和低风险读取入口
+- 更高风险的发现链路、内容主链路切读尚未开始
+- 当前数据库仍是多 tenant 兼容内核，不能把 `vault` 的当前运行态误当成“库里只剩一个项目”
+
+### 风险与观察
+
+- 阶段 A 已可认为“可重复执行”，但仍不等于可直接生产清理
+- 阶段 B 以后最大的风险不是代码本身，而是语义误判：
+  - 把“当前运行 tenant = vault”误判成“库里只有 vault”
+  - 进而误伤 `prod` 历史数据
+- 当前最稳妥路线仍然是：
+  - 保持 `tenantId` 兼容路径
+  - 局部双写
+  - 局部 project-first 读，失败时回退
+
+### 下一轮建议
+
+- 先基于当前状态做一份阶段 B 状态快照
+- 再决定是否继续推进更高风险的发现链路切读
+- 在真正扩大切读范围前，保持每一轮只处理一个封闭入口并持续验证
+
+## 2026-04-21 - 阶段 B 从 P0 低风险切读推进到 discovery 管理链路
+
+### 本轮目标
+
+- 在不直接碰搜索 / 标签整条链的前提下，开始推进 discovery 的更高风险入口
+- 保持“单文件、小步、可验证”的节奏
+- 优先处理用户内容管理、回收/恢复、用户/社区列表这类封闭入口
+
+### 实际改动
+
+- 继续推进阶段 B 的低风险切读：
+  - `src/services/use-cases/delivery-storage.ts`
+    - `getPreference`
+    - `getSetting`
+    - 已实现“先 `projectId`，后 `tenantId` 回退”
+  - `src/services/use-cases/delivery-tenant-vault.ts`
+    - `getProjectUserLabel`
+    - 已实现“先 `projectId`，后 `tenantId` 回退”
+  - `src/services/use-cases/delivery-admin.ts`
+    - `listMyBroadcasts`
+    - `getBroadcastById`
+    - 已实现“先 `projectId`，后 `tenantId` 回退”
+  - `src/services/use-cases/delivery-core.ts`
+    - `getProjectMinReplicas`
+    - 已实现“先 `projectId_key`，后 `tenantId_key` 回退”
+  - `src/services/use-cases/upload.ts`
+    - `getTenantSetting`
+    - `updateAssetCollection`
+    - `updateAssetMeta` 中自动分类的 `collection.findMany`
+    - 已实现 project-first fallback
+- 开始推进 discovery 管理链路：
+  - `src/services/use-cases/delivery-discovery.ts`
+    - `getUserAssetMeta`
+    - `listUserBatches`
+    - `listProjectBatches`
+    - `listUserRecycledAssets`
+    - `deleteUserAsset`
+    - `recycleUserAsset`
+    - `restoreUserAsset`
+  - 上述入口已逐步实现“先 `projectId`，后 `tenantId` 回退”
+- 同步补强了 `src/tests/run.ts`：
+  - 为每个入口新增或升级了 project-first fallback 断言
+  - 为 discovery 的删除 / 回收 / 恢复链路补齐了对应验证
+
+### 已验证内容
+
+- 持续验证通过：
+  - `npm run build`
+  - `npm run test`
+- 当前测试结果已推进到：
+  - `123/123 passed`（补强了删除事务内部清理断言）
+  - `123/123 passed`（补强了恢复事务内部 key 清理断言）
+  - `123/123 passed`（补强了删除事务内评论/点赞/标签清理断言）
+  - `124/124 passed`（补强了用户打开历史的 project-first fallback）
+  - `125/125 passed`（补强了用户点赞列表的 project-first fallback）
+  - `127/127 passed`（补强了 Tag 查询入口的安全回退）
+  - `127/127 passed`（batch 列表 where 增加 asset scope 过滤）
+  - `128/128 passed`（补齐 listUserBatches collectionId 的 scope 回退验证）
+  - `129/129 passed`（补齐 listProjectBatches collectionId 的 scope 回退验证）
+  - `130/130 passed`（补齐 listProjectBatches date 的范围与 scope 回退验证）
+  - `131/131 passed`（补齐 listUserBatches date 的范围与 scope 回退验证）
+  - `132/132 passed`（补齐 listUserLikedAssets since 的范围与 scope 回退验证）
+  - `133/133 passed`（补齐 listUserOpenHistory since 的范围与 scope 回退验证）
+  - `135/135 passed`（补齐 listTopTags 分页回退边界验证）
+
+### 未解决问题
+
+- 更大范围发现链路仍有空白：例如更复杂的搜索/排序组合、更多 tag 入口（如 `getTagByName` 驱动的链路）
+- 当前 discovery 的事务删除/回收逻辑内部仍保留 `tenantId` 兼容条件
+- 生产数据库仍是双 tenant 现实，后续切读不能只盯住当前运行 tenant `vault`
+
+### 风险与观察
+
+- 当前 discovery 的推进方式是正确的：
+  - 先单点
+  - 先封闭入口
+  - 每次都补测试
+- 当前已开始切 `searchAssets`，后续仍需坚持小步推进与回归测试闭环
+- 当前仍应坚持：
+  - 新读优先 `projectId`
+  - 读不到回退 `tenantId`
+  - 不提前删掉兼容条件
+
+### 下一轮建议
+
+- 先基于当前实现做阶段 B 状态快照
+- 如果继续推进 discovery，优先保持同样节奏：
+  - 一次只处理一个入口
+  - 先用户管理/列表，再搜索/标签
+- 在进入搜索/标签大范围切读前，继续保持 build/test 每轮闭环

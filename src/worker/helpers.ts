@@ -30,11 +30,18 @@ export const sendMediaGroupWithRetry = async (
 };
 
 export const getProjectBroadcastTargetUserIds = async (prisma: PrismaClient, projectId: string) => {
-  const [users, tenantUsers, members] = await Promise.all([
-    prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
-    prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } }),
+  const [projectUsers, projectTenantUsers, members] = await Promise.all([
+    prisma.event.groupBy({ by: ["userId"], where: { projectId } }).catch(() => []),
+    prisma.tenantUser.findMany({ where: { projectId }, select: { tgUserId: true } }).catch(() => []),
     prisma.tenantMember.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
   ]);
+  const [users, tenantUsers] =
+    projectUsers.length > 0 || projectTenantUsers.length > 0
+      ? [projectUsers, projectTenantUsers]
+      : await Promise.all([
+          prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
+          prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
+        ]);
   const excluded = new Set(members.map((m) => m.tgUserId));
   const audience = new Set<string>();
   for (const row of users) {
@@ -51,6 +58,26 @@ export const getProjectBroadcastTargetUserIds = async (prisma: PrismaClient, pro
 };
 
 export const getBroadcastTargetUserIds = getProjectBroadcastTargetUserIds;
+
+export const getLatestProjectAssetPublisherUserId = async (prisma: PrismaClient, projectId: string, assetId: string) => {
+  const projectBatch =
+    (await prisma.uploadBatch
+      .findFirst({
+        where: { projectId, assetId, status: "COMMITTED" },
+        orderBy: { createdAt: "desc" },
+        select: { userId: true }
+      })
+      .catch(() => null)) ?? null;
+  if (projectBatch?.userId) {
+    return projectBatch.userId;
+  }
+  const tenantBatch = await prisma.uploadBatch.findFirst({
+    where: { tenantId: projectId, assetId, status: "COMMITTED" },
+    orderBy: { createdAt: "desc" },
+    select: { userId: true }
+  });
+  return tenantBatch?.userId ?? null;
+};
 
 export const computeNextBroadcastRunAt = (input: { previousNextRunAt: Date | null; repeatEveryMs: number; now?: Date }) => {
   const nowMs = (input.now ?? new Date()).getTime();
@@ -92,13 +119,21 @@ export const backfillProjectUsers = async (bot: Bot, prisma: PrismaClient, proje
     return Math.max(1, Math.min(2000, Math.trunc(raw)));
   })();
 
-  const [eventUsers, commentUsers, batchUsers, members, existingUsers] = await Promise.all([
-    prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
+  const [projectEventUsers, projectBatchUsers, projectExistingUsers, commentUsers, members] = await Promise.all([
+    prisma.event.groupBy({ by: ["userId"], where: { projectId } }).catch(() => []),
+    prisma.uploadBatch.groupBy({ by: ["userId"], where: { projectId } }).catch(() => []),
+    prisma.tenantUser.findMany({ where: { projectId }, select: { tgUserId: true } }).catch(() => []),
     prisma.assetComment.groupBy({ by: ["authorUserId"], where: { tenantId: projectId } }),
-    prisma.uploadBatch.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
-    prisma.tenantMember.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } }),
-    prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
+    prisma.tenantMember.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
   ]);
+  const [eventUsers, batchUsers, existingUsers] =
+    projectEventUsers.length > 0 || projectBatchUsers.length > 0 || projectExistingUsers.length > 0
+      ? [projectEventUsers, projectBatchUsers, projectExistingUsers]
+      : await Promise.all([
+          prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
+          prisma.uploadBatch.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
+          prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
+        ]);
 
   const existing = new Set(existingUsers.map((u) => u.tgUserId));
   const candidates = new Set<string>();
@@ -136,9 +171,10 @@ export const backfillProjectUsers = async (bot: Bot, prisma: PrismaClient, proje
     await prisma.tenantUser
       .upsert({
         where: { tenantId_tgUserId: { tenantId: projectId, tgUserId: id } },
-        update: { username, firstName, lastName, lastSeenAt: now },
+        update: { projectId, username, firstName, lastName, lastSeenAt: now },
         create: {
           tenantId: projectId,
+          projectId,
           tgUserId: id,
           username,
           firstName,

@@ -95,13 +95,56 @@ export const createProjectAdmin = (deps: {
     updatedAt: row.updatedAt
   });
 
+  const findOwnedBroadcast = async (
+    projectId: string,
+    actorUserId: string,
+    broadcastId: string,
+    options?: {
+      statuses?: Array<"DRAFT" | "SCHEDULED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELED">;
+      select?: Record<string, unknown>;
+    }
+  ): Promise<any> => {
+    const baseWhere = {
+      id: broadcastId,
+      creatorUserId: actorUserId,
+      ...(options?.statuses ? { status: options.statuses.length === 1 ? options.statuses[0] : { in: options.statuses } } : {})
+    };
+    if (options?.select) {
+      return (
+        (await deps.prisma.broadcast.findFirst({
+          where: { ...baseWhere, projectId },
+          select: options.select as never
+        })) ??
+        (await deps.prisma.broadcast.findFirst({
+          where: { ...baseWhere, tenantId: projectId },
+          select: options.select as never
+        }))
+      );
+    }
+    return (
+      (await deps.prisma.broadcast.findFirst({
+        where: { ...baseWhere, projectId }
+      })) ??
+      (await deps.prisma.broadcast.findFirst({
+        where: { ...baseWhere, tenantId: projectId }
+      }))
+    );
+  };
+
   const getBroadcastTargetUserIds = async () => {
     const projectId = await deps.getRuntimeProjectId();
-    const [users, tenantUsers, members] = await Promise.all([
-      deps.prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
-      deps.prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } }),
+    const [projectUsers, projectTenantUsers, members] = await Promise.all([
+      deps.prisma.event.groupBy({ by: ["userId"], where: { projectId } }).catch(() => []),
+      deps.prisma.tenantUser.findMany({ where: { projectId }, select: { tgUserId: true } }).catch(() => []),
       deps.prisma.tenantMember.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
     ]);
+    const [users, tenantUsers] =
+      projectUsers.length > 0 || projectTenantUsers.length > 0
+        ? [projectUsers, projectTenantUsers]
+        : await Promise.all([
+            deps.prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
+            deps.prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
+          ]);
     const excluded = new Set(members.map((m) => m.tgUserId));
     const audience = new Set<string>();
     for (const row of users) {
@@ -291,7 +334,7 @@ export const createProjectAdmin = (deps: {
     }
     const projectId = await deps.getRuntimeProjectId();
     const draft = await deps.prisma.broadcast.create({
-      data: { tenantId: projectId, creatorUserId: actorUserId, creatorChatId: actorChatId, status: "DRAFT", contentHtml: "" },
+      data: { tenantId: projectId, projectId, creatorUserId: actorUserId, creatorChatId: actorChatId, status: "DRAFT", contentHtml: "" },
       select: { id: true }
     });
     return { ok: true, id: draft.id, message: "\u5df2\u521b\u5efa\u63a8\u9001\u8349\u7a3f\u3002" };
@@ -300,19 +343,27 @@ export const createProjectAdmin = (deps: {
   const listMyBroadcasts = async (actorUserId: string, limit: number) => {
     const projectId = await deps.getRuntimeProjectId();
     const take = normalizeLimit(limit, { defaultLimit: 10, maxLimit: 30 });
-    const rows = await deps.prisma.broadcast.findMany({
-      where: { tenantId: projectId, creatorUserId: actorUserId },
-      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-      take
-    });
-    return rows.map(toBroadcastSummary);
+    const rows =
+      (await deps.prisma.broadcast.findMany({
+        where: { projectId, creatorUserId: actorUserId },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+        take
+      })) ??
+      [];
+    const resolvedRows =
+      rows.length > 0
+        ? rows
+        : await deps.prisma.broadcast.findMany({
+            where: { tenantId: projectId, creatorUserId: actorUserId },
+            orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+            take
+          });
+    return resolvedRows.map(toBroadcastSummary);
   };
 
   const getBroadcastById = async (actorUserId: string, broadcastId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const row = await deps.prisma.broadcast.findFirst({
-      where: { id: broadcastId, tenantId: projectId, creatorUserId: actorUserId }
-    });
+    const row = await findOwnedBroadcast(projectId, actorUserId, broadcastId);
     return row ? toBroadcastSummary(row) : null;
   };
 
@@ -330,8 +381,8 @@ export const createProjectAdmin = (deps: {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002" };
     }
     const projectId = await deps.getRuntimeProjectId();
-    const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: draftId, tenantId: projectId, creatorUserId: actorUserId, status: "DRAFT" },
+    const existing = await findOwnedBroadcast(projectId, actorUserId, draftId, {
+      statuses: ["DRAFT"],
       select: { id: true }
     });
     if (!existing) {
@@ -356,8 +407,8 @@ export const createProjectAdmin = (deps: {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u7f16\u8f91\u63a8\u9001\u3002" };
     }
     const projectId = await deps.getRuntimeProjectId();
-    const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: draftId, tenantId: projectId, creatorUserId: actorUserId, status: "DRAFT" },
+    const existing = await findOwnedBroadcast(projectId, actorUserId, draftId, {
+      statuses: ["DRAFT"],
       select: { id: true }
     });
     if (!existing) {
@@ -390,8 +441,8 @@ export const createProjectAdmin = (deps: {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u53d1\u8d77\u63a8\u9001\u3002" };
     }
     const projectId = await deps.getRuntimeProjectId();
-    const draft = await deps.prisma.broadcast.findFirst({
-      where: { id: draftId, tenantId: projectId, creatorUserId: actorUserId, status: "DRAFT" }
+    const draft = await findOwnedBroadcast(projectId, actorUserId, draftId, {
+      statuses: ["DRAFT"]
     });
     if (!draft) {
       return { ok: false, message: "\u8349\u7a3f\u4e0d\u5b58\u5728\u6216\u5df2\u4e0d\u53ef\u63a8\u9001\u3002" };
@@ -416,8 +467,8 @@ export const createProjectAdmin = (deps: {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u53d6\u6d88\u63a8\u9001\u3002" };
     }
     const projectId = await deps.getRuntimeProjectId();
-    const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: broadcastId, tenantId: projectId, creatorUserId: actorUserId, status: { in: ["SCHEDULED", "RUNNING"] } },
+    const existing = await findOwnedBroadcast(projectId, actorUserId, broadcastId, {
+      statuses: ["SCHEDULED", "RUNNING"],
       select: { id: true }
     });
     if (!existing) {
@@ -432,8 +483,8 @@ export const createProjectAdmin = (deps: {
       return { ok: false, message: "\u65e0\u6743\u9650\uff1a\u4ec5\u7ba1\u7406\u5458\u53ef\u5220\u9664\u8349\u7a3f\u3002" };
     }
     const projectId = await deps.getRuntimeProjectId();
-    const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: draftId, tenantId: projectId, creatorUserId: actorUserId, status: "DRAFT" },
+    const existing = await findOwnedBroadcast(projectId, actorUserId, draftId, {
+      statuses: ["DRAFT"],
       select: { id: true }
     });
     if (!existing) {
@@ -448,8 +499,7 @@ export const createProjectAdmin = (deps: {
       return [];
     }
     const projectId = await deps.getRuntimeProjectId();
-    const existing = await deps.prisma.broadcast.findFirst({
-      where: { id: broadcastId, tenantId: projectId, creatorUserId: actorUserId },
+    const existing = await findOwnedBroadcast(projectId, actorUserId, broadcastId, {
       select: { id: true }
     });
     if (!existing) {

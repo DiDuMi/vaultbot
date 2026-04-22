@@ -116,7 +116,7 @@ export const buildInputExitHint = (activity: string, options?: { afterExitHtml?:
 
 export const buildBlockingHint = (message: string, nextStepHtml?: string) => {
   const step = nextStepHtml?.trim();
-  return step ? `鈿狅笍 ${escapeHtml(message)}\n${step}` : `鈿狅笍 ${escapeHtml(message)}`;
+  return step ? `提示：${escapeHtml(message)}\n${step}` : `提示：${escapeHtml(message)}`;
 };
 
 export const buildDbDisabledHint = (action: string, nextStepHtml?: string) => {
@@ -231,7 +231,7 @@ export const upsertHtml = async (ctx: Context, html: string, reply_markup?: Inli
   }
   await editHtml(ctx, html).catch(async () => {
     await replyHtml(ctx, html).catch((error) =>
-      logErrorThrottled({ component: "tenant_ui", op: "upsert_html_reply_fallback", scope: "fallback" }, error, { intervalMs: 30_000 })
+      logErrorThrottled({ component: "project_ui", op: "upsert_html_reply_fallback", scope: "fallback" }, error, { intervalMs: 30_000 })
     );
   });
 };

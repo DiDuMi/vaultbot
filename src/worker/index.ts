@@ -11,6 +11,7 @@ import {
   backfillProjectUsers,
   computeNextBroadcastRunAt,
   ensureRuntimeProjectId,
+  getLatestProjectAssetPublisherUserId,
   getProjectBroadcastTargetUserIds,
   parseNumberWithBounds,
   sendMediaGroupWithRetry,
@@ -183,12 +184,7 @@ const start = async () => {
     if (!asset?.shareCode) {
       return;
     }
-    const publisherBatch = await prisma.uploadBatch.findFirst({
-      where: { tenantId: asset.tenantId, assetId: asset.id, status: "COMMITTED" },
-      orderBy: { createdAt: "desc" },
-      select: { userId: true }
-    });
-    const publisherUserId = publisherBatch?.userId ?? null;
+    const publisherUserId = await getLatestProjectAssetPublisherUserId(prisma, asset.tenantId, asset.id);
     const subs = await deliveryService.listFollowKeywordSubscriptions().catch(() => []);
     const plainTitle = stripHtml(asset.title ?? "");
     const plainDescription = stripHtml(asset.description ?? "");
