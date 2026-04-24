@@ -109,6 +109,7 @@ export const createDeliveryCore = (deps: {
   };
 
   const getProjectScopeId = async () => getRuntimeProjectId();
+  const getProjectRuntimeScopeId = getProjectScopeId;
   const getTenantId = getProjectScopeId;
 
   const ensureInitialOwner = async (projectId: string, userId: string) => {
@@ -240,6 +241,7 @@ export const createDeliveryCore = (deps: {
     getRuntimeProjectContext,
     getRuntimeProjectId,
     getProjectScopeId,
+    getProjectRuntimeScopeId,
     getTenantId,
     ensureInitialOwner,
     isProjectAdmin,

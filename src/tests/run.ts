@@ -85,11 +85,11 @@ import { createProjectTagRenderers } from "../bot/project/tags";
 import { createDeliveryDiscovery, createProjectDiscovery } from "../services/use-cases/delivery-discovery";
 import { createDeliveryAdmin, createProjectAdmin } from "../services/use-cases/delivery-admin";
 import { createDeliveryCore } from "../services/use-cases/delivery-core";
-import { createDeliveryPreferences } from "../services/use-cases/delivery-preferences";
+import { createDeliveryPreferences, createProjectPreferences } from "../services/use-cases/delivery-preferences";
 import { createDeliveryProjectPreferences } from "../services/use-cases/delivery-project-preferences";
 import { createDeliveryProjectSocial } from "../services/use-cases/delivery-project-social";
 import { createDeliveryProjectStats } from "../services/use-cases/delivery-project-stats";
-import { createDeliveryStorage } from "../services/use-cases/delivery-storage";
+import { createDeliveryStorage, createProjectStorage } from "../services/use-cases/delivery-storage";
 import { createDeliverySocial } from "../services/use-cases/delivery-social";
 import { createDeliveryStats } from "../services/use-cases/delivery-stats";
 import { isSingleOwnerModeEnabled } from "../infra/runtime-mode";
@@ -708,6 +708,8 @@ test("replica-selection: project factory remains a compatibility alias", () => {
 
 test("preferences: project factory remains a compatibility alias", () => {
   assert.equal(createDeliveryProjectPreferences, createDeliveryPreferences);
+  assert.equal(createProjectPreferences, createDeliveryPreferences);
+  assert.equal(createProjectStorage, createDeliveryStorage);
 });
 
 test("social: project factory remains a compatibility alias", () => {
@@ -3610,6 +3612,7 @@ test("delivery-core: exposes runtime project context wrappers", async () => {
     name: "Demo Project"
   });
   assert.equal(await core.getRuntimeProjectId(), "tenant_1");
+  assert.equal(await core.getProjectRuntimeScopeId(), "tenant_1");
   assert.equal(await core.getTenantId(), "tenant_1");
 });
 

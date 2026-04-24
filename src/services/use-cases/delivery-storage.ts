@@ -68,3 +68,5 @@ export const createDeliveryStorage = (prisma: PrismaClient, getRuntimeProjectId:
 
   return { getPreference, upsertPreference, deletePreference, getSetting, upsertSetting, deleteSetting };
 };
+
+export const createProjectStorage = createDeliveryStorage;

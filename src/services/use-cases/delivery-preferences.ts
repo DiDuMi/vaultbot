@@ -310,3 +310,5 @@ export const createDeliveryPreferences = (deps: {
     checkAndRecordUserNotification
   };
 };
+
+export const createProjectPreferences = createDeliveryPreferences;
