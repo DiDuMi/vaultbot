@@ -24,6 +24,7 @@
 当前项目并不是“已经去租户化，只剩少量历史命名”，而是：
 
 - 运行时仍通过 `TENANT_CODE -> tenantId` 建立主上下文
+- 运行时仍通过 `PROJECT_CODE`（优先）或 legacy `TENANT_CODE` 建立主上下文（当前仍映射到历史 tenant 结构）
 - 服务层虽然引入了 `project-*` 别名，但底层仍大量调用 `tenant-*`
 - 数据库仍以 `Tenant / TenantMember / TenantVaultBinding / TenantTopic` 为核心骨架
 - 绝大多数业务表仍显式依赖 `tenantId`

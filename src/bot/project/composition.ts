@@ -2,24 +2,24 @@ import type { Bot, Context } from "grammy";
 import { logError, logErrorThrottled } from "../../infra/logging";
 import { resolveLocaleFromTelegramLanguageCode } from "../../i18n";
 import { createUploadBatchStore, type DeliveryService, type UploadService } from "../../services/use-cases";
-import { createBatchActions } from "../tenant/batch-actions";
-import { buildAssetActionLine as buildAssetActionLineModule, buildPreviewLinkLine as buildPreviewLinkLineModule } from "../tenant/builders";
-import { createFootprintRenderer } from "../tenant/footprint";
-import { createHistoryRenderer } from "../tenant/history";
-import { createTenantAdminInput } from "../tenant/admin-input";
-import { registerTenantCallbackRoutes } from "../tenant/callbacks";
-import { getMemberScopeLabel } from "../tenant/labels";
-import { createOpenHandler } from "../tenant/open";
-import { registerTenantCommands } from "../tenant/register-commands";
-import { registerTenantMessageHandlers } from "../tenant/register-messages";
-import { createSearchRenderer } from "../tenant/search";
-import { createTenantSession, type MetaState } from "../tenant/session";
-import { createTenantSocial } from "../tenant/social";
-import { createTagRenderers } from "../tenant/tags";
-import { registerTenantMiddlewares } from "../tenant/register-middlewares";
-import { createTenantRenderers } from "../tenant/renderers";
-import { buildDbDisabledHint, buildGuideHint, buildStartLink, buildSuccessHint, escapeHtml, normalizeButtonText, replyHtml, sanitizeTelegramHtml, stripHtmlTags, toMetaKey, truncatePlainText, upsertHtml } from "../tenant/ui-utils";
-import { actionKeyboard, buildCollectionsKeyboard, buildHelpKeyboard, buildMainKeyboard, buildManageKeyboard, buildMetaInputKeyboard, buildUserKeyboard } from "../tenant/keyboards";
+import { createBatchActions } from "./batch-actions";
+import { buildAssetActionLine as buildAssetActionLineModule, buildPreviewLinkLine as buildPreviewLinkLineModule } from "./builders";
+import { createFootprintRenderer } from "./footprint";
+import { createHistoryRenderer } from "./history";
+import { createProjectAdminInput } from "./admin-input";
+import { registerProjectCallbackRoutes } from "./callbacks";
+import { getMemberScopeLabel } from "./labels";
+import { createOpenHandler } from "./open";
+import { registerProjectCommands } from "./commands";
+import { registerProjectMessageHandlers } from "./messages";
+import { createSearchRenderer } from "./search";
+import { createProjectSession, type MetaState } from "./session";
+import { createProjectSocial } from "./social";
+import { createProjectTagRenderers } from "./tags";
+import { registerProjectMiddlewares } from "./middlewares";
+import { createProjectRenderers } from "./renderers";
+import { buildDbDisabledHint, buildGuideHint, buildStartLink, buildSuccessHint, escapeHtml, normalizeButtonText, replyHtml, sanitizeTelegramHtml, stripHtmlTags, toMetaKey, truncatePlainText, upsertHtml } from "./ui-utils";
+import { actionKeyboard, buildCollectionsKeyboard, buildHelpKeyboard, buildMainKeyboard, buildManageKeyboard, buildMetaInputKeyboard, buildUserKeyboard } from "./keyboards";
 
 export const formatProjectLocalDateTime = (date: Date) => {
   const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
@@ -62,7 +62,7 @@ export const createProjectBotScaffold = (
   service: UploadService,
   deliveryService: DeliveryService | null
 ) => {
-  const session = createTenantSession();
+  const session = createProjectSession();
   const { commit, cancel } = createBatchActions(store, service);
   const open = createOpenHandler(deliveryService);
 
@@ -80,10 +80,10 @@ export const createProjectBotScaffold = (
 
 type ProjectInteractionHandlerDeps = {
   getDefaultKeyboard: (ctx: Context) => Promise<unknown>;
-  ensureSessionMode: ReturnType<typeof createTenantSession>["ensureSessionMode"];
-  getSessionLabel: ReturnType<typeof createTenantSession>["getSessionLabel"];
-  setSessionMode: ReturnType<typeof createTenantSession>["setSessionMode"];
-  setActive: ReturnType<typeof createTenantSession>["setActive"];
+  ensureSessionMode: ReturnType<typeof createProjectSession>["ensureSessionMode"];
+  getSessionLabel: ReturnType<typeof createProjectSession>["getSessionLabel"];
+  setSessionMode: ReturnType<typeof createProjectSession>["setSessionMode"];
+  setActive: ReturnType<typeof createProjectSession>["setActive"];
   cancel: (userId: number, chatId: number) => Promise<{ ok: boolean; message: string }>;
 };
 
@@ -133,27 +133,27 @@ export const createProjectBotViews = (
   deps: {
     deliveryService: DeliveryService | null;
     mainKeyboard: ReturnType<typeof buildMainKeyboard>;
-    syncSessionForView: ReturnType<typeof createTenantSession>["syncSessionForView"];
-    ensureSessionMode: ReturnType<typeof createTenantSession>["ensureSessionMode"];
-    setSessionMode: ReturnType<typeof createTenantSession>["setSessionMode"];
-    collectionStates: ReturnType<typeof createTenantSession>["collectionStates"];
-    historyFilterStates: ReturnType<typeof createTenantSession>["historyFilterStates"];
-    historyDateStates: ReturnType<typeof createTenantSession>["historyDateStates"];
-    historyScopeStates: ReturnType<typeof createTenantSession>["historyScopeStates"];
-    broadcastDraftStates: ReturnType<typeof createTenantSession>["broadcastDraftStates"];
-    commentInputStates: ReturnType<typeof createTenantSession>["commentInputStates"];
-    rankingViewStates: ReturnType<typeof createTenantSession>["rankingViewStates"];
+    syncSessionForView: ReturnType<typeof createProjectSession>["syncSessionForView"];
+    ensureSessionMode: ReturnType<typeof createProjectSession>["ensureSessionMode"];
+    setSessionMode: ReturnType<typeof createProjectSession>["setSessionMode"];
+    collectionStates: ReturnType<typeof createProjectSession>["collectionStates"];
+    historyFilterStates: ReturnType<typeof createProjectSession>["historyFilterStates"];
+    historyDateStates: ReturnType<typeof createProjectSession>["historyDateStates"];
+    historyScopeStates: ReturnType<typeof createProjectSession>["historyScopeStates"];
+    broadcastDraftStates: ReturnType<typeof createProjectSession>["broadcastDraftStates"];
+    commentInputStates: ReturnType<typeof createProjectSession>["commentInputStates"];
+    rankingViewStates: ReturnType<typeof createProjectSession>["rankingViewStates"];
     formatLocalDateTime: (date: Date) => string;
   }
 ) => {
-  const { hydrateUserPreferences } = registerTenantMiddlewares(bot, {
+  const { hydrateUserPreferences } = registerProjectMiddlewares(bot, {
     deliveryService: deps.deliveryService,
     collectionStates: deps.collectionStates,
     historyFilterStates: deps.historyFilterStates,
     historyDateStates: deps.historyDateStates
   });
 
-  const renderers = createTenantRenderers({
+  const renderers = createProjectRenderers({
     deliveryService: deps.deliveryService,
     mainKeyboard: deps.mainKeyboard,
     syncSessionForView: deps.syncSessionForView,
@@ -162,7 +162,7 @@ export const createProjectBotViews = (
     formatLocalDateTime: deps.formatLocalDateTime
   });
 
-  const social = createTenantSocial({
+  const social = createProjectSocial({
     deliveryService: deps.deliveryService,
     mainKeyboard: deps.mainKeyboard,
     ensureSessionMode: deps.ensureSessionMode,
@@ -197,7 +197,7 @@ export const createProjectBotViews = (
     buildAssetActionLine: buildAssetActionLineModule
   });
 
-  const tags = createTagRenderers({
+  const tags = createProjectTagRenderers({
     deliveryService: deps.deliveryService,
     mainKeyboard: deps.mainKeyboard
   });
@@ -239,12 +239,12 @@ export const parseProjectLocalDateTime = (value: string) => {
   return date;
 };
 
-type TenantAdminInputDeps = Parameters<typeof createTenantAdminInput>[0];
+type ProjectAdminInputDeps = Parameters<typeof createProjectAdminInput>[0];
 
 export const createProjectAdminInputHandlers = (
-  deps: Omit<TenantAdminInputDeps, "parseLocalDateTime"> & { parseLocalDateTime?: TenantAdminInputDeps["parseLocalDateTime"] }
-): ReturnType<typeof createTenantAdminInput> =>
-  createTenantAdminInput({
+  deps: Omit<ProjectAdminInputDeps, "parseLocalDateTime"> & { parseLocalDateTime?: ProjectAdminInputDeps["parseLocalDateTime"] }
+): ReturnType<typeof createProjectAdminInput> =>
+  createProjectAdminInput({
     ...deps,
     parseLocalDateTime: deps.parseLocalDateTime ?? parseProjectLocalDateTime
   });
@@ -252,14 +252,14 @@ export const createProjectAdminInputHandlers = (
 export const registerProjectBotFlows = (
   bot: Bot,
   deps: {
-    commands: Parameters<typeof registerTenantCommands>[1];
-    callbacks: Parameters<typeof registerTenantCallbackRoutes>[1];
-    messages: Parameters<typeof registerTenantMessageHandlers>[1];
+    commands: Parameters<typeof registerProjectCommands>[1];
+    callbacks: Parameters<typeof registerProjectCallbackRoutes>[1];
+    messages: Parameters<typeof registerProjectMessageHandlers>[1];
   }
 ) => {
-  registerTenantCommands(bot, deps.commands);
-  registerTenantCallbackRoutes(bot, deps.callbacks);
-  registerTenantMessageHandlers(bot, deps.messages);
+  registerProjectCommands(bot, deps.commands);
+  registerProjectCallbackRoutes(bot, deps.callbacks);
+  registerProjectMessageHandlers(bot, deps.messages);
 };
 
 export const getProjectCollectionTitle = (collections: { id: string; title: string }[], id: string | null) => {
@@ -271,8 +271,8 @@ export const getProjectCollectionTitle = (collections: { id: string; title: stri
 };
 
 export const createProjectMetaFlowHelpers = (deps: {
-  metaStates: ReturnType<typeof createTenantSession>["metaStates"];
-  setSessionMode: ReturnType<typeof createTenantSession>["setSessionMode"];
+  metaStates: ReturnType<typeof createProjectSession>["metaStates"];
+  setSessionMode: ReturnType<typeof createProjectSession>["setSessionMode"];
   maxMetaBytes: number;
   maxTitleBytes: number;
   maxDescriptionBytes: number;
@@ -318,8 +318,8 @@ export const createProjectCollectionHelpers = (deps: {
   deliveryService: DeliveryService | null;
   mainKeyboard: ReturnType<typeof buildMainKeyboard>;
   hydrateUserPreferences: (ctx: Context) => Promise<void>;
-  collectionStates: ReturnType<typeof createTenantSession>["collectionStates"];
-  collectionPickerStates: ReturnType<typeof createTenantSession>["collectionPickerStates"];
+  collectionStates: ReturnType<typeof createProjectSession>["collectionStates"];
+  collectionPickerStates: ReturnType<typeof createProjectSession>["collectionPickerStates"];
 }) => {
   const renderCollections = async (ctx: Context, options: { returnTo: "settings" | "upload"; page?: number }) => {
     if (!deps.deliveryService) {

@@ -30,7 +30,8 @@ import {
   ensureRuntimeProjectId,
   getBroadcastTargetUserIds,
   getLatestProjectAssetPublisherUserId,
-  getProjectBroadcastTargetUserIds
+  getProjectBroadcastTargetUserIds,
+  resolveProjectScopeId
 } from "../worker/helpers";
 import { upsertProjectSetting, upsertTenantSetting } from "../worker/storage";
 import { buildAssetActionLine, buildPreviewLinkLine } from "../bot/project/register-core";
@@ -68,18 +69,25 @@ import { createProjectTagRenderers } from "../bot/project/tags";
 import { createDeliveryDiscovery, createProjectDiscovery } from "../services/use-cases/delivery-discovery";
 import { createDeliveryAdmin, createProjectAdmin } from "../services/use-cases/delivery-admin";
 import { createDeliveryCore } from "../services/use-cases/delivery-core";
+import { createDeliveryPreferences } from "../services/use-cases/delivery-preferences";
+import { createDeliveryProjectPreferences } from "../services/use-cases/delivery-project-preferences";
+import { createDeliveryProjectSocial } from "../services/use-cases/delivery-project-social";
+import { createDeliveryProjectStats } from "../services/use-cases/delivery-project-stats";
 import { createDeliveryStorage } from "../services/use-cases/delivery-storage";
 import { createDeliverySocial } from "../services/use-cases/delivery-social";
 import { createDeliveryStats } from "../services/use-cases/delivery-stats";
 import { isSingleOwnerModeEnabled } from "../infra/runtime-mode";
 import {
+  assertProjectCodeConsistency,
   assertProjectContextConsistency,
+  ensureRuntimeProject,
   ensureRuntimeProjectContext,
   ensureRuntimeTenant,
   getProjectDiagnostics
 } from "../infra/persistence/tenant-guard";
 import {
   buildIdentityService,
+  createGetUserProfileSummary,
   createGetProjectAssetAccess,
   createGetTenantAssetAccess
 } from "../services/use-cases/delivery-factories";
@@ -90,6 +98,7 @@ import { createDeliveryProjectVault, createDeliveryTenantVault } from "../servic
 import { createUploadService } from "../services/use-cases/upload";
 import { createReplicateBatch } from "../worker/replication-worker";
 import { createServer } from "../server";
+import { loadConfig } from "../config";
 import type { Asset as LegacyAsset, Event as LegacyEvent, PermissionRule as LegacyPermissionRule, Project, ProjectAsset, ProjectEvent, ProjectPermissionRule, Tenant } from "../core/domain/models";
 
 type TestCase = { name: string; run: () => Promise<void> | void };
@@ -168,6 +177,47 @@ test("project-context: creates project config from tenant fields", () => {
       name: "Demo Project"
     }
   );
+});
+
+test("config: projectCode and projectName are primary fields with tenant aliases", () => {
+  const previous = {
+    BOT_TOKEN: process.env.BOT_TOKEN,
+    DATABASE_URL: process.env.DATABASE_URL,
+    REDIS_URL: process.env.REDIS_URL,
+    PROJECT_CODE: process.env.PROJECT_CODE,
+    PROJECT_NAME: process.env.PROJECT_NAME,
+    TENANT_CODE: process.env.TENANT_CODE,
+    TENANT_NAME: process.env.TENANT_NAME,
+    VAULT_CHAT_ID: process.env.VAULT_CHAT_ID,
+    PORT: process.env.PORT,
+    HOST: process.env.HOST
+  };
+  process.env.BOT_TOKEN = "token";
+  process.env.DATABASE_URL = "postgresql://example";
+  process.env.REDIS_URL = "memory";
+  process.env.PROJECT_CODE = "demo-project";
+  process.env.PROJECT_NAME = "Demo Project";
+  process.env.TENANT_CODE = "legacy-project";
+  process.env.TENANT_NAME = "Legacy Project";
+  process.env.VAULT_CHAT_ID = "-1001";
+  process.env.PORT = "3002";
+  process.env.HOST = "127.0.0.1";
+  try {
+    const config = loadConfig();
+    assert.equal(config.projectCode, "demo-project");
+    assert.equal(config.projectName, "Demo Project");
+    assert.equal(config.tenantCode, "demo-project");
+    assert.equal(config.tenantName, "Demo Project");
+    assert.deepEqual(config.projectContext, { code: "demo-project", name: "Demo Project" });
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 });
 
 test("source: bot project index is no longer a pure tenant re-export shell", () => {
@@ -310,6 +360,28 @@ test("tenant-guard: project context consistency reuses tenant guard checks", asy
   }
 });
 
+test("tenant-guard: project code consistency uses project-first wording", async () => {
+  const previousExpected = process.env.EXPECTED_TENANT_CODE;
+  process.env.EXPECTED_TENANT_CODE = "expected-project";
+  try {
+    await assert.rejects(
+      () =>
+        assertProjectCodeConsistency(
+          {
+            tenant: {
+              findUnique: async () => null,
+              findMany: async () => [{ code: "vault" }]
+            }
+          } as never,
+          "actual-project"
+        ),
+      /PROJECT_CODE/
+    );
+  } finally {
+    process.env.EXPECTED_TENANT_CODE = previousExpected;
+  }
+});
+
 test("tenant-guard: runtime project context wraps runtime tenant", async () => {
   const result = await ensureRuntimeProjectContext(
     {
@@ -356,7 +428,7 @@ test("worker-storage: project setting upsert remains a compatibility alias", () 
 
 test("worker-storage: project setting dual-writes projectId", async () => {
   const calls: Array<{
-    where: { tenantId_key: { tenantId: string; key: string } };
+    where: Record<string, unknown>;
     update: { projectId: string; value: string };
     create: { tenantId: string; projectId: string; key: string; value: string };
   }> = [];
@@ -365,7 +437,7 @@ test("worker-storage: project setting dual-writes projectId", async () => {
     {
       tenantSetting: {
         upsert: async (args: {
-          where: { tenantId_key: { tenantId: string; key: string } };
+          where: Record<string, unknown>;
           update: { projectId: string; value: string };
           create: { tenantId: string; projectId: string; key: string; value: string };
         }) => {
@@ -381,7 +453,7 @@ test("worker-storage: project setting dual-writes projectId", async () => {
 
   assert.deepEqual(calls, [
     {
-      where: { tenantId_key: { tenantId: "tenant_1", key: "worker_heartbeat" } },
+      where: { projectId_key: { projectId: "tenant_1", key: "worker_heartbeat" } },
       update: { projectId: "tenant_1", value: "123" },
       create: { tenantId: "tenant_1", projectId: "tenant_1", key: "worker_heartbeat", value: "123" }
     }
@@ -547,6 +619,12 @@ test("worker-helper: latest asset publisher falls back to tenantId", async () =>
   ]);
 });
 
+test("worker-helper: resolveProjectScopeId prefers projectId and falls back to tenantId", () => {
+  assert.equal(resolveProjectScopeId({ projectId: "project_1", tenantId: "tenant_1" }), "project_1");
+  assert.equal(resolveProjectScopeId({ projectId: "", tenantId: "tenant_1" }), "tenant_1");
+  assert.equal(resolveProjectScopeId({ projectId: null, tenantId: "tenant_1" }), "tenant_1");
+});
+
 test("labels: member labels use project wording by default", () => {
   assert.equal(getMemberLabel({ locale: "zh-CN" }), "项目成员");
   assert.equal(getMemberScopeLabel({ locale: "zh-CN" }), "项目成员");
@@ -583,6 +661,18 @@ test("discovery: project factory remains a compatibility alias", () => {
 
 test("replica-selection: project factory remains a compatibility alias", () => {
   assert.equal(createProjectReplicaSelection, createDeliveryReplicaSelection);
+});
+
+test("preferences: project factory remains a compatibility alias", () => {
+  assert.equal(createDeliveryProjectPreferences, createDeliveryPreferences);
+});
+
+test("social: project factory remains a compatibility alias", () => {
+  assert.equal(createDeliveryProjectSocial, createDeliverySocial);
+});
+
+test("stats: project factory remains a compatibility alias", () => {
+  assert.equal(createDeliveryProjectStats, createDeliveryStats);
 });
 
 test("bot project wrapper: high-level exports are independent project wrappers", async () => {
@@ -912,6 +1002,8 @@ test("server: project-check uses project diagnostics wording", async () => {
       databaseUrl: "memory",
       redisUrl: "memory",
       projectContext: { code: "demo-project", name: "Demo Project" },
+      projectCode: "demo-project",
+      projectName: "Demo Project",
       tenantCode: "demo-project",
       tenantName: "Demo Project",
       vaultChatId: "-1001",
@@ -963,6 +1055,8 @@ test("server: tenant-check remains a compatibility route", async () => {
       databaseUrl: "memory",
       redisUrl: "memory",
       projectContext: { code: "demo-project", name: "Demo Project" },
+      projectCode: "demo-project",
+      projectName: "Demo Project",
       tenantCode: "demo-project",
       tenantName: "Demo Project",
       vaultChatId: "-1001",
@@ -1002,6 +1096,77 @@ test("server: tenant-check remains a compatibility route", async () => {
     });
   } finally {
     await app.close();
+  }
+});
+
+test("server: OPS_PROJECT_CHECK rate-limit envs override legacy tenant envs", async () => {
+  const previous = {
+    OPS_PROJECT_CHECK_RATE_WINDOW_MS: process.env.OPS_PROJECT_CHECK_RATE_WINDOW_MS,
+    OPS_PROJECT_CHECK_RATE_LIMIT: process.env.OPS_PROJECT_CHECK_RATE_LIMIT,
+    OPS_TENANT_CHECK_RATE_WINDOW_MS: process.env.OPS_TENANT_CHECK_RATE_WINDOW_MS,
+    OPS_TENANT_CHECK_RATE_LIMIT: process.env.OPS_TENANT_CHECK_RATE_LIMIT
+  };
+  process.env.OPS_PROJECT_CHECK_RATE_WINDOW_MS = "60000";
+  process.env.OPS_PROJECT_CHECK_RATE_LIMIT = "1";
+  process.env.OPS_TENANT_CHECK_RATE_WINDOW_MS = "60000";
+  process.env.OPS_TENANT_CHECK_RATE_LIMIT = "999";
+
+  const app = createServer(
+    {} as never,
+    {
+      botToken: "token",
+      webhookPath: "/telegram/webhook",
+      databaseUrl: "memory",
+      redisUrl: "memory",
+      projectContext: { code: "demo-project", name: "Demo Project" },
+      projectCode: "demo-project",
+      projectName: "Demo Project",
+      tenantCode: "demo-project",
+      tenantName: "Demo Project",
+      vaultChatId: "-1001",
+      host: "127.0.0.1",
+      port: 3002,
+      opsToken: "ops-token"
+    },
+    false,
+    {
+      prisma: { $queryRawUnsafe: async () => 1 } as never,
+      getProjectDiagnostics: async () => ({
+        currentProjectCode: "demo-project",
+        matched: true,
+        projects: []
+      }),
+      getTenantDiagnostics: async () => ({
+        currentTenantCode: "demo-project",
+        matched: true,
+        tenants: []
+      })
+    }
+  );
+
+  try {
+    const first = await app.inject({
+      method: "GET",
+      url: "/ops/project-check",
+      headers: { "x-ops-token": "ops-token" }
+    });
+    const second = await app.inject({
+      method: "GET",
+      url: "/ops/project-check",
+      headers: { "x-ops-token": "ops-token" }
+    });
+
+    assert.equal(first.statusCode, 200);
+    assert.equal(second.statusCode, 429);
+  } finally {
+    await app.close();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
   }
 });
 
@@ -2476,6 +2641,128 @@ test("tenant-vault: collection listing uses project-oriented runtime deps", asyn
   assert.equal(runtimeProjectCalls, 1);
 });
 
+test("tenant-vault: listCollections prefers projectId and falls back to tenantId", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const tenantVault = createDeliveryTenantVault({
+    prisma: {
+      collection: {
+        findMany: async (args: Record<string, unknown>) => {
+          calls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId ? [] : [{ id: "c1", title: "Collection 1" }];
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    canManageProject: async () => true,
+    ensureInitialOwner: async () => false
+  });
+
+  const result = await tenantVault.listCollections();
+  assert.deepEqual(result, [{ id: "c1", title: "Collection 1" }]);
+  assert.ok(calls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(calls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+});
+
+test("tenant-vault: createCollection dual-writes projectId", async () => {
+  const createCalls: Array<Record<string, unknown>> = [];
+  const tenantVault = createDeliveryTenantVault({
+    prisma: {
+      collection: {
+        create: async (args: Record<string, unknown>) => {
+          createCalls.push(args);
+          return { id: "c1" };
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    canManageProject: async () => true,
+    ensureInitialOwner: async () => false
+  });
+
+  const result = await tenantVault.createCollection("owner_1", " Collection 1 ");
+  assert.equal(result.ok, true);
+  assert.deepEqual(createCalls[0], {
+    data: { tenantId: "tenant_1", projectId: "tenant_1", title: "Collection 1" }
+  });
+});
+
+test("tenant-guard: ensureRuntimeProject is the primary runtime bootstrap helper", async () => {
+  const result = await ensureRuntimeProject(
+    {
+      tenant: {
+        findUnique: async () => ({ id: "tenant_1", code: "demo-project", name: "Demo Project" }),
+        update: async () => ({})
+      }
+    } as never,
+    { projectCode: "demo-project", projectName: "Demo Project" }
+  );
+
+  assert.deepEqual(result, {
+    id: "tenant_1",
+    code: "demo-project",
+    name: "Demo Project"
+  });
+});
+
+test("tenant-vault: updateCollection prefers projectId and falls back to tenantId", async () => {
+  const findCalls: Array<Record<string, unknown>> = [];
+  const updateCalls: Array<Record<string, unknown>> = [];
+  const tenantVault = createDeliveryTenantVault({
+    prisma: {
+      collection: {
+        findFirst: async (args: Record<string, unknown>) => {
+          findCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId ? null : { id: "c1", title: "Old" };
+        },
+        update: async (args: Record<string, unknown>) => {
+          updateCalls.push(args);
+          return {};
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    canManageProject: async () => true,
+    ensureInitialOwner: async () => false
+  });
+
+  const result = await tenantVault.updateCollection("owner_1", "c1", "New");
+  assert.equal(result.ok, true);
+  assert.ok(findCalls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(findCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.deepEqual(updateCalls[0], { where: { id: "c1" }, data: { title: "New" } });
+});
+
+test("tenant-vault: deleteCollection prefers projectId and falls back to tenantId", async () => {
+  const findCalls: Array<Record<string, unknown>> = [];
+  const deleteCalls: Array<Record<string, unknown>> = [];
+  const tenantVault = createDeliveryTenantVault({
+    prisma: {
+      collection: {
+        findFirst: async (args: Record<string, unknown>) => {
+          findCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId ? null : { id: "c1", title: "Collection 1" };
+        },
+        delete: async (args: Record<string, unknown>) => {
+          deleteCalls.push(args);
+          return {};
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    canManageProject: async () => true,
+    ensureInitialOwner: async () => false
+  });
+
+  const result = await tenantVault.deleteCollection("owner_1", "c1");
+  assert.equal(result.ok, true);
+  assert.ok(findCalls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(findCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.deepEqual(deleteCalls[0], { where: { id: "c1" } });
+});
+
 test("tenant-vault: project member alias matches tenant user alias", async () => {
   const tenantVault = createDeliveryTenantVault({
     prisma: {
@@ -2806,6 +3093,51 @@ test("identity-service: exposes project-oriented aliases", async () => {
   assert.equal(await identity.canManageProjectCollections("u1"), true);
   assert.equal(await identity.getProjectUserLabel("u1"), "@project-user");
   await assert.doesNotReject(() => identity.upsertProjectUserFromTelegram({ id: 1 }));
+});
+
+test("identity-service: user profile summary prefers projectId and falls back to tenantId", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const getUserProfileSummary = createGetUserProfileSummary({
+    prisma: {
+      tenantUser: {
+        findUnique: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "tenantUser", ...args });
+          const where = (args as any).where ?? {};
+          if (where.projectId_tgUserId) {
+            return null;
+          }
+          return {
+            username: "demo_user",
+            firstName: "Demo",
+            lastName: "User",
+            createdAt: new Date("2026-04-20T00:00:00.000Z"),
+            lastSeenAt: new Date("2026-04-22T00:00:00.000Z")
+          };
+        }
+      },
+      event: {
+        count: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "eventCount", ...args });
+          const where = (args as any).where ?? {};
+          return where.projectId ? 0 : where.type === "IMPRESSION" ? 3 : 2;
+        },
+        findMany: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "eventFindMany", ...args });
+          const where = (args as any).where ?? {};
+          return where.projectId ? [] : [{ assetId: "asset_1" }, { assetId: "asset_2" }];
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1"
+  });
+
+  const summary = await getUserProfileSummary("user_1");
+  assert.equal(summary.displayName, "@demo_user");
+  assert.equal(summary.visitCount, 3);
+  assert.equal(summary.openCount, 2);
+  assert.equal(summary.openedShares, 2);
+  assert.ok(calls.some((c) => (c as any).kind === "tenantUser" && (c as any).where?.projectId_tgUserId?.projectId === "tenant_1"));
+  assert.ok(calls.some((c) => (c as any).kind === "tenantUser" && (c as any).where?.tenantId_tgUserId?.tenantId === "tenant_1"));
 });
 
 test("tenant-vault: upsertProjectUserFromTelegram dual-writes projectId", async () => {
@@ -3147,6 +3479,73 @@ test("delivery-core: bootstrap settings and tracking dual-write projectId", asyn
   }
 });
 
+test("delivery-core: bootstrap settings prefer projectId and fall back to tenantId", async () => {
+  const findManyCalls: Array<Record<string, unknown>> = [];
+  const createManyCalls: Array<Array<{ tenantId: string; projectId: string; key: string; value: string }>> = [];
+  const core = createDeliveryCore({
+    prisma: {
+      tenant: {
+        findUnique: async ({ where }: { where: { code?: string } }) =>
+          where.code === "demo" ? { id: "tenant_1", code: "demo", name: "Demo" } : null,
+        update: async () => ({})
+      },
+      tenantSetting: {
+        findMany: async (args: Record<string, unknown>) => {
+          findManyCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId ? [] : [];
+        },
+        createMany: async ({ data }: { data: Array<{ tenantId: string; projectId: string; key: string; value: string }> }) => {
+          createManyCalls.push(data);
+          return { count: data.length };
+        }
+      }
+    } as never,
+    config: { tenantCode: "demo", tenantName: "Demo" }
+  });
+
+  process.env.TENANT_BOOTSTRAP_PROTECT_CONTENT_ENABLED = "1";
+  try {
+    await core.getRuntimeProjectId();
+    assert.ok(findManyCalls.some((c) => (c as any).where?.projectId === "tenant_1"));
+    assert.ok(findManyCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+    assert.equal(createManyCalls.length, 1);
+  } finally {
+    delete process.env.TENANT_BOOTSTRAP_PROTECT_CONTENT_ENABLED;
+  }
+});
+
+test("delivery-core: ensureInitialOwner prefers projectId batches and falls back to tenantId", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const core = createDeliveryCore({
+    prisma: {
+      tenant: {
+        findUnique: async () => ({ id: "tenant_1", code: "demo", name: "demo" }),
+        update: async () => ({})
+      },
+      tenantMember: {
+        findFirst: async ({ where }: { where: Record<string, unknown> }) => {
+          calls.push({ kind: "member", where });
+          return null;
+        },
+        create: async () => ({})
+      },
+      uploadBatch: {
+        findFirst: async ({ where }: { where: Record<string, unknown> }) => {
+          calls.push({ kind: "batch", where });
+          return where.projectId ? null : { id: "batch_1" };
+        }
+      }
+    } as never,
+    config: { tenantCode: "demo", tenantName: "demo" }
+  });
+
+  const result = await core.isTenantAdmin("owner_1");
+  assert.equal(result, true);
+  assert.ok(calls.some((c) => (c as any).kind === "batch" && (c as any).where?.projectId === "tenant_1"));
+  assert.ok(calls.some((c) => (c as any).kind === "batch" && (c as any).where?.tenantId === "tenant_1"));
+});
+
 test("delivery-core: exposes runtime project context wrappers", async () => {
   const core = createDeliveryCore({
     prisma: {
@@ -3235,7 +3634,7 @@ test("tenant-guard: single owner mode blocks implicit tenant bootstrap", async (
           } as never,
           { tenantCode: "demo", tenantName: "demo" }
         ),
-      /禁止自动创建 tenant/
+      /禁止自动创建项目/
     );
   } finally {
     process.env.SINGLE_OWNER_MODE = previousMode;
@@ -3608,6 +4007,106 @@ test("stats: ranking context uses project-oriented runtime deps", async () => {
   assert.deepEqual(result, []);
   assert.equal(runtimeProjectCalls, 1);
   assert.equal(projectMemberCalls, 1);
+});
+
+test("stats: project stats prefer projectId and fall back to tenantId", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const stats = createDeliveryStats({
+    prisma: {
+      event: {
+        groupBy: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "groupBy", ...args });
+          const where = (args as any).where ?? {};
+          return where.projectId ? [] : [{ userId: "u1" }];
+        },
+        count: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "count", ...args });
+          const where = (args as any).where ?? {};
+          return where.projectId ? 0 : 5;
+        }
+      },
+      asset: {
+        count: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "assetCount", ...args });
+          const where = (args as any).where ?? {};
+          return where.projectId ? 0 : 2;
+        },
+        findMany: async () => []
+      },
+      uploadBatch: {
+        count: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "batchCount", ...args });
+          const where = (args as any).where ?? {};
+          return where.projectId ? 0 : 3;
+        }
+      },
+      uploadItem: {
+        count: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "itemCount", ...args });
+          const where = (args as any).where?.batch ?? {};
+          return where.projectId ? 0 : 4;
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    isProjectMemberSafe: async () => true,
+    formatLocalDate: () => "2026-04-22",
+    startOfLocalDay: (date) => date,
+    startOfLocalWeek: (date) => date,
+    startOfLocalMonth: (date) => date
+  });
+
+  const result = await stats.getProjectStats();
+  assert.equal(result.visitors, 1);
+  assert.equal(result.assets, 2);
+  assert.ok(calls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(calls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+});
+
+test("stats: project ranking prefers projectId and falls back to tenantId", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const stats = createDeliveryStats({
+    prisma: {
+      event: {
+        groupBy: async (args: Record<string, unknown>) => {
+          calls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId ? [] : [{ assetId: "asset_1", _count: { assetId: 7 } }];
+        },
+        count: async () => 0
+      },
+      asset: {
+        findMany: async () => [
+          {
+            id: "asset_1",
+            title: "Asset",
+            shareCode: "share_1",
+            visibility: "PUBLIC",
+            uploadBatches: [{ userId: "publisher_1" }]
+          }
+        ]
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    isProjectMemberSafe: async () => false,
+    formatLocalDate: () => "2026-04-22",
+    startOfLocalDay: (date) => date,
+    startOfLocalWeek: (date) => date,
+    startOfLocalMonth: (date) => date
+  });
+
+  const result = await stats.getProjectRanking("today", 10, "user_public");
+  assert.deepEqual(result, [
+    {
+      assetId: "asset_1",
+      title: "Asset",
+      shareCode: "share_1",
+      opens: 7,
+      publisherUserId: "publisher_1"
+    }
+  ]);
+  assert.ok(calls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(calls.some((c) => (c as any).where?.tenantId === "tenant_1"));
 });
 
 test("history: community scope prefers project batch alias", async () => {
@@ -4270,6 +4769,37 @@ test("access: protected asset is allowed for public viewer", async () => {
 
   const result = await getProjectAssetAccess("tenant_1", "user_1", "asset_1");
   assert.equal(result.status, "ok");
+});
+
+test("access: project asset access prefers projectId and falls back to tenantId", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const getProjectAssetAccess = createGetProjectAssetAccess({
+    prisma: {
+      asset: {
+        findFirst: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "asset", ...args });
+          const where = (args as any).where ?? {};
+          return where.projectId ? null : { id: "asset_1", visibility: "RESTRICTED" };
+        }
+      },
+      uploadBatch: {
+        findFirst: async (args: Record<string, unknown>) => {
+          calls.push({ kind: "batch", ...args });
+          const where = (args as any).where ?? {};
+          return where.projectId ? null : { id: "batch_1" };
+        }
+      }
+    } as never,
+    isProjectMemberSafe: async () => true,
+    canManageProjectSafe: async () => false
+  });
+
+  const result = await getProjectAssetAccess("tenant_1", "user_1", "asset_1");
+  assert.deepEqual(result, { status: "ok", asset: { id: "asset_1", visibility: "RESTRICTED" } });
+  assert.ok(calls.some((c) => (c as any).kind === "asset" && (c as any).where?.projectId === "tenant_1"));
+  assert.ok(calls.some((c) => (c as any).kind === "asset" && (c as any).where?.tenantId === "tenant_1"));
+  assert.ok(calls.some((c) => (c as any).kind === "batch" && (c as any).where?.projectId === "tenant_1"));
+  assert.ok(calls.some((c) => (c as any).kind === "batch" && (c as any).where?.tenantId === "tenant_1"));
 });
 
 test("access: tenant helper remains a compatibility alias of project asset access", async () => {
@@ -5452,6 +5982,205 @@ test("social: public viewer comments history excludes only restricted assets", a
   assert.deepEqual(result.items.map((item: { assetId: string }) => item.assetId), ["asset_1"]);
 });
 
+test("social: listAssetComments prefers projectId and falls back to tenantId", async () => {
+  const countCalls: Array<Record<string, unknown>> = [];
+  const findManyCalls: Array<Record<string, unknown>> = [];
+  const social = createDeliverySocial({
+    prisma: {
+      assetComment: {
+        count: async (args: Record<string, unknown>) => {
+          countCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.asset?.projectId ? 0 : 1;
+        },
+        findMany: async (args: Record<string, unknown>) => {
+          findManyCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.asset?.projectId
+            ? []
+            : [
+                {
+                  id: "comment_1",
+                  authorUserId: "user_1",
+                  authorName: "User",
+                  content: "hello",
+                  replyToCommentId: null,
+                  replyTo: null,
+                  createdAt: new Date("2026-04-22T00:00:00.000Z")
+                }
+              ];
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    isProjectMemberSafe: async () => true,
+    getProjectAssetAccess: async () => ({ status: "ok", asset: { id: "asset_1", visibility: "PUBLIC" } })
+  });
+
+  const result = await social.listAssetComments("user_1", "asset_1", 1, 10);
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0]?.id, "comment_1");
+  assert.ok(countCalls.some((c) => (c as any).where?.asset?.projectId === "tenant_1"));
+  assert.ok(countCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.ok(findManyCalls.some((c) => (c as any).where?.asset?.projectId === "tenant_1"));
+  assert.ok(findManyCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+});
+
+test("social: asset like queries prefer projectId and fall back to tenantId", async () => {
+  const countCalls: Array<Record<string, unknown>> = [];
+  const findFirstCalls: Array<Record<string, unknown>> = [];
+  const social = createDeliverySocial({
+    prisma: {
+      assetLike: {
+        count: async (args: Record<string, unknown>) => {
+          countCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.asset?.projectId ? 0 : 2;
+        },
+        findFirst: async (args: Record<string, unknown>) => {
+          findFirstCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.asset?.projectId ? null : { id: "like_1" };
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    isProjectMemberSafe: async () => true,
+    getProjectAssetAccess: async () => ({ status: "ok", asset: { id: "asset_1", visibility: "PUBLIC" } })
+  });
+
+  const likeCount = await social.getAssetLikeCount("user_1", "asset_1");
+  const liked = await social.hasAssetLiked("user_1", "asset_1");
+  assert.equal(likeCount, 2);
+  assert.equal(liked, true);
+  assert.ok(countCalls.some((c) => (c as any).where?.asset?.projectId === "tenant_1"));
+  assert.ok(countCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.ok(findFirstCalls.some((c) => (c as any).where?.asset?.projectId === "tenant_1"));
+  assert.ok(findFirstCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+});
+
+test("social: toggleAssetCommentLike prefers project-linked reads and falls back to tenantId", async () => {
+  const likeFindCalls: Array<Record<string, unknown>> = [];
+  const likeCountCalls: Array<Record<string, unknown>> = [];
+  const social = createDeliverySocial({
+    prisma: {
+      assetComment: {
+        findFirst: async (args: Record<string, unknown>) => {
+          const where = (args as any).where ?? {};
+          return where.asset?.projectId
+            ? null
+            : { id: "comment_1", assetId: "asset_1", authorUserId: "user_2", authorName: "User" };
+        }
+      },
+      assetCommentLike: {
+        findFirst: async (args: Record<string, unknown>) => {
+          likeFindCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.comment?.asset?.projectId ? null : { id: "like_1" };
+        },
+        count: async (args: Record<string, unknown>) => {
+          likeCountCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.comment?.asset?.projectId ? 0 : 2;
+        },
+        delete: async () => ({}),
+        create: async () => ({})
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    isProjectMemberSafe: async () => true,
+    getProjectAssetAccess: async () => ({ status: "ok", asset: { id: "asset_1", visibility: "PUBLIC" } })
+  });
+
+  const result = await social.toggleAssetCommentLike("user_1", "comment_1");
+  assert.equal(result.ok, true);
+  assert.ok(likeFindCalls.some((c) => (c as any).where?.comment?.asset?.projectId === "tenant_1"));
+  assert.ok(likeFindCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.ok(likeCountCalls.some((c) => (c as any).where?.comment?.asset?.projectId === "tenant_1"));
+  assert.ok(likeCountCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+});
+
+test("social: toggleAssetLike prefers project-linked reads and falls back to tenantId", async () => {
+  const findCalls: Array<Record<string, unknown>> = [];
+  const countCalls: Array<Record<string, unknown>> = [];
+  const social = createDeliverySocial({
+    prisma: {
+      assetLike: {
+        findFirst: async (args: Record<string, unknown>) => {
+          findCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.asset?.projectId ? null : { id: "like_1" };
+        },
+        count: async (args: Record<string, unknown>) => {
+          countCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.asset?.projectId ? 0 : 1;
+        },
+        delete: async () => ({}),
+        create: async () => ({})
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    isProjectMemberSafe: async () => true,
+    getProjectAssetAccess: async () => ({ status: "ok", asset: { id: "asset_1", visibility: "PUBLIC" } })
+  });
+
+  const result = await social.toggleAssetLike("user_1", "asset_1");
+  assert.equal(result.ok, true);
+  assert.ok(findCalls.some((c) => (c as any).where?.asset?.projectId === "tenant_1"));
+  assert.ok(findCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.ok(countCalls.some((c) => (c as any).where?.asset?.projectId === "tenant_1"));
+  assert.ok(countCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+});
+
+test("social: addAssetComment reply target lookup prefers project-linked reads and falls back to tenantId", async () => {
+  const assetCalls: Array<Record<string, unknown>> = [];
+  const batchCalls: Array<Record<string, unknown>> = [];
+  const replyCalls: Array<Record<string, unknown>> = [];
+  const social = createDeliverySocial({
+    prisma: {
+      asset: {
+        findFirst: async (args: Record<string, unknown>) => {
+          assetCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId ? null : { title: "Asset", shareCode: "share_1" };
+        }
+      },
+      uploadBatch: {
+        findFirst: async (args: Record<string, unknown>) => {
+          batchCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId ? null : { userId: "publisher_1" };
+        }
+      },
+      assetComment: {
+        findFirst: async (args: Record<string, unknown>) => {
+          replyCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.asset?.projectId ? null : { id: "comment_1", authorUserId: "author_1" };
+        },
+        create: async () => ({ id: "comment_new" })
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    isProjectMemberSafe: async () => true,
+    getProjectAssetAccess: async () => ({ status: "ok", asset: { id: "asset_1", visibility: "PUBLIC" } })
+  });
+
+  const result = await social.addAssetComment("user_1", "asset_1", {
+    authorName: "User",
+    content: "hello",
+    replyToCommentId: "comment_1"
+  });
+  assert.equal(result.ok, true);
+  assert.ok(assetCalls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(assetCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.ok(batchCalls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(batchCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.ok(replyCalls.some((c) => (c as any).where?.asset?.projectId === "tenant_1"));
+  assert.ok(replyCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+});
+
 test("social: project-oriented runtime id is used for asset likes", async () => {
   let runtimeProjectCalls = 0;
   const social = createDeliverySocial({
@@ -5600,6 +6329,286 @@ test("storage: dual-writes projectId for settings and preferences", async () => 
     where: { tenantId_key: { tenantId: "tenant_1", key: "setting_key" } },
     update: { projectId: "tenant_1", value: "v2" },
     create: { tenantId: "tenant_1", projectId: "tenant_1", key: "setting_key", value: "v2" }
+  });
+});
+
+test("preferences: follow keyword subscriptions prefer projectId and fall back to tenantId", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const preferences = createDeliveryPreferences({
+    prisma: {
+      userPreference: {
+        findMany: async (args: Record<string, unknown>) => {
+          calls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId
+            ? []
+            : [
+                { tgUserId: "user_1", value: '["猫娘","泳装"]' },
+                { tgUserId: "user_2", value: '[]' }
+              ];
+        }
+      }
+    } as never,
+    preferenceKeys: {
+      defaultCollectionId: "default_collection_id",
+      historyCollectionFilter: "history_collection_filter",
+      historyListDate: "history_list_date",
+      followKeywords: "follow_keywords",
+      notifyFollowEnabled: "notify_follow_enabled",
+      notifyCommentEnabled: "notify_comment_enabled",
+      notifyState: "notify_state"
+    },
+    getRuntimeProjectId: async () => "tenant_1",
+    getPreference: async () => null,
+    upsertPreference: async () => undefined,
+    deletePreference: async () => undefined,
+    startOfLocalDay: (date) => date,
+    formatLocalDate: () => "2026-04-22"
+  });
+
+  const rows = await preferences.listFollowKeywordSubscriptions();
+  assert.deepEqual(rows, [{ userId: "user_1", keywords: ["猫娘", "泳装"] }]);
+  assert.deepEqual(calls, [
+    {
+      where: { projectId: "tenant_1", key: "follow_keywords" },
+      select: { tgUserId: true, value: true }
+    },
+    {
+      where: { tenantId: "tenant_1", key: "follow_keywords" },
+      select: { tgUserId: true, value: true }
+    }
+  ]);
+});
+
+test("preferences: notify settings read falls back to tenantId preference row", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const preferences = createDeliveryPreferences({
+    prisma: {
+      userPreference: {
+        findFirst: async (args: Record<string, unknown>) => {
+          calls.push(args);
+          const where = (args as any).where ?? {};
+          return where.key === "notify_follow_enabled" ? { value: "0" } : { value: "1" };
+        }
+      }
+    } as never,
+    preferenceKeys: {
+      defaultCollectionId: "default_collection_id",
+      historyCollectionFilter: "history_collection_filter",
+      historyListDate: "history_list_date",
+      followKeywords: "follow_keywords",
+      notifyFollowEnabled: "notify_follow_enabled",
+      notifyCommentEnabled: "notify_comment_enabled",
+      notifyState: "notify_state"
+    },
+    getRuntimeProjectId: async () => "tenant_1",
+    getPreference: async () => null,
+    upsertPreference: async () => undefined,
+    deletePreference: async () => undefined,
+    startOfLocalDay: (date) => date,
+    formatLocalDate: () => "2026-04-22"
+  });
+
+  const settings = await preferences.getUserNotifySettings("user_1");
+  assert.deepEqual(settings, { followEnabled: false, commentEnabled: true });
+  assert.ok(calls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+});
+
+test("preferences: notification state read falls back to tenantId preference row", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const writes: Array<{ key: string; value: string | null }> = [];
+  const preferences = createDeliveryPreferences({
+    prisma: {
+      userPreference: {
+        findFirst: async (args: Record<string, unknown>) => {
+          calls.push(args);
+          return { value: '{"follow":{"lastAt":0,"ids":[]}}' };
+        }
+      }
+    } as never,
+    preferenceKeys: {
+      defaultCollectionId: "default_collection_id",
+      historyCollectionFilter: "history_collection_filter",
+      historyListDate: "history_list_date",
+      followKeywords: "follow_keywords",
+      notifyFollowEnabled: "notify_follow_enabled",
+      notifyCommentEnabled: "notify_comment_enabled",
+      notifyState: "notify_state"
+    },
+    getRuntimeProjectId: async () => "tenant_1",
+    getPreference: async () => null,
+    upsertPreference: async (_userId, key, value) => {
+      writes.push({ key, value });
+    },
+    deletePreference: async () => undefined,
+    startOfLocalDay: (date) => date,
+    formatLocalDate: () => "2026-04-22"
+  });
+
+  const allowed = await preferences.checkAndRecordUserNotification("user_1", {
+    type: "follow",
+    uniqueId: "asset_1",
+    minIntervalMs: 1
+  });
+  assert.equal(allowed, true);
+  assert.ok(calls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.equal(writes[0]?.key, "notify_state");
+});
+
+test("tenant-vault: collection impact counts prefer projectId and fall back to tenantId", async () => {
+  const collectionCalls: Array<Record<string, unknown>> = [];
+  const assetCalls: Array<Record<string, unknown>> = [];
+  const itemCalls: Array<Record<string, unknown>> = [];
+  const tenantVault = createDeliveryTenantVault({
+    prisma: {
+      collection: {
+        findFirst: async (args: Record<string, unknown>) => {
+          collectionCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId ? null : { id: "c1" };
+        }
+      },
+      asset: {
+        count: async (args: Record<string, unknown>) => {
+          assetCalls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId ? 0 : 2;
+        }
+      },
+      uploadItem: {
+        count: async (args: Record<string, unknown>) => {
+          itemCalls.push(args);
+          const where = (args as any).where?.batch ?? {};
+          return where.projectId ? 0 : 5;
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    canManageProject: async () => true,
+    ensureInitialOwner: async () => false
+  });
+
+  const result = await tenantVault.getCollectionImpactCounts("owner_1", "c1");
+  assert.deepEqual(result, { assets: 2, files: 5 });
+  assert.ok(collectionCalls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(collectionCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.ok(assetCalls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(assetCalls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+  assert.ok(itemCalls.some((c) => (c as any).where?.batch?.projectId === "tenant_1"));
+  assert.ok(itemCalls.some((c) => (c as any).where?.batch?.tenantId === "tenant_1"));
+});
+
+test("tenant-vault: recent assets in collection prefer projectId and fall back to tenantId", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const tenantVault = createDeliveryTenantVault({
+    prisma: {
+      asset: {
+        findMany: async (args: Record<string, unknown>) => {
+          calls.push(args);
+          const where = (args as any).where ?? {};
+          return where.projectId
+            ? []
+            : [
+                {
+                  id: "asset_1",
+                  title: "Asset",
+                  description: "Desc",
+                  shareCode: "share_1",
+                  updatedAt: new Date("2026-04-22T00:00:00.000Z")
+                }
+              ];
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    canManageProject: async () => true,
+    ensureInitialOwner: async () => false
+  });
+
+  const result = await tenantVault.listRecentAssetsInCollection("c1", 10);
+  assert.equal(result[0]?.assetId, "asset_1");
+  assert.ok(calls.some((c) => (c as any).where?.projectId === "tenant_1"));
+  assert.ok(calls.some((c) => (c as any).where?.tenantId === "tenant_1"));
+});
+
+test("tenant-vault: getPrimaryVaultChatId reads current primary binding", async () => {
+  const tenantVault = createDeliveryTenantVault({
+    prisma: {
+      tenantVaultBinding: {
+        findFirst: async () => ({
+          vaultGroup: { chatId: BigInt(-1001234567890) }
+        })
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    canManageProject: async () => true,
+    ensureInitialOwner: async () => false
+  });
+
+  const chatId = await tenantVault.getPrimaryVaultChatId();
+  assert.equal(chatId, "-1001234567890");
+});
+
+test("tenant-vault: getCollectionTopic reads current topic mapping", async () => {
+  const tenantVault = createDeliveryTenantVault({
+    prisma: {
+      tenantVaultBinding: {
+        findFirst: async () => ({ vaultGroupId: "vg_1" })
+      },
+      tenantTopic: {
+        findFirst: async () => ({
+          messageThreadId: BigInt(123),
+          indexMessageId: BigInt(456)
+        })
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    canManageProject: async () => true,
+    ensureInitialOwner: async () => false
+  });
+
+  const topic = await tenantVault.getCollectionTopic("c1");
+  assert.deepEqual(topic, { threadId: 123, indexMessageId: 456 });
+});
+
+test("tenant-vault: topic mapping writes use current primary binding", async () => {
+  const upsertCalls: Array<Record<string, unknown>> = [];
+  const tenantVault = createDeliveryTenantVault({
+    prisma: {
+      tenantVaultBinding: {
+        findFirst: async () => ({ vaultGroupId: "vg_1" })
+      },
+      tenantTopic: {
+        upsert: async (args: Record<string, unknown>) => {
+          upsertCalls.push(args);
+          return {};
+        }
+      }
+    } as never,
+    getRuntimeProjectId: async () => "tenant_1",
+    canManageProject: async () => true,
+    ensureInitialOwner: async () => false
+  });
+
+  await tenantVault.setCollectionTopicThreadId("c1", 123);
+  await tenantVault.setCollectionTopicIndexMessageId("c1", 456);
+
+  assert.equal(upsertCalls.length, 2);
+  assert.deepEqual((upsertCalls[0] as any).where, {
+    tenantId_vaultGroupId_collectionId_version: {
+      tenantId: "tenant_1",
+      vaultGroupId: "vg_1",
+      collectionId: "c1",
+      version: 1
+    }
+  });
+  assert.deepEqual((upsertCalls[1] as any).where, {
+    tenantId_vaultGroupId_collectionId_version: {
+      tenantId: "tenant_1",
+      vaultGroupId: "vg_1",
+      collectionId: "c1",
+      version: 1
+    }
   });
 });
 

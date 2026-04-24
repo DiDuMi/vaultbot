@@ -1,5 +1,7 @@
-import { createHistoryRenderer } from "../tenant/history";
+import { createHistoryRenderer as createProjectHistoryRendererImpl } from "../tenant/history";
 
 export const createProjectHistoryRenderer = (
-  ...args: Parameters<typeof createHistoryRenderer>
-): ReturnType<typeof createHistoryRenderer> => createHistoryRenderer(...args);
+  ...args: Parameters<typeof createProjectHistoryRendererImpl>
+): ReturnType<typeof createProjectHistoryRendererImpl> => createProjectHistoryRendererImpl(...args);
+
+export { createProjectHistoryRenderer as createHistoryRenderer };

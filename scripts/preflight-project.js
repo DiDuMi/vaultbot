@@ -1,1 +1,3 @@
-require("./preflight-tenant.js");
+const { runProjectPreflight } = require("./preflight-common.js");
+
+runProjectPreflight();

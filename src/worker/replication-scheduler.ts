@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { startIntervalScheduler } from "./orchestration";
+import { resolveProjectScopeId } from "./helpers";
 
 type QueueLike = {
   add: (
@@ -97,10 +98,11 @@ export const startReplicationScheduler = (deps: {
       where: { status: "COMMITTED", items: { some: { status: { in: ["PENDING", "FAILED"] } } } },
       take: 10,
       orderBy: { createdAt: "desc" },
-      select: { id: true, tenantId: true }
+      select: { id: true, tenantId: true, projectId: true }
     });
     const replicationHeartbeatProjectIds = new Set<string>();
     for (const batch of batches) {
+      const batchProjectId = resolveProjectScopeId({ projectId: batch.projectId, tenantId: batch.tenantId });
       const last = replicationEnqueuedAt.get(batch.id) ?? 0;
       if (now - last < 10_000) {
         continue;
@@ -115,21 +117,21 @@ export const startReplicationScheduler = (deps: {
           )
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_enqueue_poll", projectId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_enqueue_poll", projectId: batchProjectId, batchId: batch.id }, error);
             return false;
           });
         if (enqueued) {
-          replicationHeartbeatProjectIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batchProjectId);
         }
       } else {
         const replicated = await deps.replicateBatch(batch.id, { includeOptional: false })
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_direct_poll", projectId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_direct_poll", projectId: batchProjectId, batchId: batch.id }, error);
             return false;
           });
         if (replicated) {
-          replicationHeartbeatProjectIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batchProjectId);
         }
       }
     }
@@ -148,13 +150,14 @@ export const startReplicationScheduler = (deps: {
       orderBy: { createdAt: "desc" },
       take: replicationBackfillTake,
       skip: backfillOffset,
-      select: { id: true, tenantId: true }
+      select: { id: true, tenantId: true, projectId: true }
     });
     backfillOffset += backfill.length;
     if (backfill.length < replicationBackfillTake) {
       backfillOffset = 0;
     }
     for (const batch of backfill) {
+      const batchProjectId = resolveProjectScopeId({ projectId: batch.projectId, tenantId: batch.tenantId });
       const last = replicationEnqueuedAt.get(batch.id) ?? 0;
       if (now - last < 10_000) {
         continue;
@@ -169,11 +172,11 @@ export const startReplicationScheduler = (deps: {
           )
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_enqueue_backfill", projectId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_enqueue_backfill", projectId: batchProjectId, batchId: batch.id }, error);
             return false;
           });
         if (enqueued) {
-          replicationHeartbeatProjectIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batchProjectId);
         }
       } else if (deps.replicationQueue) {
         const enqueued = await deps.replicationQueue
@@ -184,21 +187,21 @@ export const startReplicationScheduler = (deps: {
           )
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_enqueue_backfill", projectId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_enqueue_backfill", projectId: batchProjectId, batchId: batch.id }, error);
             return false;
           });
         if (enqueued) {
-          replicationHeartbeatProjectIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batchProjectId);
         }
       } else {
         const replicated = await deps.replicateBatch(batch.id, { includeOptional: true })
           .then(() => true)
           .catch((error) => {
-            deps.logError({ op: "replication_direct_backfill", projectId: batch.tenantId, batchId: batch.id }, error);
+            deps.logError({ op: "replication_direct_backfill", projectId: batchProjectId, batchId: batch.id }, error);
             return false;
           });
         if (replicated) {
-          replicationHeartbeatProjectIds.add(batch.tenantId);
+          replicationHeartbeatProjectIds.add(batchProjectId);
         }
       }
     }

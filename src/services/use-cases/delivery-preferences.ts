@@ -25,6 +25,24 @@ export const createDeliveryPreferences = (deps: {
   startOfLocalDay: (date: Date) => Date;
   formatLocalDate: (date: Date) => string;
 }) => {
+  const getPreferenceWithProjectFallback = async (userId: string, key: string) => {
+    const value = await deps.getPreference(userId, key);
+    if (value !== null) {
+      return value;
+    }
+    if (typeof deps.prisma.userPreference?.findFirst !== "function") {
+      return null;
+    }
+    const projectId = await deps.getRuntimeProjectId();
+    const row = await deps.prisma.userPreference
+      .findFirst({
+        where: { tenantId: projectId, tgUserId: userId, key },
+        select: { value: true }
+      })
+      .catch(() => null);
+    return row?.value ?? null;
+  };
+
   const getUserDefaultCollectionId = async (userId: string) => {
     const value = await deps.getPreference(userId, deps.preferenceKeys.defaultCollectionId);
     return value || null;
@@ -148,11 +166,20 @@ export const createDeliveryPreferences = (deps: {
   };
 
   const listFollowKeywordSubscriptions = async () => {
-    const tenantId = await deps.getRuntimeProjectId();
-    const rows = await deps.prisma.userPreference.findMany({
-      where: { tenantId, key: deps.preferenceKeys.followKeywords },
-      select: { tgUserId: true, value: true }
-    });
+    const projectId = await deps.getRuntimeProjectId();
+    const projectRows = await deps.prisma.userPreference
+      .findMany({
+        where: { projectId, key: deps.preferenceKeys.followKeywords },
+        select: { tgUserId: true, value: true }
+      })
+      .catch(() => []);
+    const rows =
+      projectRows.length > 0
+        ? projectRows
+        : await deps.prisma.userPreference.findMany({
+            where: { tenantId: projectId, key: deps.preferenceKeys.followKeywords },
+            select: { tgUserId: true, value: true }
+          });
     return rows
       .map((row) => ({ userId: row.tgUserId, keywords: parseFollowKeywords(row.value).slice(0, 5) }))
       .filter((row) => row.keywords.length > 0);
@@ -174,8 +201,8 @@ export const createDeliveryPreferences = (deps: {
 
   const getUserNotifySettings = async (userId: string) => {
     const [followRaw, commentRaw] = await Promise.all([
-      deps.getPreference(userId, deps.preferenceKeys.notifyFollowEnabled),
-      deps.getPreference(userId, deps.preferenceKeys.notifyCommentEnabled)
+      getPreferenceWithProjectFallback(userId, deps.preferenceKeys.notifyFollowEnabled),
+      getPreferenceWithProjectFallback(userId, deps.preferenceKeys.notifyCommentEnabled)
     ]);
     return { followEnabled: parseEnabledFlag(followRaw), commentEnabled: parseEnabledFlag(commentRaw) };
   };
@@ -251,7 +278,7 @@ export const createDeliveryPreferences = (deps: {
     const keepMs = 7 * 24 * 60 * 60 * 1000;
     const maxIds = 200;
     const now = Date.now();
-    const raw = await deps.getPreference(userId, deps.preferenceKeys.notifyState);
+    const raw = await getPreferenceWithProjectFallback(userId, deps.preferenceKeys.notifyState);
     const state = parseNotifyState(raw);
     const bucket = input.type === "follow" ? (state.follow ?? {}) : (state.comment ?? {});
     const ids = normalizeNotifyIds(bucket.ids, keepMs, maxIds);

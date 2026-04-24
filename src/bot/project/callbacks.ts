@@ -1,5 +1,5 @@
-import { registerTenantCallbackRoutes } from "../tenant/callbacks";
+import { registerTenantCallbackRoutes as registerProjectCallbackRoutesImpl } from "../tenant/callbacks";
 
 export const registerProjectCallbackRoutes = (
-  ...args: Parameters<typeof registerTenantCallbackRoutes>
-): ReturnType<typeof registerTenantCallbackRoutes> => registerTenantCallbackRoutes(...args);
+  ...args: Parameters<typeof registerProjectCallbackRoutesImpl>
+): ReturnType<typeof registerProjectCallbackRoutesImpl> => registerProjectCallbackRoutesImpl(...args);

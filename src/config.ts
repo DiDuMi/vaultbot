@@ -10,6 +10,8 @@ export type Config = {
   databaseUrl: string;
   redisUrl: string;
   projectContext: ProjectContextConfig;
+  projectCode: string;
+  projectName: string;
   tenantCode: string;
   tenantName: string;
   vaultChatId: string;
@@ -34,6 +36,14 @@ const readEnv = (name: string, fallback?: string) => {
     return fallback;
   }
   throw new Error(`Missing environment variable: ${name}`);
+};
+
+const readEnvWithLegacyFallback = (primaryName: string, legacyName: string) => {
+  const primary = process.env[primaryName];
+  if (primary !== undefined && primary.trim() !== "") {
+    return primary;
+  }
+  return readEnv(legacyName);
 };
 
 const readOptionalInt = (name: string) => {
@@ -65,8 +75,8 @@ const assertTelegramId = (name: string, value: string) => {
 
 export const loadConfig = (): Config => {
   const webhookPath = normalizePath(readEnv("WEBHOOK_PATH", "/telegram/webhook"));
-  const tenantCode = readEnv("TENANT_CODE");
-  const tenantName = readEnv("TENANT_NAME");
+  const projectCode = readEnvWithLegacyFallback("PROJECT_CODE", "TENANT_CODE");
+  const projectName = readEnvWithLegacyFallback("PROJECT_NAME", "TENANT_NAME");
   const config: Config = {
     botToken: readEnv("BOT_TOKEN"),
     webhookPath,
@@ -75,9 +85,11 @@ export const loadConfig = (): Config => {
     opsToken: process.env.OPS_TOKEN,
     databaseUrl: readEnv("DATABASE_URL"),
     redisUrl: readEnv("REDIS_URL"),
-    projectContext: createProjectContextConfigFromTenant({ tenantCode, tenantName }),
-    tenantCode,
-    tenantName,
+    projectContext: createProjectContextConfigFromTenant({ tenantCode: projectCode, tenantName: projectName }),
+    projectCode,
+    projectName,
+    tenantCode: projectCode,
+    tenantName: projectName,
     vaultChatId: assertTelegramId("VAULT_CHAT_ID", readEnv("VAULT_CHAT_ID")),
     vaultThreadId: readOptionalInt("VAULT_THREAD_ID"),
     host: readEnv("HOST", "0.0.0.0"),

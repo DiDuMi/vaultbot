@@ -33,6 +33,14 @@ const parseNumberWithBounds = (raw: string | undefined, fallback: number, min: n
   return Math.min(max, Math.max(min, Math.trunc(value)));
 };
 
+const readEnvWithLegacyFallback = (primaryName: string, legacyName: string) => {
+  const primary = process.env[primaryName];
+  if (primary !== undefined && primary.trim() !== "") {
+    return primary;
+  }
+  return process.env[legacyName];
+};
+
 const getClientIp = (headers: Record<string, unknown>, ip: string, trustProxy: boolean) => {
   if (!trustProxy) {
     return ip;
@@ -61,8 +69,18 @@ export const createServer = (
   const trustProxy = process.env.TRUST_PROXY === "1";
   const app = Fastify({ logger: { redact: ["req.headers", "res.headers"] }, trustProxy });
   const healthTimeoutMs = parseNumberWithBounds(process.env.HEALTH_CHECK_TIMEOUT_MS, 1500, 200, 10_000);
-  const opsRateLimitWindowMs = parseNumberWithBounds(process.env.OPS_TENANT_CHECK_RATE_WINDOW_MS, 60_000, 1_000, 3_600_000);
-  const opsRateLimitMax = parseNumberWithBounds(process.env.OPS_TENANT_CHECK_RATE_LIMIT, 60, 1, 10_000);
+  const opsRateLimitWindowMs = parseNumberWithBounds(
+    readEnvWithLegacyFallback("OPS_PROJECT_CHECK_RATE_WINDOW_MS", "OPS_TENANT_CHECK_RATE_WINDOW_MS"),
+    60_000,
+    1_000,
+    3_600_000
+  );
+  const opsRateLimitMax = parseNumberWithBounds(
+    readEnvWithLegacyFallback("OPS_PROJECT_CHECK_RATE_LIMIT", "OPS_TENANT_CHECK_RATE_LIMIT"),
+    60,
+    1,
+    10_000
+  );
   const opsRateLimitStates = new Map<string, { windowStartAt: number; count: number }>();
   let lastOpsRateLimitCleanupAt = 0;
   const healthRedisConnection = config.redisUrl === "memory" ? null : createRedisConnection(config.redisUrl, { component: "server" });

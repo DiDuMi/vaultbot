@@ -13,13 +13,13 @@
 
 ## 2. 当前总体判断
 
-当前仓库已经完成了“兼容式单项目收口”的中段工作，但还没有完成“彻底去租户化”。
+当前仓库已经完成了“兼容式单项目收口”的中后段工作，但还没有完成“彻底去租户化”。
 
 更准确地说：
 
 - 阶段 1 已经完成大部分入口与包装层收口
-- 阶段 2 已经推进到中后段
-- 阶段 4 已开始通过 worker 边界与模块入口整理推进
+- 阶段 2 已经推进到中后段，并完成生产 Phase A backfill
+- 阶段 4 已通过 worker 边界、模块入口与生产回填进入观察期
 - 阶段 5 仍未系统推进
 - 阶段 6 暂时不应启动
 
@@ -29,9 +29,9 @@
 | --- | --- | --- | --- |
 | 运行边界与上下文 | 进行中 | 中高 | `projectContext`、project guard、project diagnostics 已落地，但底层仍保留 `getTenantId()` 兼容路径 |
 | 服务层 project 主入口 | 进行中 | 高 | 主要聚合层与多个模块入口已 project-first，仍有局部 tenant 实现细节 |
-| Bot/UI 活跃调用链 | 进行中 | 中高 | 高频页面基本已切到 `project-*`，目录命名与局部文案仍是历史包袱 |
-| 存储/副本/worker | 进行中 | 中 | worker 入口、helper、storage、scheduler、日志边界已推进，底层复制/存储结构仍保留 tenant 字段 |
-| 测试与文档 | 进行中 | 中高 | 测试和迭代记录在持续补强 |
+| Bot/UI 活跃调用链 | 进行中 | 高 | `project` 已成为 Bot 主入口、主 composition 与主 register-core，`tenant` 已退化为兼容层 |
+| 存储/副本/worker | 进行中 | 中高 | worker 关键读写链路与复制设置已 project-first，生产 backfill 已完成 |
+| 测试与文档 | 进行中 | 高 | 测试默认主语已大面积切到 `project`，但状态文档仍需持续同步 |
 | schema 物理清理 | 未开始 | 低 | 当前不建议启动 |
 
 ## 4. 优先级矩阵
@@ -46,7 +46,7 @@
 - 优先级：最高
 - 目标：
   - 用统一 `project context` 包装运行时上下文
-  - 上层模块不再直接关心 `TENANT_CODE`
+  - 上层模块不再直接关心 `PROJECT_CODE`（以及 legacy `TENANT_CODE`）
   - `getTenantId()` 不再向应用层扩散
 - 主要文件：
   - `src/config.ts`
@@ -82,7 +82,7 @@
 
 #### P0-3 Worker 运行边界收口
 
-- 状态：进行中
+- 状态：大部分完成
 - 优先级：最高
 - 目标：
   - 把 worker 从“tenant worker”收口为“project worker”
@@ -93,9 +93,9 @@
   - `src/worker/replication-worker.ts`
   - `src/worker/storage.ts`
 - 当前缺口：
-  - 底层复制逻辑与 Prisma 查询仍以 tenant 字段为核心
-  - 局部 log op / component / 注释仍残留 tenant 术语
-  - worker 内部实现尚未彻底统一到 project 命名
+  - 底层复制/存储结构仍保留 `tenantId` 作为兼容字段
+  - `replication-scheduler`、`delivery-stats` 等部分读查询仍可继续推进 project-first
+  - 局部 worker / bot 日志术语仍可进一步清理
 - 验收标准：
   - worker 初始化先获取 project context
   - 心跳与日志优先描述 project 运行状态
@@ -123,7 +123,7 @@
 
 #### P1-2 Bot 高频链路语义收口
 
-- 状态：进行中
+- 状态：进行中（高位）
 - 优先级：高
 - 主要文件：
   - `src/bot/tenant/renderers.ts`
@@ -132,12 +132,33 @@
   - `src/bot/tenant/register-messages.ts`
   - `src/bot/tenant/callbacks/admin-admin-input.ts`
 - 当前缺口：
-  - 目录与类型仍是 `tenant`
-  - 文案与回调含义仍残留“租户管理员”等概念
-  - 仍有少量上层回退到旧 `tenant-*` 接口
+  - 具体功能实现仍主要承载在 `src/bot/tenant/*`
+  - 目录命名仍是 `tenant`
+  - 少量内部 helper、日志与 callback 细节仍残留旧术语
 - 验收标准：
   - 高频活跃链路优先全部用 `project-*`
   - 文案不再要求用户理解租户治理
+
+#### P1-4 生产 backfill 与观察期
+
+- 状态：已完成首轮
+- 优先级：高
+- 主要文件：
+  - `scripts/schema-phase-a-backfill.sql`
+  - `scripts/project-observation-audit.sql`
+  - `docs/PRODUCTION_OBSERVATION_RUNBOOK.md`
+- 当前事实：
+  - 生产 Phase A backfill 已执行完成
+  - 回填后目标表 `projectId is null = 0`
+  - 回填后目标表 `projectId is distinct from tenantId = 0`
+  - 观察期巡检模板已就位
+- 当前缺口：
+  - 仍需按 `24h / 72h / 7d` 持续执行观察期巡检
+  - 仍需确认最近写入持续满足双写与一致性
+- 验收标准：
+  - 最近写入 `recent_project_id_null_rows = 0`
+  - 最近写入 `recent_project_tenant_mismatch_rows = 0`
+  - project 分布无异常漂移
 
 #### P1-3 诊断与运维接口收口
 
@@ -261,28 +282,43 @@
 
 ### 下一轮首选
 
+- P1-4 生产观察期巡检执行与留档
+
+理由：
+
+- 生产 backfill 已完成，当前最重要的是确认新增写入持续稳定
+- 这一步直接决定何时可以进入下一阶段切读推进
+
+### 下一轮备选
+
 - P1-3 文档与运维语义对齐
 
 理由：
 
-- 代码事实已经显著领先于状态文档
-- 若不先同步文档，后续优先级判断会持续失真
-
-### 下一轮备选
-
-- P2-1 类型、注释、日志上下文统一
-
-理由：
-
-- 当前代码主线已经基本 project-first，接下来更值得做的是清理残余术语噪音
+- 代码与生产状态已经领先文档，需要持续同步避免执行矩阵失真
 
 ### 暂不建议
 
-- 目录重命名
 - schema 清理
-- 大范围文案统一
+- 目录重命名
+- 破坏性 tenant 字段删除
 
 原因：
 
-- 当前都不是最核心阻塞
-- 提前做会制造高噪音和高风险
+- 当前生产仍处于兼容观察期
+- 提前进入物理清理会显著提高风险
+## 2026-04-23 Addendum - Parallel rule during observation
+
+- During observation, continue allowing:
+  - project-first wrappers and entrypoint cleanup
+  - compatibility-preserving service/worker/upload/discovery refactors
+  - local naming cleanup that does not remove fallback behavior
+  - regression tests and documentation sync
+- During observation, continue blocking:
+  - schema cleanup
+  - deletion of tenant fallback
+  - deletion of `tenantId` / `Tenant*`
+  - irreversible migration steps based only on incomplete observation windows
+- Practical interpretation:
+  - observation is a gate for high-risk cleanup
+  - observation is not a freeze on low-risk refactor progress

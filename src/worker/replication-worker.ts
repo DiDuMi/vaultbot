@@ -24,7 +24,7 @@ export const createReplicateBatch = (deps: {
     if (!batch) {
       return;
     }
-    const projectId = batch.projectId ?? batch.tenantId;
+    const projectScopeId = batch.projectId ?? batch.tenantId;
 
     const asset = await deps.prisma.asset.findUnique({
       where: { id: batch.assetId },
@@ -35,24 +35,24 @@ export const createReplicateBatch = (deps: {
     const collectionTitle = asset?.collection?.title ?? (rawCollectionId ? "\u5206\u7c7b" : "\u672a\u5206\u7c7b");
 
     const bindings = await deps.prisma.tenantVaultBinding.findMany({
-      where: { tenantId: projectId, role: { in: ["PRIMARY", "BACKUP"] } },
+      where: { tenantId: projectScopeId, role: { in: ["PRIMARY", "BACKUP"] } },
       include: { vaultGroup: true },
       orderBy: [{ role: "asc" }, { createdAt: "asc" }]
     });
     if (bindings.length === 0) {
       const configuredChatId = BigInt(deps.config.vaultChatId);
       const createdGroup = await deps.prisma.vaultGroup.upsert({
-        where: { tenantId_chatId: { tenantId: projectId, chatId: configuredChatId } },
+        where: { tenantId_chatId: { tenantId: projectScopeId, chatId: configuredChatId } },
         update: {},
-        create: { tenantId: projectId, chatId: configuredChatId }
+        create: { tenantId: projectScopeId, chatId: configuredChatId }
       });
       await deps.prisma.tenantVaultBinding.upsert({
-        where: { tenantId_vaultGroupId_role: { tenantId: projectId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
+        where: { tenantId_vaultGroupId_role: { tenantId: projectScopeId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
         update: {},
-        create: { tenantId: projectId, vaultGroupId: createdGroup.id, role: "PRIMARY" }
+        create: { tenantId: projectScopeId, vaultGroupId: createdGroup.id, role: "PRIMARY" }
       });
       const createdBinding = await deps.prisma.tenantVaultBinding.findUnique({
-        where: { tenantId_vaultGroupId_role: { tenantId: projectId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
+        where: { tenantId_vaultGroupId_role: { tenantId: projectScopeId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
         include: { vaultGroup: true }
       });
       if (createdBinding) {
@@ -81,14 +81,14 @@ export const createReplicateBatch = (deps: {
     const rawMinReplicas =
       (await deps.prisma.tenantSetting
         .findUnique({
-          where: { projectId_key: { projectId, key: "min_replicas" } },
+          where: { projectId_key: { projectId: projectScopeId, key: "min_replicas" } },
           select: { value: true }
         })
         .then((row) => row?.value ?? null)
         .catch(() => null)) ??
       (await deps.prisma.tenantSetting
         .findUnique({
-          where: { tenantId_key: { tenantId: projectId, key: "min_replicas" } },
+          where: { tenantId_key: { tenantId: projectScopeId, key: "min_replicas" } },
           select: { value: true }
         })
         .then((row) => row?.value ?? null)
@@ -122,7 +122,7 @@ export const createReplicateBatch = (deps: {
     const ensureThreadId = async (vaultGroupId: string, vaultChatId: string, isForum: boolean) => {
       if (isForum) {
         const topic = await deps.prisma.tenantTopic.findFirst({
-          where: { tenantId: projectId, vaultGroupId, collectionId, version: 1 }
+          where: { tenantId: projectScopeId, vaultGroupId, collectionId, version: 1 }
         });
         const existingThreadId = topic?.messageThreadId ? Number(topic.messageThreadId) : null;
         if (existingThreadId) {
@@ -141,7 +141,7 @@ export const createReplicateBatch = (deps: {
             .upsert({
               where: {
                 tenantId_vaultGroupId_collectionId_version: {
-                  tenantId: projectId,
+                  tenantId: projectScopeId,
                   vaultGroupId,
                   collectionId,
                   version: 1
@@ -149,7 +149,7 @@ export const createReplicateBatch = (deps: {
               },
               update: { messageThreadId: BigInt(createdThreadId) },
               create: {
-                tenantId: projectId,
+                tenantId: projectScopeId,
                 vaultGroupId,
                 collectionId,
                 messageThreadId: BigInt(createdThreadId),
@@ -158,7 +158,7 @@ export const createReplicateBatch = (deps: {
             })
             .catch((error) =>
               logWorkerError(
-                { op: "project_topic_upsert", projectId, scope: `vaultGroupId:${vaultGroupId}:collectionId:${collectionId}:v1` },
+                { op: "project_topic_upsert", projectId: projectScopeId, scope: `vaultGroupId:${vaultGroupId}:collectionId:${collectionId}:v1` },
                 error
               )
             );
@@ -170,7 +170,7 @@ export const createReplicateBatch = (deps: {
         await deps.prisma.tenantTopic.upsert({
           where: {
             tenantId_vaultGroupId_collectionId_version: {
-              tenantId: projectId,
+              tenantId: projectScopeId,
               vaultGroupId,
               collectionId: "none",
               version: 1
@@ -178,7 +178,7 @@ export const createReplicateBatch = (deps: {
           },
           update: { messageThreadId: BigInt(deps.config.vaultThreadId) },
           create: {
-            tenantId: projectId,
+            tenantId: projectScopeId,
             vaultGroupId,
             collectionId: "none",
             messageThreadId: BigInt(deps.config.vaultThreadId),
@@ -198,7 +198,10 @@ export const createReplicateBatch = (deps: {
       const chat = await deps.bot.api.getChat(vaultChatId).catch(() => null);
       const isForum = (chat as { is_forum?: boolean } | null)?.is_forum === true;
       const threadId = await ensureThreadId(vaultGroup.id, vaultChatId, isForum).catch((error) => {
-        logWorkerError({ op: "ensure_thread_id", projectId, scope: `vaultGroupId:${vaultGroup.id}:chatId:${vaultChatId}` }, error);
+        logWorkerError(
+          { op: "ensure_thread_id", projectId: projectScopeId, scope: `vaultGroupId:${vaultGroup.id}:chatId:${vaultChatId}` },
+          error
+        );
         return undefined;
       });
 
@@ -362,12 +365,17 @@ export const createReplicateBatch = (deps: {
         if (item.status !== "SUCCESS") {
           await deps.prisma.uploadItem
             .update({ where: { id: item.id }, data: { status: "SUCCESS", lastError: null } })
-            .catch((error) =>
-              logWorkerError(
-                { op: "upload_item_status_update", projectId, batchId: batch.id, scope: `uploadItemId:${item.id}:next:SUCCESS` },
-                error
-              )
-            );
+              .catch((error) =>
+                logWorkerError(
+                  {
+                    op: "upload_item_status_update",
+                    projectId: projectScopeId,
+                    batchId: batch.id,
+                    scope: `uploadItemId:${item.id}:next:SUCCESS`
+                  },
+                  error
+                )
+              );
         }
         continue;
       }
@@ -376,7 +384,12 @@ export const createReplicateBatch = (deps: {
           .update({ where: { id: item.id }, data: { status: "PENDING", lastError: null } })
           .catch((error) =>
             logWorkerError(
-              { op: "upload_item_status_update", projectId, batchId: batch.id, scope: `uploadItemId:${item.id}:next:PENDING` },
+              {
+                op: "upload_item_status_update",
+                projectId: projectScopeId,
+                batchId: batch.id,
+                scope: `uploadItemId:${item.id}:next:PENDING`
+              },
               error
             )
           );
@@ -387,7 +400,12 @@ export const createReplicateBatch = (deps: {
           .update({ where: { id: item.id }, data: { status: "PENDING" } })
           .catch((error) =>
             logWorkerError(
-              { op: "upload_item_status_update", projectId, batchId: batch.id, scope: `uploadItemId:${item.id}:next:PENDING` },
+              {
+                op: "upload_item_status_update",
+                projectId: projectScopeId,
+                batchId: batch.id,
+                scope: `uploadItemId:${item.id}:next:PENDING`
+              },
               error
             )
           );

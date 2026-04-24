@@ -1,5 +1,7 @@
-import { createBatchActions } from "../tenant/batch-actions";
+import { createBatchActions as createProjectBatchActionsImpl } from "../tenant/batch-actions";
 
 export const createProjectBatchActions = (
-  ...args: Parameters<typeof createBatchActions>
-): ReturnType<typeof createBatchActions> => createBatchActions(...args);
+  ...args: Parameters<typeof createProjectBatchActionsImpl>
+): ReturnType<typeof createProjectBatchActionsImpl> => createProjectBatchActionsImpl(...args);
+
+export { createProjectBatchActions as createBatchActions };

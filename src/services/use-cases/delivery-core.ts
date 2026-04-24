@@ -23,7 +23,7 @@ export const createDeliveryCore = (deps: {
   };
   const startOfLocalMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
 
-  const tenantSettingKeys = {
+  const projectBootstrapSettingKeys = {
     protectContentEnabled: "protect_content_enabled",
     hidePublisherEnabled: "hide_publisher_enabled",
     publicRankingEnabled: "public_ranking_enabled",
@@ -38,19 +38,39 @@ export const createDeliveryCore = (deps: {
     const value = raw.trim().toLowerCase();
     return value === "1" || value === "true" || value === "yes" || value === "on";
   };
+  const parseTruthyEnvWithFallback = (primaryName: string, legacyName: string) =>
+    parseTruthyEnv(primaryName) ?? parseTruthyEnv(legacyName);
 
   const bootstrapProjectSettings = async (projectId: string) => {
     const entries = [
-      { key: tenantSettingKeys.hidePublisherEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_HIDE_PUBLISHER_ENABLED") },
-      { key: tenantSettingKeys.protectContentEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_PROTECT_CONTENT_ENABLED") },
-      { key: tenantSettingKeys.publicRankingEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_PUBLIC_RANKING_ENABLED") },
-      { key: tenantSettingKeys.autoCategorizeEnabled, enabled: parseTruthyEnv("TENANT_BOOTSTRAP_AUTO_CATEGORIZE_ENABLED") }
+      {
+        key: projectBootstrapSettingKeys.hidePublisherEnabled,
+        enabled: parseTruthyEnvWithFallback("PROJECT_BOOTSTRAP_HIDE_PUBLISHER_ENABLED", "TENANT_BOOTSTRAP_HIDE_PUBLISHER_ENABLED")
+      },
+      {
+        key: projectBootstrapSettingKeys.protectContentEnabled,
+        enabled: parseTruthyEnvWithFallback("PROJECT_BOOTSTRAP_PROTECT_CONTENT_ENABLED", "TENANT_BOOTSTRAP_PROTECT_CONTENT_ENABLED")
+      },
+      {
+        key: projectBootstrapSettingKeys.publicRankingEnabled,
+        enabled: parseTruthyEnvWithFallback("PROJECT_BOOTSTRAP_PUBLIC_RANKING_ENABLED", "TENANT_BOOTSTRAP_PUBLIC_RANKING_ENABLED")
+      },
+      {
+        key: projectBootstrapSettingKeys.autoCategorizeEnabled,
+        enabled: parseTruthyEnvWithFallback("PROJECT_BOOTSTRAP_AUTO_CATEGORIZE_ENABLED", "TENANT_BOOTSTRAP_AUTO_CATEGORIZE_ENABLED")
+      }
     ].filter((entry) => entry.enabled === true);
     if (entries.length === 0) {
       return;
     }
     const keys = entries.map((entry) => entry.key);
-    const existing = await deps.prisma.tenantSetting.findMany({ where: { tenantId: projectId, key: { in: keys } }, select: { key: true } });
+    const existingByProject = await deps.prisma.tenantSetting
+      .findMany({ where: { projectId, key: { in: keys } } as never, select: { key: true } })
+      .catch(() => []);
+    const existing =
+      existingByProject.length > 0
+        ? existingByProject
+        : await deps.prisma.tenantSetting.findMany({ where: { tenantId: projectId, key: { in: keys } }, select: { key: true } });
     const existingKeys = new Set(existing.map((row) => row.key));
     const missing = entries
       .filter((entry) => !existingKeys.has(entry.key))
@@ -88,19 +108,23 @@ export const createDeliveryCore = (deps: {
     return project.projectId;
   };
 
-  const getTenantId = async () => {
-    return getRuntimeProjectId();
-  };
+  const getProjectScopeId = async () => getRuntimeProjectId();
+  const getTenantId = getProjectScopeId;
 
   const ensureInitialOwner = async (projectId: string, userId: string) => {
     const anyMember = await deps.prisma.tenantMember.findFirst({ where: { tenantId: projectId }, select: { id: true } });
     if (anyMember) {
       return false;
     }
-    const batch = await deps.prisma.uploadBatch.findFirst({
-      where: { tenantId: projectId, userId, status: "COMMITTED" },
-      select: { id: true }
-    });
+    const batch =
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { projectId, userId, status: "COMMITTED" },
+        select: { id: true }
+      })) ??
+      (await deps.prisma.uploadBatch.findFirst({
+        where: { tenantId: projectId, userId, status: "COMMITTED" },
+        select: { id: true }
+      }));
     if (!batch) {
       return false;
     }
@@ -112,8 +136,8 @@ export const createDeliveryCore = (deps: {
     return true;
   };
 
-  const isTenantAdmin = async (userId: string) => {
-    const projectId = await getTenantId();
+  const isProjectAdmin = async (userId: string) => {
+    const projectId = await getProjectScopeId();
     const member = await deps.prisma.tenantMember.findFirst({ where: { tenantId: projectId, tgUserId: userId } });
     if (member?.role === "OWNER") {
       return true;
@@ -123,47 +147,48 @@ export const createDeliveryCore = (deps: {
     }
     return ensureInitialOwner(projectId, userId);
   };
+  const isTenantAdmin = isProjectAdmin;
 
-  const canManageProject = async (userId: string) => isTenantAdmin(userId);
+  const canManageProject = async (userId: string) => isProjectAdmin(userId);
 
   const getProjectSearchMode = async (): Promise<ProjectSearchMode> => {
-    const tenantId = await getTenantId();
-    const tenant = await deps.prisma.tenant.findUnique({ where: { id: tenantId }, select: { searchMode: true } });
-    const mode = tenant?.searchMode ?? "ENTITLED_ONLY";
+    const projectId = await getProjectScopeId();
+    const project = await deps.prisma.tenant.findUnique({ where: { id: projectId }, select: { searchMode: true } });
+    const mode = project?.searchMode ?? "ENTITLED_ONLY";
     return mode === "OFF" || mode === "ENTITLED_ONLY" || mode === "PUBLIC" ? mode : "ENTITLED_ONLY";
   };
 
   const setProjectSearchMode = async (actorUserId: string, mode: ProjectSearchMode) => {
-    if (!(await isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可修改搜索开放设置。" };
+    if (!(await isProjectAdmin(actorUserId))) {
+      return { ok: false, message: "无权限：仅管理员可修改搜索开放设置。" };
     }
-    const tenantId = await getTenantId();
+    const projectId = await getProjectScopeId();
     const nextMode = mode === "OFF" || mode === "ENTITLED_ONLY" || mode === "PUBLIC" ? mode : "ENTITLED_ONLY";
-    await deps.prisma.tenant.update({ where: { id: tenantId }, data: { searchMode: nextMode } });
+    await deps.prisma.tenant.update({ where: { id: projectId }, data: { searchMode: nextMode } });
     if (nextMode === "PUBLIC") {
-      return { ok: true, message: "✅ 已对用户开放搜索。" };
+      return { ok: true, message: "已对用户开放搜索。" };
     }
     if (nextMode === "OFF") {
-      return { ok: true, message: "✅ 已关闭搜索。" };
+      return { ok: true, message: "已关闭搜索。" };
     }
-    return { ok: true, message: "✅ 已设置为仅租户可搜索。" };
+    return { ok: true, message: "已设置为仅项目成员可搜索。" };
   };
 
   const getProjectMinReplicas = async () => {
     if (isSingleOwnerModeEnabled()) {
       return 1;
     }
-    const tenantId = await getTenantId();
+    const projectId = await getProjectScopeId();
     const row =
       (await deps.prisma.tenantSetting
         .findUnique({
-          where: { projectId_key: { projectId: tenantId, key: "min_replicas" } },
+          where: { projectId_key: { projectId, key: "min_replicas" } },
           select: { value: true }
         })
         .catch(() => null)) ??
       (await deps.prisma.tenantSetting
         .findUnique({
-          where: { tenantId_key: { tenantId, key: "min_replicas" } },
+          where: { tenantId_key: { tenantId: projectId, key: "min_replicas" } },
           select: { value: true }
         })
         .catch(() => null));
@@ -173,20 +198,20 @@ export const createDeliveryCore = (deps: {
   };
 
   const setProjectMinReplicas = async (actorUserId: string, value: number) => {
-    if (!(await isTenantAdmin(actorUserId))) {
-      return { ok: false, message: "🔒 无权限：仅管理员可修改副本最小成功数。" };
+    if (!(await isProjectAdmin(actorUserId))) {
+      return { ok: false, message: "无权限：仅管理员可修改副本最小成功数。" };
     }
     if (isSingleOwnerModeEnabled()) {
       return { ok: false, message: "当前为单人项目模式，副本最小成功数固定为 1。" };
     }
-    const tenantId = await getTenantId();
+    const projectId = await getProjectScopeId();
     const next = normalizeMinReplicas(value);
     await deps.prisma.tenantSetting.upsert({
-      where: { tenantId_key: { tenantId, key: "min_replicas" } },
-      update: { projectId: tenantId, value: String(next) },
-      create: { tenantId, projectId: tenantId, key: "min_replicas", value: String(next) }
+      where: { tenantId_key: { tenantId: projectId, key: "min_replicas" } },
+      update: { projectId, value: String(next) },
+      create: { tenantId: projectId, projectId, key: "min_replicas", value: String(next) }
     });
-    return { ok: true, message: `✅ 已设置副本最小成功数：<b>${next}</b>` };
+    return { ok: true, message: `已设置副本最小成功数：<b>${next}</b>` };
   };
 
   const resolveShareCode = async (shareCode: string) => {
@@ -203,8 +228,8 @@ export const createDeliveryCore = (deps: {
     source: "start" | "start_payload" | "home" | "help" | "tag",
     metadata?: Record<string, unknown>
   ) => {
-    const tenantId = await getTenantId();
-    await deps.prisma.event.create({ data: { tenantId, projectId: tenantId, userId, type: "IMPRESSION", payload: { source, ...metadata } } });
+    const projectId = await getProjectScopeId();
+    await deps.prisma.event.create({ data: { tenantId: projectId, projectId, userId, type: "IMPRESSION", payload: { source, ...metadata } } });
   };
 
   return {
@@ -214,8 +239,10 @@ export const createDeliveryCore = (deps: {
     startOfLocalMonth,
     getRuntimeProjectContext,
     getRuntimeProjectId,
+    getProjectScopeId,
     getTenantId,
     ensureInitialOwner,
+    isProjectAdmin,
     isTenantAdmin,
     canManageProject,
     getProjectSearchMode,

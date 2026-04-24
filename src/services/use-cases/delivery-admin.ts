@@ -133,26 +133,26 @@ export const createProjectAdmin = (deps: {
 
   const getBroadcastTargetUserIds = async () => {
     const projectId = await deps.getRuntimeProjectId();
-    const [projectUsers, projectTenantUsers, members] = await Promise.all([
+    const [projectUsers, projectUserRows, members] = await Promise.all([
       deps.prisma.event.groupBy({ by: ["userId"], where: { projectId } }).catch(() => []),
       deps.prisma.tenantUser.findMany({ where: { projectId }, select: { tgUserId: true } }).catch(() => []),
       deps.prisma.tenantMember.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
     ]);
-    const [users, tenantUsers] =
-      projectUsers.length > 0 || projectTenantUsers.length > 0
-        ? [projectUsers, projectTenantUsers]
+    const [audienceEvents, fallbackUserRows] =
+      projectUsers.length > 0 || projectUserRows.length > 0
+        ? [projectUsers, projectUserRows]
         : await Promise.all([
             deps.prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
             deps.prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
           ]);
     const excluded = new Set(members.map((m) => m.tgUserId));
     const audience = new Set<string>();
-    for (const row of users) {
+    for (const row of audienceEvents) {
       if (row.userId) {
         audience.add(row.userId);
       }
     }
-    for (const row of tenantUsers) {
+    for (const row of fallbackUserRows) {
       if (row.tgUserId) {
         audience.add(row.tgUserId);
       }

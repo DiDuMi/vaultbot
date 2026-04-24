@@ -14,6 +14,7 @@ import {
   getLatestProjectAssetPublisherUserId,
   getProjectBroadcastTargetUserIds,
   parseNumberWithBounds,
+  resolveProjectScopeId,
   sendMediaGroupWithRetry,
   sleep
 } from "./helpers";
@@ -69,8 +70,9 @@ const start = async () => {
       if (!broadcast) {
         return;
       }
+      const broadcastScopeId = resolveProjectScopeId({ projectId: broadcast.projectId, tenantId: broadcast.tenantId });
       const keyboard = buildBroadcastKeyboard(broadcast.buttons);
-      const targetUserIds = await getProjectBroadcastTargetUserIds(prisma, broadcast.tenantId);
+      const targetUserIds = await getProjectBroadcastTargetUserIds(prisma, broadcastScopeId);
       await prisma.broadcastRun.update({ where: { id: runId }, data: { targetCount: targetUserIds.length } });
 
       let successCount = 0;
@@ -179,12 +181,13 @@ const start = async () => {
     }
     const asset = await prisma.asset.findUnique({
       where: { id: assetId },
-      select: { id: true, tenantId: true, title: true, description: true, shareCode: true }
+      select: { id: true, tenantId: true, projectId: true, title: true, description: true, shareCode: true }
     });
     if (!asset?.shareCode) {
       return;
     }
-    const publisherUserId = await getLatestProjectAssetPublisherUserId(prisma, asset.tenantId, asset.id);
+    const assetScopeId = resolveProjectScopeId({ projectId: asset.projectId, tenantId: asset.tenantId });
+    const publisherUserId = await getLatestProjectAssetPublisherUserId(prisma, assetScopeId, asset.id);
     const subs = await deliveryService.listFollowKeywordSubscriptions().catch(() => []);
     const plainTitle = stripHtml(asset.title ?? "");
     const plainDescription = stripHtml(asset.description ?? "");
@@ -223,7 +226,7 @@ const start = async () => {
           bot.api.sendMessage(chatId, text, { parse_mode: "HTML", link_preview_options: { is_disabled: true } })
         );
       } catch (error) {
-        logWorkerError({ op: "follow_notify_send", scope: `asset:${asset.id}:user:${chatId}`, projectId: asset.tenantId }, error);
+        logWorkerError({ op: "follow_notify_send", scope: `asset:${asset.id}:user:${chatId}`, projectId: assetScopeId }, error);
         continue;
       }
       await sleep(30);

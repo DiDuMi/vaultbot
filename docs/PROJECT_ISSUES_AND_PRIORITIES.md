@@ -107,7 +107,7 @@
 问题：
 
 - 现在已经禁止单人模式下隐式创建 tenant
-- 但底层仍然围绕 `TENANT_CODE / tenantId` 运转
+- 但底层仍然围绕 `PROJECT_CODE`（或 legacy `TENANT_CODE`）/ `tenantId` 运转
 
 风险：
 
@@ -115,7 +115,7 @@
 
 建议：
 
-- 固定生产 `TENANT_CODE`
+- 固定生产 `PROJECT_CODE`（或 legacy `TENANT_CODE`）
 - 长期开启：
   - `EXPECTED_TENANT_CODE`
   - `REQUIRE_EXISTING_TENANT=1`

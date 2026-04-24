@@ -1,4 +1,4 @@
-import { registerTenantCommands } from "../tenant/register-commands";
+import { registerTenantCommands as registerProjectCommandsImpl } from "../tenant/register-commands";
 
-export const registerProjectCommands = (...args: Parameters<typeof registerTenantCommands>): ReturnType<typeof registerTenantCommands> =>
-  registerTenantCommands(...args);
+export const registerProjectCommands = (...args: Parameters<typeof registerProjectCommandsImpl>): ReturnType<typeof registerProjectCommandsImpl> =>
+  registerProjectCommandsImpl(...args);

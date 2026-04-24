@@ -64,7 +64,8 @@
 
 - `update` 中补写 `projectId`
 - `create` 中同时写 `tenantId` 和 `projectId`
-- 保持旧 `where tenantId_key` 不变
+- 若唯一约束已存在，优先切到 `where projectId_key`
+- 保留旧 `where tenantId_key` 作为 fallback（兼容旧数据与旧索引窗口）
 
 ### 入口 2
 

@@ -1,22 +1,22 @@
 import type { PrismaClient } from "@prisma/client";
 import type { UploadMessage } from "./upload";
-import { createProjectAdmin } from "./delivery-admin";
-import { createDeliveryCore } from "./delivery-core";
-import { createProjectDiscovery } from "./delivery-discovery";
+import { createProjectAdmin } from "./delivery-project-admin";
+import { createProjectCore } from "./delivery-project-core";
+import { createProjectDiscovery } from "./delivery-project-discovery";
 import type { ProjectContextInput } from "../../project-context";
 import {
-  buildDiscoveryService,
-  buildIdentityService,
-  buildSocialService,
-  createGetProjectAssetAccess,
-  createGetUserProfileSummary
-} from "./delivery-factories";
-import { createDeliveryPreferences } from "./delivery-preferences";
-import { createProjectReplicaSelection } from "./delivery-replica-selection";
-import { createDeliverySocial } from "./delivery-social";
+  buildProjectDiscoveryService,
+  buildProjectIdentityService,
+  buildProjectSocialService,
+  createProjectAssetAccess,
+  createProjectUserProfileSummary
+} from "./delivery-project-factories";
+import { createDeliveryProjectPreferences } from "./delivery-project-preferences";
+import { createDeliveryProjectSocial } from "./delivery-project-social";
+import { createDeliveryProjectStats } from "./delivery-project-stats";
+import { createProjectReplicaSelection } from "./delivery-project-replica-selection";
 import { createDeliveryStorage } from "./delivery-storage";
-import { createDeliveryStats } from "./delivery-stats";
-import { createDeliveryProjectVault } from "./delivery-tenant-vault";
+import { createProjectVaultService } from "./delivery-project-vault";
 
 export type TelegramUserInput = {
   id: number;
@@ -52,7 +52,6 @@ export type DeliveryProjectIdentityService = {
   selectReplicas: (userId: string, assetId: string) => Promise<DeliverySelection>;
   resolveShareCode: (shareCode: string) => Promise<string | null>;
   upsertProjectUserFromTelegram: (user: TelegramUserInput) => Promise<void>;
-  upsertTenantUserFromTelegram: (user: TelegramUserInput) => Promise<void>;
   getProjectUserLabel: (userId: string) => Promise<string | null>;
   getUserProfileSummary: (userId: string) => Promise<{
     displayName: string | null;
@@ -75,11 +74,14 @@ export type DeliveryProjectIdentityService = {
   canManageProjectCollections: (userId: string) => Promise<boolean>;
 };
 
-export type LegacyIdentityService = {
+export type DeliveryIdentityCompatibilityAliases = {
+  upsertTenantUserFromTelegram: (user: TelegramUserInput) => Promise<void>;
 };
-
-export type DeliveryIdentityCompatibilityService = LegacyIdentityService;
-export type DeliveryIdentityService = DeliveryProjectIdentityService & LegacyIdentityService;
+export type DeliveryProjectIdentityCompatibilityService = DeliveryIdentityCompatibilityAliases;
+export type DeliveryIdentityCompatibilityService = DeliveryIdentityCompatibilityAliases;
+export type LegacyIdentityService = DeliveryIdentityCompatibilityAliases;
+export type DeliveryIdentityService = DeliveryProjectIdentityService & DeliveryIdentityCompatibilityAliases;
+export type DeliveryProjectIdentityServiceWithCompatibility = DeliveryIdentityService;
 
 export type DeliveryProjectSettingsService = {
   getProjectSearchMode: () => Promise<"OFF" | "ENTITLED_ONLY" | "PUBLIC">;
@@ -149,10 +151,13 @@ export type DeliveryProjectSettingsService = {
   }>;
 };
 
-export type LegacySettingsService = {};
-
-export type DeliveryTenantSettingsCompatibilityService = LegacySettingsService;
-export type DeliverySettingsService = DeliveryProjectSettingsService & LegacySettingsService;
+export type DeliverySettingsCompatibilityAliases = {};
+export type DeliverySettingsCompatibilityService = DeliverySettingsCompatibilityAliases;
+export type LegacySettingsService = DeliverySettingsCompatibilityAliases;
+export type DeliveryProjectSettingsCompatibilityService = DeliverySettingsCompatibilityAliases;
+export type DeliveryTenantSettingsCompatibilityService = DeliverySettingsCompatibilityAliases;
+export type DeliverySettingsService = DeliveryProjectSettingsService & DeliverySettingsCompatibilityAliases;
+export type DeliveryProjectSettingsServiceWithCompatibility = DeliverySettingsService;
 export type DeliveryTenantSettingsService = DeliverySettingsService;
 
 export type DeliveryProjectAdminService = {
@@ -276,11 +281,13 @@ export type DeliveryProjectAdminService = {
   ) => Promise<{ assetId: string; title: string; description: string | null; shareCode: string | null; updatedAt: Date }[]>;
 };
 
-export type LegacyAdminService = {};
-
-export type DeliveryAdminCompatibilityService = LegacyAdminService;
-export type AdminService = DeliveryProjectAdminService & LegacyAdminService;
+export type DeliveryAdminCompatibilityAliases = {};
+export type DeliveryAdminCompatibilityService = DeliveryAdminCompatibilityAliases;
+export type LegacyAdminService = DeliveryAdminCompatibilityAliases;
+export type DeliveryProjectAdminCompatibilityService = DeliveryAdminCompatibilityAliases;
+export type AdminService = DeliveryProjectAdminService & DeliveryAdminCompatibilityAliases;
 export type DeliveryAdminService = AdminService;
+export type DeliveryProjectAdminServiceWithCompatibility = DeliveryAdminService;
 
 export type DeliveryPreferencesService = {
   getUserDefaultCollectionId: (userId: string) => Promise<string | null>;
@@ -479,11 +486,13 @@ export type DeliveryProjectDiscoveryService = {
   }>;
 };
 
-export type LegacyDiscoveryService = {};
-
-export type DeliveryDiscoveryCompatibilityService = LegacyDiscoveryService;
-export type DiscoveryService = DeliveryProjectDiscoveryService & LegacyDiscoveryService;
+export type DeliveryDiscoveryCompatibilityAliases = {};
+export type DeliveryDiscoveryCompatibilityService = DeliveryDiscoveryCompatibilityAliases;
+export type LegacyDiscoveryService = DeliveryDiscoveryCompatibilityAliases;
+export type DeliveryProjectDiscoveryCompatibilityService = DeliveryDiscoveryCompatibilityAliases;
+export type DiscoveryService = DeliveryProjectDiscoveryService & DeliveryDiscoveryCompatibilityAliases;
 export type DeliveryDiscoveryService = DiscoveryService;
+export type DeliveryProjectDiscoveryServiceWithCompatibility = DeliveryDiscoveryService;
 
 export type DeliverySocialService = {
   listUserComments: (
@@ -621,9 +630,7 @@ export const createDeliveryService = (
     startOfLocalMonth,
     getRuntimeProjectContext,
     getRuntimeProjectId,
-    getTenantId,
     ensureInitialOwner,
-    isTenantAdmin,
     canManageProject,
     getProjectSearchMode,
     setProjectSearchMode,
@@ -632,7 +639,7 @@ export const createDeliveryService = (
     resolveShareCode,
     trackOpen,
     trackVisit
-  } = createDeliveryCore({
+  } = createProjectCore({
     prisma,
     config
   });
@@ -642,8 +649,32 @@ export const createDeliveryService = (
     getRuntimeProjectId
   );
 
-  const { upsertProjectUserFromTelegram, upsertTenantUserFromTelegram, getProjectUserLabel, isProjectMember, listProjectManagers, addProjectManager, removeProjectManager, listVaultGroups, addBackupVaultGroup, removeBackupVaultGroup, setPrimaryVaultGroup, setVaultGroupStatus, markReplicaBad, listCollections, createCollection, updateCollection, deleteCollection, getCollectionImpactCounts, getPrimaryVaultChatId, getCollectionTopic, setCollectionTopicThreadId, setCollectionTopicIndexMessageId, listRecentAssetsInCollection } =
-    createDeliveryProjectVault({
+  const {
+    upsertProjectUserFromTelegram,
+    upsertTenantUserFromTelegram,
+    getProjectUserLabel,
+    isProjectMember,
+    listProjectManagers,
+    addProjectManager,
+    removeProjectManager,
+    listVaultGroups,
+    addBackupVaultGroup,
+    removeBackupVaultGroup,
+    setPrimaryVaultGroup,
+    setVaultGroupStatus,
+    markReplicaBad,
+    listCollections,
+    createCollection,
+    updateCollection,
+    deleteCollection,
+    getCollectionImpactCounts,
+    getPrimaryVaultChatId,
+    getCollectionTopic,
+    setCollectionTopicThreadId,
+    setCollectionTopicIndexMessageId,
+    listRecentAssetsInCollection
+  } =
+    createProjectVaultService({
       prisma,
       getRuntimeProjectId,
       canManageProject,
@@ -653,8 +684,8 @@ export const createDeliveryService = (
   const isProjectMemberSafe = async (userId: string) => isProjectMember(userId).catch(() => false);
   const canManageProjectSafe = async (userId: string) => canManageProject(userId).catch(() => false);
 
-  const getUserProfileSummary = createGetUserProfileSummary({ prisma, getRuntimeProjectId });
-  const getProjectAssetAccess = createGetProjectAssetAccess({ prisma, isProjectMemberSafe, canManageProjectSafe });
+  const getUserProfileSummary = createProjectUserProfileSummary({ prisma, getRuntimeProjectId });
+  const getProjectAssetAccess = createProjectAssetAccess({ prisma, isProjectMemberSafe, canManageProjectSafe });
 
 
   const {
@@ -670,7 +701,7 @@ export const createDeliveryService = (
     getUserNotifySettings,
     setUserNotifySettings,
     checkAndRecordUserNotification
-  } = createDeliveryPreferences({
+  } = createDeliveryProjectPreferences({
     prisma,
     preferenceKeys,
     getRuntimeProjectId,
@@ -757,7 +788,7 @@ export const createDeliveryService = (
     getProjectLikeRanking,
     getProjectVisitRanking,
     getProjectCommentRanking
-  } = createDeliveryStats({
+  } = createDeliveryProjectStats({
     prisma,
     getRuntimeProjectId,
     isProjectMemberSafe,
@@ -780,14 +811,14 @@ export const createDeliveryService = (
     hasAssetLiked,
     toggleAssetLike,
     addAssetComment
-  } = createDeliverySocial({
+  } = createDeliveryProjectSocial({
     prisma,
     getRuntimeProjectId,
     isProjectMemberSafe,
     getProjectAssetAccess
   });
 
-  const identityService = buildIdentityService({
+  const identityService = buildProjectIdentityService({
     selectReplicas,
     resolveShareCode,
     upsertProjectUserFromTelegram,
@@ -883,7 +914,7 @@ export const createDeliveryService = (
     getProjectCommentRanking
   };
 
-  const discoveryService: DiscoveryService = buildDiscoveryService({
+  const discoveryService: DiscoveryService = buildProjectDiscoveryService({
     getUserAssetMeta,
     setUserAssetSearchable,
     deleteUserAsset,
@@ -897,7 +928,7 @@ export const createDeliveryService = (
     listUserLikedAssets
   });
 
-  const socialService = buildSocialService({
+  const socialService = buildProjectSocialService({
     listUserComments,
     listAssetComments,
     getAssetCommentCount,

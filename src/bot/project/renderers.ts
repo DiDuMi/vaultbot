@@ -1,4 +1,4 @@
-import { createTenantRenderers } from "../tenant/renderers";
+import { createTenantRenderers as createProjectRenderersImpl } from "../tenant/renderers";
 
-export const createProjectRenderers = (...args: Parameters<typeof createTenantRenderers>): ReturnType<typeof createTenantRenderers> =>
-  createTenantRenderers(...args);
+export const createProjectRenderers = (...args: Parameters<typeof createProjectRenderersImpl>): ReturnType<typeof createProjectRenderersImpl> =>
+  createProjectRenderersImpl(...args);

@@ -37,7 +37,7 @@ export type RuntimeProjectContext = {
   name: string;
 };
 
-export const getTenantDiagnostics = async (prisma: PrismaClient, tenantCode: string): Promise<TenantDiagnostics> => {
+const listScopedDiagnostics = async (prisma: PrismaClient, scopedCode: string) => {
   const rows = await prisma.tenant.findMany({
     orderBy: { createdAt: "asc" },
     select: {
@@ -56,9 +56,14 @@ export const getTenantDiagnostics = async (prisma: PrismaClient, tenantCode: str
     },
     take: 50
   });
+  return { scopedCode, rows };
+};
+
+export const getTenantDiagnostics = async (prisma: PrismaClient, tenantCode: string): Promise<TenantDiagnostics> => {
+  const { scopedCode, rows } = await listScopedDiagnostics(prisma, tenantCode);
   return {
-    currentTenantCode: tenantCode,
-    matched: rows.some((row) => row.code === tenantCode),
+    currentTenantCode: scopedCode,
+    matched: rows.some((row) => row.code === scopedCode),
     tenants: rows.map((row) => ({
       id: row.id,
       code: row.code,
@@ -73,26 +78,35 @@ export const getTenantDiagnostics = async (prisma: PrismaClient, tenantCode: str
 };
 
 export const getProjectDiagnostics = async (prisma: PrismaClient, projectCode: string): Promise<ProjectDiagnostics> => {
-  const result = await getTenantDiagnostics(prisma, projectCode);
+  const { scopedCode, rows } = await listScopedDiagnostics(prisma, projectCode);
   return {
-    currentProjectCode: result.currentTenantCode,
-    matched: result.matched,
-    projects: result.tenants
+    currentProjectCode: scopedCode,
+    matched: rows.some((row) => row.code === scopedCode),
+    projects: rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      createdAt: row.createdAt,
+      assets: row._count.assets,
+      events: row._count.events,
+      users: row._count.users,
+      batches: row._count.uploadBatches
+    }))
   };
 };
 
-export const assertTenantCodeConsistency = async (
+export const assertProjectCodeConsistency = async (
   prisma: PrismaClient,
-  tenantCode: string,
+  projectCode: string,
   allowMismatch = process.env.ALLOW_TENANT_CODE_MISMATCH === "1"
 ) => {
   const expectedTenantCode = (process.env.EXPECTED_TENANT_CODE || "").trim();
-  if (expectedTenantCode && expectedTenantCode !== tenantCode) {
-    throw new Error(`TENANT_CODE \u6821\u9a8c\u5931\u8d25\uff1a\u5f53\u524d=${tenantCode}\uff0c\u671f\u671b=${expectedTenantCode}`);
+  if (expectedTenantCode && expectedTenantCode !== projectCode) {
+    throw new Error(`PROJECT_CODE 校验失败：当前=${projectCode}，期望=${expectedTenantCode}`);
   }
   const requireExisting = process.env.REQUIRE_EXISTING_TENANT === "1";
   const existing = await prisma.tenant.findUnique({
-    where: { code: tenantCode },
+    where: { code: projectCode },
     select: { id: true }
   });
   if (existing) {
@@ -105,7 +119,7 @@ export const assertTenantCodeConsistency = async (
   });
   if (tenants.length === 0) {
     if (requireExisting) {
-      throw new Error("\u6570\u636e\u5e93\u4e2d\u5c1a\u65e0\u79df\u6237\u6570\u636e\uff1a\u5df2\u963b\u6b62\u542f\u52a8\uff0c\u907f\u514d\u8fde\u5230\u7a7a\u5e93\u6216\u65b0\u5e93\u5bfc\u81f4\u8bbe\u7f6e\u4e0e\u7edf\u8ba1\u88ab\u91cd\u7f6e\u3002");
+      throw new Error("数据库中尚无项目数据：已阻止启动，避免连到空库或新库导致设置与统计被重置。");
     }
     return;
   }
@@ -115,62 +129,73 @@ export const assertTenantCodeConsistency = async (
   const codes = tenants.map((row) => row.code).filter(Boolean);
   const summary = codes.join(", ");
   throw new Error(
-    `TENANT_CODE \u4e0d\u5339\u914d\uff1a\u5f53\u524d=${tenantCode}\uff0c\u6570\u636e\u5e93\u5df2\u6709\u79df\u6237=${summary}\u3002\u5df2\u963b\u6b62\u542f\u52a8\uff0c\u907f\u514d\u5199\u5165\u65b0\u79df\u6237\u5bfc\u81f4\u7edf\u8ba1\u5f52\u96f6\u3002\u82e5\u786e\u8ba4\u9700\u8981\u65b0\u5efa\u79df\u6237\uff0c\u8bf7\u8bbe\u7f6e ALLOW_TENANT_CODE_MISMATCH=1\u3002`
+    `PROJECT_CODE 不匹配：当前=${projectCode}，数据库已有项目=${summary}。已阻止启动，避免写入新项目导致统计归零。若确认需要新建项目，请设置 ALLOW_TENANT_CODE_MISMATCH=1。`
   );
 };
+
+export const assertTenantCodeConsistency = assertProjectCodeConsistency;
 
 export const assertProjectContextConsistency = async (
   prisma: PrismaClient,
   projectContext: { code: string; name: string },
   allowMismatch = process.env.ALLOW_TENANT_CODE_MISMATCH === "1"
-) => assertTenantCodeConsistency(prisma, projectContext.code, allowMismatch);
+) => assertProjectCodeConsistency(prisma, projectContext.code, allowMismatch);
 
 const isSingleOwnerBootstrapAllowed = () => {
   const raw = (process.env.SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP || "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 };
 
-export const ensureRuntimeTenant = async (
+export const ensureRuntimeProject = async (
   prisma: PrismaClient,
-  input: { tenantCode: string; tenantName: string }
+  input: { projectCode: string; projectName: string }
 ) => {
   const existing = await prisma.tenant.findUnique({
-    where: { code: input.tenantCode },
+    where: { code: input.projectCode },
     select: { id: true, code: true, name: true }
   });
   if (existing) {
-    if (existing.name !== input.tenantName) {
+    if (existing.name !== input.projectName) {
       await prisma.tenant.update({
         where: { id: existing.id },
-        data: { name: input.tenantName }
+        data: { name: input.projectName }
       });
     }
-    return { id: existing.id, code: existing.code, name: input.tenantName };
+    return { id: existing.id, code: existing.code, name: input.projectName };
   }
 
   if (isSingleOwnerModeEnabled() && !isSingleOwnerBootstrapAllowed()) {
     throw new Error(
-      `\u5355\u4eba\u9879\u76ee\u6a21\u5f0f\u4e0b\u7981\u6b62\u81ea\u52a8\u521b\u5efa tenant\uff1a${input.tenantCode}\u3002\u5982\u786e\u8ba4\u662f\u9996\u6b21\u521d\u59cb\u5316\uff0c\u8bf7\u663e\u5f0f\u8bbe\u7f6e SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP=1\u3002`
+      `单人项目模式下禁止自动创建项目：${input.projectCode}。如确认是首次初始化，请显式设置 SINGLE_OWNER_ALLOW_TENANT_BOOTSTRAP=1。`
     );
   }
 
   return prisma.tenant.create({
-    data: { code: input.tenantCode, name: input.tenantName },
+    data: { code: input.projectCode, name: input.projectName },
     select: { id: true, code: true, name: true }
   });
 };
+
+export const ensureRuntimeTenant = async (
+  prisma: PrismaClient,
+  input: { tenantCode: string; tenantName: string }
+) =>
+  ensureRuntimeProject(prisma, {
+    projectCode: input.tenantCode,
+    projectName: input.tenantName
+  });
 
 export const ensureRuntimeProjectContext = async (
   prisma: PrismaClient,
   projectContext: { code: string; name: string }
 ): Promise<RuntimeProjectContext> => {
-  const tenant = await ensureRuntimeTenant(prisma, {
-    tenantCode: projectContext.code,
-    tenantName: projectContext.name
+  const project = await ensureRuntimeProject(prisma, {
+    projectCode: projectContext.code,
+    projectName: projectContext.name
   });
   return {
-    projectId: tenant.id,
-    code: tenant.code,
-    name: tenant.name
+    projectId: project.id,
+    code: project.code,
+    name: project.name
   };
 };

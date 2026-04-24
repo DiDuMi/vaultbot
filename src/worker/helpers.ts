@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Bot } from "grammy";
-import { ensureRuntimeProjectContext, ensureRuntimeTenant } from "../infra/persistence/tenant-guard";
+import { ensureRuntimeProjectContext } from "../infra/persistence/tenant-guard";
 import { withTelegramRetry } from "../infra/telegram";
 import { logWorkerError } from "./strategy";
 
@@ -30,26 +30,26 @@ export const sendMediaGroupWithRetry = async (
 };
 
 export const getProjectBroadcastTargetUserIds = async (prisma: PrismaClient, projectId: string) => {
-  const [projectUsers, projectTenantUsers, members] = await Promise.all([
+  const [projectUsers, projectUserRows, members] = await Promise.all([
     prisma.event.groupBy({ by: ["userId"], where: { projectId } }).catch(() => []),
     prisma.tenantUser.findMany({ where: { projectId }, select: { tgUserId: true } }).catch(() => []),
     prisma.tenantMember.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
   ]);
-  const [users, tenantUsers] =
-    projectUsers.length > 0 || projectTenantUsers.length > 0
-      ? [projectUsers, projectTenantUsers]
+  const [audienceEvents, fallbackUserRows] =
+    projectUsers.length > 0 || projectUserRows.length > 0
+      ? [projectUsers, projectUserRows]
       : await Promise.all([
           prisma.event.groupBy({ by: ["userId"], where: { tenantId: projectId } }),
           prisma.tenantUser.findMany({ where: { tenantId: projectId }, select: { tgUserId: true } })
         ]);
   const excluded = new Set(members.map((m) => m.tgUserId));
   const audience = new Set<string>();
-  for (const row of users) {
+  for (const row of audienceEvents) {
     if (row.userId) {
       audience.add(row.userId);
     }
   }
-  for (const row of tenantUsers) {
+  for (const row of fallbackUserRows) {
     if (row.tgUserId) {
       audience.add(row.tgUserId);
     }
@@ -58,6 +58,10 @@ export const getProjectBroadcastTargetUserIds = async (prisma: PrismaClient, pro
 };
 
 export const getBroadcastTargetUserIds = getProjectBroadcastTargetUserIds;
+
+export const resolveProjectScopeId = (input: { projectId?: string | null; tenantId: string }) => {
+  return input.projectId?.trim() || input.tenantId;
+};
 
 export const getLatestProjectAssetPublisherUserId = async (prisma: PrismaClient, projectId: string, assetId: string) => {
   const projectBatch =
@@ -71,12 +75,12 @@ export const getLatestProjectAssetPublisherUserId = async (prisma: PrismaClient,
   if (projectBatch?.userId) {
     return projectBatch.userId;
   }
-  const tenantBatch = await prisma.uploadBatch.findFirst({
+  const fallbackBatch = await prisma.uploadBatch.findFirst({
     where: { tenantId: projectId, assetId, status: "COMMITTED" },
     orderBy: { createdAt: "desc" },
     select: { userId: true }
   });
-  return tenantBatch?.userId ?? null;
+  return fallbackBatch?.userId ?? null;
 };
 
 export const computeNextBroadcastRunAt = (input: { previousNextRunAt: Date | null; repeatEveryMs: number; now?: Date }) => {
@@ -87,11 +91,6 @@ export const computeNextBroadcastRunAt = (input: { previousNextRunAt: Date | nul
     nextMs += input.repeatEveryMs;
   }
   return new Date(nextMs);
-};
-
-export const ensureTenantId = async (prisma: PrismaClient, config: { tenantCode: string; tenantName: string }) => {
-  const tenant = await ensureRuntimeTenant(prisma, config);
-  return tenant.id;
 };
 
 export const ensureRuntimeProjectId = async (prisma: PrismaClient, projectContext: { code: string; name: string }) => {

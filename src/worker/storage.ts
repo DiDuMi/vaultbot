@@ -1,11 +1,19 @@
 import type { PrismaClient } from "@prisma/client";
 
 export const upsertProjectSetting = async (prisma: PrismaClient, projectId: string, key: string, value: string) => {
-  await prisma.tenantSetting.upsert({
-    where: { tenantId_key: { tenantId: projectId, key } },
-    update: { projectId, value },
-    create: { tenantId: projectId, projectId, key, value }
-  });
+  await prisma.tenantSetting
+    .upsert({
+      where: { projectId_key: { projectId, key } } as never,
+      update: { projectId, value },
+      create: { tenantId: projectId, projectId, key, value }
+    })
+    .catch(() =>
+      prisma.tenantSetting.upsert({
+        where: { tenantId_key: { tenantId: projectId, key } },
+        update: { projectId, value },
+        create: { tenantId: projectId, projectId, key, value }
+      })
+    );
 };
 
 export const upsertTenantSetting = upsertProjectSetting;

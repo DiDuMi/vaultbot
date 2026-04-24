@@ -1,9 +1,10 @@
 require("dotenv/config");
 const { PrismaClient } = require("@prisma/client");
+const { createProjectPreflightContext } = require("./preflight-common.js");
 
 const prisma = new PrismaClient();
 
-const tenantCode = (process.env.TENANT_CODE || "").trim();
+const { projectCode } = createProjectPreflightContext();
 const writeMode = process.argv.includes("--write");
 const sampleLimit = (() => {
   const index = process.argv.indexOf("--sample");
@@ -54,16 +55,16 @@ const extractHashtags = (title, description) => {
 };
 
 const run = async () => {
-  if (!tenantCode) {
-    throw new Error("Missing TENANT_CODE");
+  if (!projectCode) {
+    throw new Error("Missing PROJECT_CODE (or legacy TENANT_CODE)");
   }
 
   const tenant = await prisma.tenant.findUnique({
-    where: { code: tenantCode },
+    where: { code: projectCode },
     select: { id: true, code: true, name: true }
   });
   if (!tenant) {
-    throw new Error(`Tenant not found for TENANT_CODE=${tenantCode}`);
+    throw new Error(`Project not found for PROJECT_CODE=${projectCode}`);
   }
 
   const assets = await prisma.asset.findMany({
@@ -97,7 +98,7 @@ const run = async () => {
     .sort((a, b) => (b[1] !== a[1] ? b[1] - a[1] : a[0].localeCompare(b[0])))
     .slice(0, sampleLimit);
 
-  console.log(`Tenant: ${tenant.code} (${tenant.name})`);
+  console.log(`Project: ${tenant.code} (${tenant.name})`);
   console.log(`Assets: ${assets.length}`);
   console.log(`Current tags: ${currentTagCount}`);
   console.log(`Current asset-tag relations: ${currentAssetTagCount}`);

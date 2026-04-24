@@ -16,7 +16,7 @@ import {
   createProjectBotViews,
   formatProjectLocalDateTime
 } from "./composition";
-import { getMemberScopeLabel } from "../tenant/labels";
+import { getMemberScopeLabel } from "./labels";
 import {
   buildPublisherLine,
   buildDbDisabledHint,
@@ -36,14 +36,14 @@ import {
   truncatePlainText,
   upsertHtml,
   utf8ByteLength
-} from "../tenant/ui-utils";
+} from "./ui-utils";
 import {
   buildAssetActionLine as buildAssetActionLineModule,
   buildPreviewCopyLines,
   buildPreviewLinkLine as buildPreviewLinkLineModule
-} from "../tenant/builders";
-import { registerMediaHandlers as registerMediaHandlersModule } from "../tenant/media-handlers";
-import type { MetaState } from "../tenant/session";
+} from "./builders";
+import { registerProjectMediaHandlers as registerMediaHandlersModule } from "./media-handlers";
+import type { MetaState } from "./session";
 import {
   actionKeyboard,
   buildAdKeyboard,
@@ -72,7 +72,7 @@ import {
   buildStartShortcutKeyboard,
   buildUserHistoryKeyboard,
   buildWelcomeKeyboard
-} from "../tenant/keyboards";
+} from "./keyboards";
 
 export { buildAssetActionLineModule as buildAssetActionLine, buildPreviewLinkLineModule as buildPreviewLinkLine };
 

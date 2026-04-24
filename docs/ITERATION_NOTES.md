@@ -7,7 +7,7 @@
 本项目的“隐藏发布者”“内容保护”“排行开放”等配置，存储在数据库 `TenantSetting` 表中，并按 `tenantId` 隔离。出现“迭代后设置全没了/恢复默认”的常见原因只有两类：
 
 - 连接到了空库/新库（例如 Docker volume 变了、容器磁盘是临时的、DATABASE_URL 指向了新的实例）
-- `TENANT_CODE` 变了（或丢失/被覆盖），应用创建了一个新的租户，于是读取到“新租户的空设置”
+- `PROJECT_CODE` 变了（或丢失/被覆盖；未设置时会回退到 legacy `TENANT_CODE`），应用创建了一个新的租户，于是读取到“新租户的空设置”
 
 结论：绝大多数“重置”并不是代码清空了设置，而是租户或数据库发生了切换。
 
@@ -15,15 +15,15 @@
 
 在生产环境，为了“宁可启动失败，也不要悄悄写入新租户/新库”，建议长期固定以下环境变量：
 
-- `TENANT_CODE`：生产租户 code（必须稳定）
-- `TENANT_NAME`：租户名称（可改，但不建议频繁改）
+- `PROJECT_CODE`：生产 project code（必须稳定；若未设置则回退到 legacy `TENANT_CODE`）
+- `PROJECT_NAME`：project 名称（可改，但不建议频繁改；若未设置则回退到 legacy `TENANT_NAME`）
 - `EXPECTED_TENANT_CODE`：期望的租户 code（用于防止配置漂移）
 - `REQUIRE_EXISTING_TENANT=1`：要求数据库中必须已经存在租户数据，否则阻止启动（防止连到空库/新库）
 - `ALLOW_TENANT_CODE_MISMATCH=`：生产环境不要开启（仅在“明确要创建新租户”的那一次临时设为 `1`）
 
 配套说明：
 
-- 应用启动会校验 `TENANT_CODE` 与 `EXPECTED_TENANT_CODE` 一致，否则直接报错退出。
+- 应用启动会校验 `PROJECT_CODE`（或 legacy `TENANT_CODE`）与 `EXPECTED_TENANT_CODE` 一致，否则直接报错退出。
 - 当数据库里还没有任何租户记录时，若 `REQUIRE_EXISTING_TENANT=1`，将直接阻止启动，避免在“空库”上自动创建租户导致“统计归零/设置丢失”的错觉。
 
 ## 3. 新库/灾备恢复时的“设置自举”（可选）
@@ -33,8 +33,12 @@
 - 临时关闭 `REQUIRE_EXISTING_TENANT` 或开启 `ALLOW_TENANT_CODE_MISMATCH=1` 放行创建租户
 - 同时用以下变量为新租户“补默认设置”（仅补缺，不覆盖你已配置过的值）
 
-可选变量（设为 `1/true/yes/on` 任一即可）：
+可选变量（设为 `1/true/yes/on` 任一即可；优先使用 `PROJECT_BOOTSTRAP_*`，并兼容 legacy `TENANT_BOOTSTRAP_*`）：
 
+- `PROJECT_BOOTSTRAP_HIDE_PUBLISHER_ENABLED`
+- `PROJECT_BOOTSTRAP_PROTECT_CONTENT_ENABLED`
+- `PROJECT_BOOTSTRAP_PUBLIC_RANKING_ENABLED`
+- `PROJECT_BOOTSTRAP_AUTO_CATEGORIZE_ENABLED`
 - `TENANT_BOOTSTRAP_HIDE_PUBLISHER_ENABLED`
 - `TENANT_BOOTSTRAP_PROTECT_CONTENT_ENABLED`
 - `TENANT_BOOTSTRAP_PUBLIC_RANKING_ENABLED`
@@ -58,7 +62,7 @@
 ### 5.1 发布前（必须）
 
 - 确认 `.env`/环境变量未漂移：
-  - `TENANT_CODE` 与 `EXPECTED_TENANT_CODE` 一致
+  - `PROJECT_CODE`（或 legacy `TENANT_CODE`）与 `EXPECTED_TENANT_CODE` 一致
   - `REQUIRE_EXISTING_TENANT=1`（长期保持）
   - `ALLOW_TENANT_CODE_MISMATCH` 未开启
 - 在目标环境运行租户预检（推荐）：
@@ -69,7 +73,7 @@
 ### 5.2 发布时
 
 - 使用不可变版本的镜像或 tag（避免“latest 漂移”导致不可控）
-- 确保 `app` 与 `worker` 使用同一份环境变量（尤其是 TENANT_CODE/DATABASE_URL）
+- 确保 `app` 与 `worker` 使用同一份环境变量（尤其是 PROJECT_CODE/TENANT_CODE/DATABASE_URL）
 - 迁移策略：
   - 容器入口会执行 `prisma migrate deploy`（需要 `DATABASE_URL`）
   - 生产环境不要使用 `prisma migrate dev`（它是开发用途）
@@ -79,7 +83,7 @@
 - 健康检查：
   - `/health/ready` 返回 ok
 - 租户检查（推荐开启 `OPS_TOKEN` 后使用）：
-  - `/ops/tenant-check` 确认当前 `TENANT_CODE` 命中数据库中的同名租户，且数据量不是 0
+  - `/ops/tenant-check` 确认当前 `PROJECT_CODE`（或 legacy `TENANT_CODE`）命中数据库中的同名租户，且数据量不是 0
 - 抽检关键设置是否仍然生效：
   - “隐藏发布者”“内容保护”等页面/交付行为符合预期
 
@@ -105,7 +109,7 @@
 按顺序检查：
 
 - 是否连到了同一个数据库（DATABASE_URL 是否变化、Postgres 是否被重建、volume 是否变化）
-- `TENANT_CODE` 是否变化/为空/拼写不一致
+- `PROJECT_CODE`（或 legacy `TENANT_CODE`）是否变化/为空/拼写不一致
 - 是否误开了 `ALLOW_TENANT_CODE_MISMATCH=1`
 - 是否触发了“新租户创建”
   - 若开启了 `OPS_TOKEN`，用 `/ops/tenant-check` 查看库里租户列表与当前命中情况
@@ -2283,3 +2287,165 @@
   - 一次只处理一个入口
   - 先用户管理/列表，再搜索/标签
 - 在进入搜索/标签大范围切读前，继续保持 build/test 每轮闭环
+
+## 2026-04-22 - 生产 backfill 完成，Bot 主入口与测试主语完成收口
+
+### 本轮目标
+
+- 将生产数据库推进到 Phase A backfill 完成态
+- 把 Bot 主入口从 `tenant` 兼容层彻底收口到 `project`
+- 让测试默认主语切到 `project`
+- 为生产观察期准备巡检模板
+
+### 实际改动
+
+- 生产环境：
+  - 提交并推送发布版本
+  - 记录生产配置留档与备份动作
+  - 部署到生产环境并通过健康检查
+  - 执行 `scripts/schema-phase-a-backfill.sql`
+  - 回填后执行生产一致性巡检
+- Bot 架构：
+  - `src/bot/project/index.ts` 成为真实主入口
+  - 共享 core 迁到 `src/bot/project/register-core.ts`
+  - `src/bot/project/composition.ts` 接管大部分装配骨架
+  - `src/bot/tenant/index.ts` 退化为兼容壳层
+  - `src/bot/tenant/register-core.ts` 退化为兼容 re-export
+- 测试主语：
+  - 顶部静态导入已全部切离 `bot/tenant/*`
+  - 低风险的 renderers / messages / builders / labels / keyboards / open / social / admin-input 测试已转向 `project`
+  - tenant 兼容层依赖只保留在少量动态兼容断言里
+- 生产观察期：
+  - 新增 `scripts/project-observation-audit.sql`
+  - 新增 `docs/PRODUCTION_OBSERVATION_RUNBOOK.md`
+  - 新增 `docs/PRODUCTION_DEPLOY_RECORD_20260422.md`
+
+### 已验证内容
+
+- 本地：
+  - `npm run test`
+  - `npm run build`
+- 生产：
+  - `docker compose ps`
+  - `/health/ready`
+  - `/ops/project-check`
+- 生产回填结果：
+  - 目标表 `projectId is null = 0`
+  - 目标表 `projectId is distinct from tenantId = 0`
+
+### 未解决问题
+
+- 业务与 schema 仍保留 `Tenant*` 与 `tenantId` 兼容结构
+- `src/bot/tenant/*` 目录本身仍然存在，尚未进入目录级重命名
+- 部分服务层查询仍可继续推进到更高比例的 project-first
+- 生产观察期尚未完成 `24h / 72h / 7d` 的持续验证
+
+### 风险与观察
+
+- 当前已不适合立刻做破坏性 schema 清理
+- 当前最重要的不是继续删结构，而是观察新增写入是否持续稳定双写
+- `prod` 与 `vault` 两个历史项目仍然同时存在，不能误判成物理单项目态
+
+### 下一轮建议
+
+- 优先执行生产 `24h` 观察期巡检
+- 观察稳定后，再推进下一批 production-safe `project-first` 读路径切换
+- 持续同步 `DETENANT_EXECUTION_MATRIX.md` 与 `SINGLE_OWNER_STATUS.md`
+## 2026-04-23 - Low-risk project-first cleanup continued during observation
+
+### Goal
+
+- Keep the production observation window as the gate for high-risk cleanup only.
+- Continue low-risk compatible refactors that do not remove fallback behavior.
+- Record concrete evidence that observation is not blocking ongoing detenant progress.
+
+### Changes
+
+- Continued `src/bot/project/*` wrapper consolidation and reduced direct future dependence on tenant-named entrypoints.
+- Continued service assembly cleanup by switching more aggregation imports to project wrapper modules.
+- Continued implementation-level naming cleanup in:
+  - `src/services/use-cases/delivery-core.ts`
+  - `src/services/use-cases/upload.ts`
+  - `src/services/use-cases/delivery-discovery.ts`
+  - `src/services/use-cases/delivery-tenant-vault.ts`
+- Moved some old tenant-oriented names into explicit compatibility alias layers instead of leaving them on the primary project path.
+
+### Verification
+
+- Repeated local verification remained green throughout these rounds:
+  - `npm run build`
+  - `npm run test`
+- Current result:
+  - `195/195 passed`
+
+### Notes
+
+- Observation still gates:
+  - schema cleanup
+  - deleting tenant fallback
+  - deleting `tenantId` / `Tenant*`
+  - other irreversible migration steps
+- Observation does not gate:
+  - wrapper consolidation
+  - naming cleanup
+  - compatible service/worker/upload/discovery refactors
+  - regression tests and documentation sync
+
+## 2026-04-23 - Production prod -> vault merge completed
+
+### Goal
+
+- Consolidate the historical `prod` business dataset into the active `vault` project.
+- Preserve asset ids and share codes instead of deleting the smaller tenant directly.
+- Convert production from “two active business tenants” into “one active project + one empty shell tenant”.
+
+### Changes
+
+- Created and validated production pre-merge backups:
+  - `/root/vaultbot/backups/prod_to_vault_premerge_20260422_232940.dump`
+  - `/root/vaultbot/backups/prod_to_vault_premerge_live_20260422_234235.dump`
+- Added merge preparation and execution artifacts:
+  - `scripts/prod-to-vault-precheck.sql`
+  - `scripts/prod-to-vault-merge.sql`
+  - `scripts/prod-to-vault-postcheck.sql`
+  - `docs/PROD_TO_VAULT_MERGE_RUNBOOK.md`
+- Rehearsed the full merge against a restored backup database.
+- Fixed rehearsal-discovered issues in the merge SQL:
+  - explicit `Tag.id`
+  - corrected `Tag` insert column list
+- Executed the production merge inside a maintenance window:
+  - stopped `vaultbot-app-1`
+  - stopped `vaultbot-worker-1`
+  - ran precheck
+  - ran merge
+  - ran postcheck
+  - restarted app and worker
+
+### Verified
+
+- Production postcheck showed `prod` business rows reduced to `0` across the migrated tables.
+- `/ops/project-check` now shows:
+  - `prod`: `assets=0 events=0 users=0 batches=0`
+  - `vault`: inherited the consolidated counts
+- Immediate production observation showed:
+  - recent writes only distributed to `vault`
+  - `recent_project_id_null_rows = 0`
+  - `recent_project_tenant_mismatch_rows = 0`
+
+### Remaining Issues
+
+- `prod` still exists as an empty `Tenant` shell.
+- `tenantId` / `Tenant*` compatibility structures remain widely used by code and schema.
+- This merge solved the data-surface split, not the final schema detenant work.
+
+### Risk And Observation
+
+- The major risk has shifted:
+  - from “two business tenants coexist”
+  - to “do not prematurely treat the system as fully detenantized”
+- Production still requires `24h / 72h` observation before deleting the empty `prod` shell or starting any destructive cleanup.
+
+### Next Suggested Step
+
+- Complete the `24h` observation record first.
+- In parallel, prepare the post-merge Phase B execution checklist and project-first ops/script cleanup.

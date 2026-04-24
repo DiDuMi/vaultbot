@@ -1,1 +1,1 @@
-export { rankMoreCallbackRe } from "../tenant/callbacks/home";
+export { rankMoreCallbackRe, rankMoreCallbackRe as projectRankMoreCallbackRe } from "../tenant/callbacks/home";

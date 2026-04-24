@@ -1,5 +1,5 @@
-import { createTagRenderers } from "../tenant/tags";
+import { createTagRenderers as createProjectTagRenderersImpl } from "../tenant/tags";
 
 export const createProjectTagRenderers = (
-  ...args: Parameters<typeof createTagRenderers>
-): ReturnType<typeof createTagRenderers> => createTagRenderers(...args);
+  ...args: Parameters<typeof createProjectTagRenderersImpl>
+): ReturnType<typeof createProjectTagRenderersImpl> => createProjectTagRenderersImpl(...args);

@@ -225,14 +225,14 @@ export const createUploadService = (
   } as const;
   const projectContext = normalizeProjectContextConfig(config.projectContext);
 
-  const getTenantSetting = async (tenantId: string, key: string) => {
+  const getProjectSetting = async (projectId: string, key: string) => {
     const row =
       (await prisma.tenantSetting.findUnique({
-        where: { projectId_key: { projectId: tenantId, key } },
+        where: { projectId_key: { projectId, key } },
         select: { value: true }
       })) ??
       (await prisma.tenantSetting.findUnique({
-        where: { tenantId_key: { tenantId, key } },
+        where: { tenantId_key: { tenantId: projectId, key } },
         select: { value: true }
       }));
     return row?.value ?? null;
@@ -306,7 +306,7 @@ export const createUploadService = (
     return Array.from(names);
   };
 
-  const syncAssetTags = async (assetId: string, tenantId: string, title: string, description: string) => {
+  const syncAssetTags = async (assetId: string, projectId: string, title: string, description: string) => {
     const tags = extractHashtags(title, description);
     await prisma.$transaction(async (tx) => {
       await tx.assetTag.deleteMany({ where: { assetId } });
@@ -316,14 +316,14 @@ export const createUploadService = (
       const tagIds: string[] = [];
       for (const name of tags) {
         const tag = await tx.tag.upsert({
-          where: { tenantId_name: { tenantId, name } },
-          create: { tenantId, name },
+          where: { tenantId_name: { tenantId: projectId, name } },
+          create: { tenantId: projectId, name },
           update: {}
         });
         tagIds.push(tag.id);
       }
       await tx.assetTag.createMany({
-        data: tagIds.map((tagId) => ({ tenantId, assetId, tagId })),
+        data: tagIds.map((tagId) => ({ tenantId: projectId, assetId, tagId })),
         skipDuplicates: true
       });
     });
@@ -405,16 +405,16 @@ export const createUploadService = (
     return String(target ?? "").includes("shareCode");
   };
 
-  const ensureTenantAndVault = async () => {
+  const ensureProjectAndVault = async () => {
     return prisma.$transaction(async (tx) => {
       const project = await ensureRuntimeProjectContext(tx as PrismaClient, {
         code: projectContext.code,
         name: projectContext.name
       });
-      const tenantId = project.projectId;
+      const projectId = project.projectId;
 
       const existingPrimary = await tx.tenantVaultBinding.findFirst({
-        where: { tenantId, role: "PRIMARY" },
+        where: { tenantId: projectId, role: "PRIMARY" },
         select: { vaultGroupId: true }
       });
       let primaryVaultGroupId = existingPrimary?.vaultGroupId ?? null;
@@ -422,27 +422,27 @@ export const createUploadService = (
         const vaultGroup = await tx.vaultGroup.upsert({
           where: {
             tenantId_chatId: {
-              tenantId,
+              tenantId: projectId,
               chatId: BigInt(config.vaultChatId)
             }
           },
           update: {},
           create: {
-            tenantId,
+            tenantId: projectId,
             chatId: BigInt(config.vaultChatId)
           }
         });
         await tx.tenantVaultBinding.upsert({
           where: {
             tenantId_vaultGroupId_role: {
-              tenantId,
+              tenantId: projectId,
               vaultGroupId: vaultGroup.id,
               role: "PRIMARY"
             }
           },
           update: {},
           create: {
-            tenantId,
+            tenantId: projectId,
             vaultGroupId: vaultGroup.id,
             role: "PRIMARY"
           }
@@ -454,7 +454,7 @@ export const createUploadService = (
         await tx.tenantTopic.upsert({
           where: {
             tenantId_vaultGroupId_collectionId_version: {
-              tenantId,
+              tenantId: projectId,
               vaultGroupId: primaryVaultGroupId,
               collectionId: "none",
               version: 1
@@ -464,7 +464,7 @@ export const createUploadService = (
             messageThreadId: BigInt(config.vaultThreadId)
           },
           create: {
-            tenantId,
+            tenantId: projectId,
             vaultGroupId: primaryVaultGroupId,
             collectionId: "none",
             messageThreadId: BigInt(config.vaultThreadId),
@@ -473,23 +473,23 @@ export const createUploadService = (
         });
       }
 
-      return { tenantId, vaultGroupId: primaryVaultGroupId };
+      return { projectId, vaultGroupId: primaryVaultGroupId };
     });
   };
 
-  let cachedTenantAndVault: Promise<{ tenantId: string; vaultGroupId: string }> | null = null;
-  const getTenantAndVault = async () => {
-    if (!cachedTenantAndVault) {
-      cachedTenantAndVault = ensureTenantAndVault().catch((error) => {
-        cachedTenantAndVault = null;
+  let cachedProjectAndVault: Promise<{ projectId: string; vaultGroupId: string }> | null = null;
+  const getProjectAndVault = async () => {
+    if (!cachedProjectAndVault) {
+      cachedProjectAndVault = ensureProjectAndVault().catch((error) => {
+        cachedProjectAndVault = null;
         throw error;
       });
     }
-    return cachedTenantAndVault;
+    return cachedProjectAndVault;
   };
 
   const commitBatch = async (batch: UploadBatch, options?: { collectionId?: string | null }) => {
-    const { tenantId } = await getTenantAndVault();
+    const { projectId } = await getProjectAndVault();
     const requestedCollectionId = options?.collectionId ?? undefined;
     const collectionId =
       requestedCollectionId === undefined
@@ -497,7 +497,7 @@ export const createUploadService = (
         : requestedCollectionId === null
           ? null
           : (await prisma.collection.findFirst({
-              where: { id: requestedCollectionId, tenantId },
+              where: { id: requestedCollectionId, tenantId: projectId },
               select: { id: true }
             }))
               ? requestedCollectionId
@@ -505,8 +505,8 @@ export const createUploadService = (
     const created = await prisma.$transaction(async (tx) => {
       const asset = await tx.asset.create({
         data: {
-          tenantId,
-          projectId: tenantId,
+          tenantId: projectId,
+          projectId,
           collectionId,
           title: `Upload ${batch.id}`,
           description: `Batch ${batch.id}`
@@ -515,8 +515,8 @@ export const createUploadService = (
 
       const saved = await tx.uploadBatch.create({
         data: {
-          tenantId,
-          projectId: tenantId,
+          tenantId: projectId,
+          projectId,
           assetId: asset.id,
           userId: String(batch.userId),
           chatId: String(batch.chatId),
@@ -540,18 +540,19 @@ export const createUploadService = (
       const asset = await prisma.asset
         .findUnique({
           where: { id: created.assetId },
-          select: { tenantId: true, collectionId: true, title: true, description: true }
+          select: { tenantId: true, projectId: true, collectionId: true, title: true, description: true }
         })
         .catch(() => null);
       if (asset && asset.collectionId === null) {
-        const enabledRaw = await getTenantSetting(asset.tenantId, settingKeys.autoCategorizeEnabled).catch(() => null);
+        const assetProjectId = asset.projectId ?? asset.tenantId;
+        const enabledRaw = await getProjectSetting(assetProjectId, settingKeys.autoCategorizeEnabled).catch(() => null);
         const enabledValue = enabledRaw?.trim().toLowerCase();
         const enabled =
           enabledValue === "1" || enabledValue === "true" || enabledValue === "yes" || enabledValue === "on";
         if (enabled) {
           const [rulesRaw, collections] = await Promise.all([
-            getTenantSetting(asset.tenantId, settingKeys.autoCategorizeRules).catch(() => null),
-            prisma.collection.findMany({ where: { tenantId: asset.tenantId }, select: { id: true, title: true } }).catch(() => [])
+            getProjectSetting(assetProjectId, settingKeys.autoCategorizeRules).catch(() => null),
+            prisma.collection.findMany({ where: { tenantId: assetProjectId }, select: { id: true, title: true } }).catch(() => [])
           ]);
           const rules = parseAutoCategorizeRules(rulesRaw);
           const title = asset.title ?? "";
@@ -655,24 +656,25 @@ export const createUploadService = (
         throw new Error("share code unavailable");
       }
     }
-    await syncAssetTags(assetId, asset.tenantId, input.title, input.description).catch((error) =>
-      logError({ component: "upload_service", op: "sync_asset_tags", assetId, tenantId: asset.tenantId }, error)
+    const assetProjectId = asset.projectId ?? asset.tenantId;
+    await syncAssetTags(assetId, assetProjectId, input.title, input.description).catch((error) =>
+      logError({ component: "upload_service", op: "sync_asset_tags", assetId, projectId: assetProjectId }, error)
     );
-    const enabledRaw = await getTenantSetting(asset.tenantId, settingKeys.autoCategorizeEnabled).catch(() => null);
+    const enabledRaw = await getProjectSetting(assetProjectId, settingKeys.autoCategorizeEnabled).catch(() => null);
     const enabledValue = enabledRaw?.trim().toLowerCase();
     const enabled = enabledValue === "1" || enabledValue === "true" || enabledValue === "yes" || enabledValue === "on";
     if (enabled && asset.collectionId === null) {
       const [rulesRaw, projectCollections] = await Promise.all([
-        getTenantSetting(asset.tenantId, settingKeys.autoCategorizeRules).catch(() => null),
+        getProjectSetting(assetProjectId, settingKeys.autoCategorizeRules).catch(() => null),
         prisma.collection
-          .findMany({ where: { projectId: asset.tenantId }, select: { id: true, title: true } })
+          .findMany({ where: { projectId: assetProjectId }, select: { id: true, title: true } })
           .catch(() => [])
       ]);
       const collections =
         projectCollections.length > 0
           ? projectCollections
           : await prisma.collection
-              .findMany({ where: { tenantId: asset.tenantId }, select: { id: true, title: true } })
+              .findMany({ where: { tenantId: assetProjectId }, select: { id: true, title: true } })
               .catch(() => []);
       const rules = parseAutoCategorizeRules(rulesRaw);
       const plainTitle = stripHtml(input.title);
@@ -682,7 +684,7 @@ export const createUploadService = (
         await prisma.asset
           .update({ where: { id: assetId }, data: { collectionId: picked } })
           .catch((error) =>
-            logError({ component: "upload_service", op: "auto_categorize_set_collection", assetId, tenantId: asset.tenantId }, error)
+            logError({ component: "upload_service", op: "auto_categorize_set_collection", assetId, projectId: assetProjectId }, error)
           );
       }
     }
@@ -699,16 +701,16 @@ export const createUploadService = (
             removeOnFail: 100
           }
         )
-        .catch((error) => logError({ component: "upload_service", op: "notify_enqueue_follow_keyword", assetId, tenantId: asset.tenantId }, error));
+        .catch((error) => logError({ component: "upload_service", op: "notify_enqueue_follow_keyword", assetId, projectId: assetProjectId }, error));
     }
     return { shareCode };
   };
 
   const updateAssetCollection = async (assetId: string, collectionId: string | null) => {
-    const { tenantId } = await getTenantAndVault();
+    const { projectId } = await getProjectAndVault();
     const asset =
-      (await prisma.asset.findFirst({ where: { id: assetId, projectId: tenantId } })) ??
-      (await prisma.asset.findFirst({ where: { id: assetId, tenantId } }));
+      (await prisma.asset.findFirst({ where: { id: assetId, projectId } })) ??
+      (await prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId } }));
     if (!asset) {
       throw new Error("asset not found");
     }
@@ -718,11 +720,11 @@ export const createUploadService = (
     }
     const exists =
       (await prisma.collection.findFirst({
-        where: { id: collectionId, projectId: tenantId },
+        where: { id: collectionId, projectId },
         select: { id: true }
       })) ??
       (await prisma.collection.findFirst({
-        where: { id: collectionId, tenantId },
+        where: { id: collectionId, tenantId: projectId },
         select: { id: true }
       }));
     const nextId = exists ? collectionId : null;

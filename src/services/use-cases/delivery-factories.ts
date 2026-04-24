@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type {
+  DeliveryIdentityCompatibilityAliases,
   DeliveryDiscoveryService,
   DeliveryIdentityService,
   DeliverySocialService
@@ -20,7 +21,7 @@ type IdentityServiceDeps = {
   selectReplicas: DeliveryIdentityService["selectReplicas"];
   resolveShareCode: DeliveryIdentityService["resolveShareCode"];
   upsertProjectUserFromTelegram: DeliveryIdentityService["upsertProjectUserFromTelegram"];
-  upsertTenantUserFromTelegram: DeliveryIdentityService["upsertTenantUserFromTelegram"];
+  upsertTenantUserFromTelegram: DeliveryIdentityCompatibilityAliases["upsertTenantUserFromTelegram"];
   getProjectUserLabel: DeliveryIdentityService["getProjectUserLabel"];
   getUserProfileSummary: DeliveryIdentityService["getUserProfileSummary"];
   trackOpen: DeliveryIdentityService["trackOpen"];
@@ -34,20 +35,44 @@ export const createGetUserProfileSummary = ({
   getRuntimeProjectId
 }: DeliveryUserSummaryDeps): DeliveryIdentityService["getUserProfileSummary"] => {
   return async (userId) => {
-    const tenantId = await getRuntimeProjectId();
-    const [row, visitCount, openCount, openedRows] = await Promise.all([
-      prisma.tenantUser.findUnique({
-        where: { tenantId_tgUserId: { tenantId, tgUserId: userId } },
-        select: { username: true, firstName: true, lastName: true, createdAt: true, lastSeenAt: true }
-      }),
-      prisma.event.count({ where: { tenantId, userId, type: "IMPRESSION" } }),
-      prisma.event.count({ where: { tenantId, userId, type: "OPEN", assetId: { not: null } } }),
-      prisma.event.findMany({
-        where: { tenantId, userId, type: "OPEN", assetId: { not: null } },
-        distinct: ["assetId"],
-        select: { assetId: true }
-      })
-    ]);
+    const projectId = await getRuntimeProjectId();
+    const queryByProject = async () => {
+      const [row, visitCount, openCount, openedRows] = await Promise.all([
+        prisma.tenantUser.findUnique({
+          where: { projectId_tgUserId: { projectId, tgUserId: userId } },
+          select: { username: true, firstName: true, lastName: true, createdAt: true, lastSeenAt: true }
+        }),
+        prisma.event.count({ where: { projectId, userId, type: "IMPRESSION" } }),
+        prisma.event.count({ where: { projectId, userId, type: "OPEN", assetId: { not: null } } }),
+        prisma.event.findMany({
+          where: { projectId, userId, type: "OPEN", assetId: { not: null } },
+          distinct: ["assetId"],
+          select: { assetId: true }
+        })
+      ]);
+      return { row, visitCount, openCount, openedRows };
+    };
+    const queryByTenant = async () => {
+      const [row, visitCount, openCount, openedRows] = await Promise.all([
+        prisma.tenantUser.findUnique({
+          where: { tenantId_tgUserId: { tenantId: projectId, tgUserId: userId } },
+          select: { username: true, firstName: true, lastName: true, createdAt: true, lastSeenAt: true }
+        }),
+        prisma.event.count({ where: { tenantId: projectId, userId, type: "IMPRESSION" } }),
+        prisma.event.count({ where: { tenantId: projectId, userId, type: "OPEN", assetId: { not: null } } }),
+        prisma.event.findMany({
+          where: { tenantId: projectId, userId, type: "OPEN", assetId: { not: null } },
+          distinct: ["assetId"],
+          select: { assetId: true }
+        })
+      ]);
+      return { row, visitCount, openCount, openedRows };
+    };
+    let result = await queryByProject().catch(() => null);
+    if (!result || (!result.row && result.visitCount === 0 && result.openCount === 0 && result.openedRows.length === 0)) {
+      result = await queryByTenant();
+    }
+    const { row, visitCount, openCount, openedRows } = result;
     const username = row?.username?.trim().replace(/^@+/, "");
     const fullName = [row?.firstName?.trim(), row?.lastName?.trim()].filter(Boolean).join(" ");
     const displayName = username ? `@${username}` : fullName || null;
@@ -67,11 +92,16 @@ export const createGetUserProfileSummary = ({
 };
 
 export const createGetProjectAssetAccess = ({ prisma, isProjectMemberSafe, canManageProjectSafe }: DeliveryAssetAccessDeps) => {
-  return async (tenantId: string, userId: string, assetId: string) => {
-    const asset = await prisma.asset.findFirst({
-      where: { id: assetId, tenantId },
-      select: { id: true, visibility: true }
-    });
+  return async (projectId: string, userId: string, assetId: string) => {
+    const asset =
+      (await prisma.asset.findFirst({
+        where: { id: assetId, projectId },
+        select: { id: true, visibility: true }
+      })) ??
+      (await prisma.asset.findFirst({
+        where: { id: assetId, tenantId: projectId },
+        select: { id: true, visibility: true }
+      }));
     if (!asset) {
       return { status: "missing" as const };
     }
@@ -85,18 +115,26 @@ export const createGetProjectAssetAccess = ({ prisma, isProjectMemberSafe, canMa
     const [isAdmin, owned] = await Promise.all([
       canManageProjectSafe(userId),
       prisma.uploadBatch.findFirst({
-        where: { tenantId, assetId, userId, status: "COMMITTED" },
+        where: { projectId, assetId, userId, status: "COMMITTED" },
         select: { id: true }
-      })
+      }).then((row) => row ?? null).catch(() => null)
     ]);
-    if (!isAdmin && !owned) {
+    const fallbackOwned =
+      owned ??
+      (await prisma.uploadBatch.findFirst({
+        where: { tenantId: projectId, assetId, userId, status: "COMMITTED" },
+        select: { id: true }
+      }));
+    if (!isAdmin && !fallbackOwned) {
       return { status: "forbidden" as const };
     }
     return { status: "ok" as const, asset };
   };
 };
 
+export const createProjectAssetAccess = createGetProjectAssetAccess;
 export const createGetTenantAssetAccess = createGetProjectAssetAccess;
+export const createProjectUserProfileSummary = createGetUserProfileSummary;
 
 export const buildIdentityService = ({
   selectReplicas,
@@ -126,10 +164,16 @@ export const buildIdentityService = ({
   };
 };
 
+export const buildProjectIdentityService = buildIdentityService;
+
 export const buildDiscoveryService = (deps: DeliveryDiscoveryService): DeliveryDiscoveryService => {
   return deps;
 };
 
+export const buildProjectDiscoveryService = buildDiscoveryService;
+
 export const buildSocialService = (deps: DeliverySocialService): DeliverySocialService => {
   return deps;
 };
+
+export const buildProjectSocialService = buildSocialService;

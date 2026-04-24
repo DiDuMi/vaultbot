@@ -18,6 +18,18 @@ export const createDeliveryProjectVault = (deps: {
   canManageProject: (userId: string) => Promise<boolean>;
   ensureInitialOwner: (projectId: string, userId: string) => Promise<boolean>;
 }) => {
+  const withProjectTenantFallback = async <T>(input: {
+    queryByProject: () => Promise<T>;
+    queryByTenant: () => Promise<T>;
+    shouldFallback: (result: T) => boolean;
+  }) => {
+    const projectResult = await input.queryByProject();
+    if (!input.shouldFallback(projectResult)) {
+      return projectResult;
+    }
+    return input.queryByTenant();
+  };
+
   const buildSingleOwnerBlockedMessage = (subject: string) => `当前为单人项目模式，已关闭${subject}。`;
 
   const upsertProjectUserFromTelegram = async (user: TelegramUserInput) => {
@@ -35,7 +47,8 @@ export const createDeliveryProjectVault = (deps: {
       create: { tenantId: projectId, projectId, tgUserId, username, firstName, lastName, languageCode, isBot, lastSeenAt: now }
     });
   };
-  const upsertTenantUserFromTelegram = upsertProjectUserFromTelegram;
+  const upsertProjectUserCompatibilityAlias = upsertProjectUserFromTelegram;
+  const upsertTenantUserFromTelegram = upsertProjectUserCompatibilityAlias;
 
   const getProjectUserLabel = async (userId: string) => {
     const projectId = await deps.getRuntimeProjectId();
@@ -67,7 +80,9 @@ export const createDeliveryProjectVault = (deps: {
     }
     return deps.ensureInitialOwner(projectId, userId);
   };
-  const isTenantUser = isProjectMember;
+  const isProjectUser = isProjectMember;
+  const isProjectUserCompatibilityAlias = isProjectUser;
+  const isTenantUser = isProjectUserCompatibilityAlias;
 
   const listProjectManagers = async () => {
     const projectId = await deps.getRuntimeProjectId();
@@ -267,10 +282,20 @@ export const createDeliveryProjectVault = (deps: {
 
   const listCollections = async () => {
     const projectId = await deps.getRuntimeProjectId();
-    const items = await deps.prisma.collection.findMany({
-      where: { tenantId: projectId },
-      orderBy: [{ createdAt: "asc" }],
-      select: { id: true, title: true }
+    const items = await withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.collection.findMany({
+          where: { projectId } as never,
+          orderBy: [{ createdAt: "asc" }],
+          select: { id: true, title: true }
+        }),
+      queryByTenant: () =>
+        deps.prisma.collection.findMany({
+          where: { tenantId: projectId },
+          orderBy: [{ createdAt: "asc" }],
+          select: { id: true, title: true }
+        }),
+      shouldFallback: (result) => result.length === 0
     });
     return items.map((item) => ({ id: item.id, title: item.title }));
   };
@@ -287,7 +312,7 @@ export const createDeliveryProjectVault = (deps: {
     if (Buffer.byteLength(normalized, "utf8") > 60) {
       return { ok: false, message: "⚠️ 分类名称过长，请控制在 60 字节以内。" };
     }
-    const created = await deps.prisma.collection.create({ data: { tenantId: projectId, title: normalized } });
+    const created = await deps.prisma.collection.create({ data: { tenantId: projectId, projectId, title: normalized } });
     return { ok: true, message: `✅ 已创建分类：<b>${normalized}</b>`, id: created.id };
   };
 
@@ -303,7 +328,13 @@ export const createDeliveryProjectVault = (deps: {
     if (Buffer.byteLength(normalized, "utf8") > 60) {
       return { ok: false, message: "⚠️ 分类名称过长，请控制在 60 字节以内。" };
     }
-    const existing = await deps.prisma.collection.findFirst({ where: { id: collectionId, tenantId: projectId }, select: { id: true, title: true } });
+    const existing = await withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.collection.findFirst({ where: { id: collectionId, projectId } as never, select: { id: true, title: true } }),
+      queryByTenant: () =>
+        deps.prisma.collection.findFirst({ where: { id: collectionId, tenantId: projectId }, select: { id: true, title: true } }),
+      shouldFallback: (result) => result === null
+    });
     if (!existing) {
       return { ok: false, message: "⚠️ 分类不存在或已删除。" };
     }
@@ -319,7 +350,13 @@ export const createDeliveryProjectVault = (deps: {
       return { ok: false, message: "🔒 无权限：仅管理员可删除分类。" };
     }
     const projectId = await deps.getRuntimeProjectId();
-    const existing = await deps.prisma.collection.findFirst({ where: { id: collectionId, tenantId: projectId }, select: { id: true, title: true } });
+    const existing = await withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.collection.findFirst({ where: { id: collectionId, projectId } as never, select: { id: true, title: true } }),
+      queryByTenant: () =>
+        deps.prisma.collection.findFirst({ where: { id: collectionId, tenantId: projectId }, select: { id: true, title: true } }),
+      shouldFallback: (result) => result === null
+    });
     if (!existing) {
       return { ok: true, message: "✅ 分类不存在或已删除。" };
     }
@@ -332,25 +369,54 @@ export const createDeliveryProjectVault = (deps: {
       return { assets: 0, files: 0 };
     }
     const projectId = await deps.getRuntimeProjectId();
-    const existing = await deps.prisma.collection.findFirst({ where: { id: collectionId, tenantId: projectId }, select: { id: true } });
+    const existing = await withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.collection.findFirst({ where: { id: collectionId, projectId } as never, select: { id: true } }),
+      queryByTenant: () =>
+        deps.prisma.collection.findFirst({ where: { id: collectionId, tenantId: projectId }, select: { id: true } }),
+      shouldFallback: (result) => result === null
+    });
     if (!existing) {
       return { assets: 0, files: 0 };
     }
     const [assets, files] = await Promise.all([
-      deps.prisma.asset.count({ where: { tenantId: projectId, collectionId: existing.id } }),
-      deps.prisma.uploadItem.count({
-        where: { batch: { tenantId: projectId, status: "COMMITTED", asset: { collectionId: existing.id } } }
+      withProjectTenantFallback({
+        queryByProject: () => deps.prisma.asset.count({ where: { projectId, collectionId: existing.id } as never }),
+        queryByTenant: () => deps.prisma.asset.count({ where: { tenantId: projectId, collectionId: existing.id } }),
+        shouldFallback: (result) => result === 0
+      }),
+      withProjectTenantFallback({
+        queryByProject: () =>
+          deps.prisma.uploadItem.count({
+            where: { batch: { projectId, status: "COMMITTED", asset: { collectionId: existing.id } } } as never
+          }),
+        queryByTenant: () =>
+          deps.prisma.uploadItem.count({
+            where: { batch: { tenantId: projectId, status: "COMMITTED", asset: { collectionId: existing.id } } }
+          }),
+        shouldFallback: (result) => result === 0
       })
     ]);
     return { assets, files };
   };
 
-  const getPrimaryVaultChatId = async () => {
-    const projectId = await deps.getRuntimeProjectId();
-    const binding = await deps.prisma.tenantVaultBinding.findFirst({
+  const getPrimaryProjectVaultBinding = async (projectId: string) => {
+    return deps.prisma.tenantVaultBinding.findFirst({
       where: { tenantId: projectId, role: "PRIMARY" },
       include: { vaultGroup: true }
     });
+  };
+
+  const getPrimaryProjectVaultBindingRef = async (projectId: string) => {
+    return deps.prisma.tenantVaultBinding.findFirst({
+      where: { tenantId: projectId, role: "PRIMARY" },
+      select: { vaultGroupId: true }
+    });
+  };
+
+  const getPrimaryVaultChatId = async () => {
+    const projectId = await deps.getRuntimeProjectId();
+    const binding = await getPrimaryProjectVaultBinding(projectId);
     const chatId = binding?.vaultGroup?.chatId;
     return chatId ? chatId.toString() : null;
   };
@@ -358,7 +424,7 @@ export const createDeliveryProjectVault = (deps: {
   const getCollectionTopic = async (collectionId: string | null) => {
     const topicCollectionId = collectionId ?? "none";
     const projectId = await deps.getRuntimeProjectId();
-    const binding = await deps.prisma.tenantVaultBinding.findFirst({ where: { tenantId: projectId, role: "PRIMARY" }, select: { vaultGroupId: true } });
+    const binding = await getPrimaryProjectVaultBindingRef(projectId);
     if (!binding) {
       return null;
     }
@@ -372,7 +438,7 @@ export const createDeliveryProjectVault = (deps: {
   const setCollectionTopicThreadId = async (collectionId: string | null, threadId: number) => {
     const topicCollectionId = collectionId ?? "none";
     const projectId = await deps.getRuntimeProjectId();
-    const binding = await deps.prisma.tenantVaultBinding.findFirst({ where: { tenantId: projectId, role: "PRIMARY" }, select: { vaultGroupId: true } });
+    const binding = await getPrimaryProjectVaultBindingRef(projectId);
     if (!binding) {
       return;
     }
@@ -386,7 +452,7 @@ export const createDeliveryProjectVault = (deps: {
   const setCollectionTopicIndexMessageId = async (collectionId: string | null, messageId: number | null) => {
     const topicCollectionId = collectionId ?? "none";
     const projectId = await deps.getRuntimeProjectId();
-    const binding = await deps.prisma.tenantVaultBinding.findFirst({ where: { tenantId: projectId, role: "PRIMARY" }, select: { vaultGroupId: true } });
+    const binding = await getPrimaryProjectVaultBindingRef(projectId);
     if (!binding) {
       return;
     }
@@ -406,11 +472,22 @@ export const createDeliveryProjectVault = (deps: {
   const listRecentAssetsInCollection = async (collectionId: string | null, limit: number) => {
     const projectId = await deps.getRuntimeProjectId();
     const safeLimit = normalizeLimit(limit, { defaultLimit: 20, maxLimit: 30 });
-    const items = await deps.prisma.asset.findMany({
-      where: { tenantId: projectId, collectionId },
-      orderBy: [{ updatedAt: "desc" }],
-      take: safeLimit,
-      select: { id: true, title: true, description: true, shareCode: true, updatedAt: true }
+    const items = await withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.asset.findMany({
+          where: { projectId, collectionId } as never,
+          orderBy: [{ updatedAt: "desc" }],
+          take: safeLimit,
+          select: { id: true, title: true, description: true, shareCode: true, updatedAt: true }
+        }),
+      queryByTenant: () =>
+        deps.prisma.asset.findMany({
+          where: { tenantId: projectId, collectionId },
+          orderBy: [{ updatedAt: "desc" }],
+          take: safeLimit,
+          select: { id: true, title: true, description: true, shareCode: true, updatedAt: true }
+        }),
+      shouldFallback: (result) => result.length === 0
     });
     return items.map((item) => ({ assetId: item.id, title: item.title, description: item.description, shareCode: item.shareCode, updatedAt: item.updatedAt }));
   };
@@ -420,6 +497,7 @@ export const createDeliveryProjectVault = (deps: {
     upsertTenantUserFromTelegram,
     getProjectUserLabel,
     isProjectMember,
+    isProjectUser,
     isTenantUser,
     listProjectManagers,
     addProjectManager,

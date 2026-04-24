@@ -1,5 +1,7 @@
-import { createOpenHandler } from "../tenant/open";
+import { createOpenHandler as createProjectOpenHandlerImpl } from "../tenant/open";
 
 export const createProjectOpenHandler = (
-  ...args: Parameters<typeof createOpenHandler>
-): ReturnType<typeof createOpenHandler> => createOpenHandler(...args);
+  ...args: Parameters<typeof createProjectOpenHandlerImpl>
+): ReturnType<typeof createProjectOpenHandlerImpl> => createProjectOpenHandlerImpl(...args);
+
+export { createProjectOpenHandler as createOpenHandler };

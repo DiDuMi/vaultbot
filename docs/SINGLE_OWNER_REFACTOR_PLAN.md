@@ -22,7 +22,7 @@
 
 项目虽然已经没有真正落地的 Portal Bot，但底层仍然保留了一整套多租户系统设计：
 
-- 配置层以 `TENANT_CODE`、`TENANT_NAME` 为核心
+- 配置层以 `PROJECT_CODE`、`PROJECT_NAME` 为主，并兼容 legacy `TENANT_CODE`、`TENANT_NAME`
 - 启动时会检查租户一致性，避免写到错误 tenant
 - 数据库绝大多数业务表都带 `tenantId`
 - 权限依赖 `TenantMember`
@@ -37,8 +37,8 @@
 从现有实现看，“设置被重置”更像是命中了另一个 tenant，而不是旧设置真的被清空：
 
 - 设置按 `tenantId` 维度存储在 `TenantSetting`
-- `delivery-core` 会按 `TENANT_CODE` 自动 `upsert tenant`
-- 一旦 `TENANT_CODE` 或数据库连接发生漂移，就可能进入一个新的 tenant
+- `delivery-core` 会按 `PROJECT_CODE`（或 legacy `TENANT_CODE`）自动 `upsert tenant`
+- 一旦 `PROJECT_CODE`/`TENANT_CODE` 或数据库连接发生漂移，就可能进入一个新的 tenant
 - 从用户视角看，结果就像“所有设置恢复默认”
 
 因此，第一优先级不是删代码，而是先把“单 tenant 收口”和“环境稳定性”做好。

@@ -9,9 +9,10 @@
 - 日常运行心智已接近个人项目
 - 多管理员与多存储群治理已被明显收口
 - tenant 漂移风险已显著下降
-- 顶层服务装配、worker 边界与运维入口已经开始明确以 `project` 为主语
+- 顶层服务装配、worker 边界、Bot 主入口与运维入口已经明确以 `project` 为主语
 - 阶段 A 的 P0 `projectId` 兼容字段方案已经完成三轮复演验证
 - 阶段 B 已开始进入“P0 双写 + 低风险切读”执行期
+- 生产 Phase A backfill 已执行完成，当前已进入观察期
 - 但底层 schema 仍保留多租户结构，尚未进入破坏性清理
 
 ## 已完成项
@@ -105,7 +106,7 @@
 
 通过生产备份恢复库复演，当前已经确认：
 
-- 当前生产运行命中的 `TENANT_CODE` 是 `vault`
+- 当前生产运行命中的 `PROJECT_CODE`（或 legacy `TENANT_CODE`）是 `vault`
 - 生产数据库中仍然实际存在两个 tenant：
   - `vault`
   - `prod`
@@ -154,6 +155,51 @@
 - discovery 用户历史链路开始切读：`listUserOpenHistory` 已实现 project-first fallback
 - discovery 用户点赞链路开始切读：`listUserLikedAssets` 已实现 project-first fallback
 - discovery Tag 查询入口补齐：`getTagById` / `getTagByName` 已实现安全回退（通过 `assetTag` 关联验证归属）
+
+### 10. Bot 主入口已完成 project 化
+
+当前已完成：
+
+- `src/bot/project/index.ts` 成为真实主入口
+- 共享 Bot core 已迁到 `src/bot/project/register-core.ts`
+- `src/bot/project/composition.ts` 已接管大部分装配骨架
+- `src/bot/tenant/index.ts` 已退化为兼容壳层
+- `src/bot/tenant/register-core.ts` 已退化为兼容 re-export
+
+这意味着：
+
+- `project` 已经是事实上的唯一 Bot 主入口
+- `tenant` 当前更多承担兼容层与实现承载层职责
+
+### 11. 生产 Phase A backfill 已完成
+
+当前已在生产执行：
+
+- `scripts/schema-phase-a-backfill.sql`
+
+执行结果：
+
+- 目标表 `projectId is null = 0`
+- 目标表 `projectId is distinct from tenantId = 0`
+
+当前生产数据现实仍然是：
+
+- `prod` 与 `vault` 两个历史项目同时存在
+- 但目标表已经全部满足 `projectId = tenantId`
+- 当前可进入观察期，而不是直接进入物理清理
+
+### 12. 生产观察期模板已就位
+
+当前已新增：
+
+- `scripts/project-observation-audit.sql`
+- `docs/PRODUCTION_OBSERVATION_RUNBOOK.md`
+
+用途：
+
+- 在 `24h / 72h / 7d` 窗口里持续确认最近写入继续双写
+- 确认最近写入继续满足 `projectId = tenantId`
+- 确认 project 分布没有异常漂移
 
 ## 仍然保留的结构
 
@@ -229,7 +275,8 @@
 建议做法：
 
 - 继续推进阶段 B
-- 优先扩展 P0 范围内双写与低风险切读
+- 优先执行生产观察期巡检
+- 观察稳定后，再扩展 P0 范围内双写与低风险切读
 - 继续沿 discovery 的单点入口推进，而不是一次性切整条搜索/标签链
 - 保持所有读路径继续支持 `tenantId` 回退
 - 在更高风险发现链路切读前，先持续同步文档与执行矩阵
@@ -243,6 +290,21 @@
 
 建议做法：
 
-- 先完成阶段 B 设计与低风险落地
+- 先完成观察期与阶段 B 的低风险落地
 - 再评估哪些表可进入下一轮切读
 - 暂不进入 `Tenant*` / `tenantId` 物理清理
+## 2026-04-23 Addendum - Observation does not block low-risk cleanup
+
+- Observation still gates destructive or irreversible work:
+  - schema cleanup
+  - removing tenant fallback
+  - removing `tenantId` / `Tenant*`
+- Observation does not gate compatible progress:
+  - project wrapper consolidation
+  - project-first service assembly cleanup
+  - worker/upload/discovery naming cleanup
+  - compatibility-preserving alias restructuring
+- Latest local verification for these compatible rounds remains:
+  - `npm run build` passed
+  - `npm run test` passed
+  - `195/195 passed`
