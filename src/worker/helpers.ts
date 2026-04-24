@@ -28,6 +28,7 @@ export const sendMediaGroupWithRetry = async (
   };
   return withTelegramRetry(run);
 };
+export const sendProjectMediaGroupWithRetry = sendMediaGroupWithRetry;
 
 export const getProjectBroadcastTargetUserIds = async (prisma: PrismaClient, projectId: string) => {
   const [projectUsers, projectUserRows, members] = await Promise.all([
@@ -62,6 +63,7 @@ export const getBroadcastTargetUserIds = getProjectBroadcastTargetUserIds;
 export const resolveProjectScopeId = (input: { projectId?: string | null; tenantId: string }) => {
   return input.projectId?.trim() || input.tenantId;
 };
+export const getProjectScopeId = resolveProjectScopeId;
 
 export const getLatestProjectAssetPublisherUserId = async (prisma: PrismaClient, projectId: string, assetId: string) => {
   const projectBatch =
@@ -82,6 +84,7 @@ export const getLatestProjectAssetPublisherUserId = async (prisma: PrismaClient,
   });
   return fallbackBatch?.userId ?? null;
 };
+export const getProjectAssetPublisherUserId = getLatestProjectAssetPublisherUserId;
 
 export const computeNextBroadcastRunAt = (input: { previousNextRunAt: Date | null; repeatEveryMs: number; now?: Date }) => {
   const nowMs = (input.now ?? new Date()).getTime();
@@ -92,11 +95,13 @@ export const computeNextBroadcastRunAt = (input: { previousNextRunAt: Date | nul
   }
   return new Date(nextMs);
 };
+export const computeProjectNextBroadcastRunAt = computeNextBroadcastRunAt;
 
 export const ensureRuntimeProjectId = async (prisma: PrismaClient, projectContext: { code: string; name: string }) => {
   const project = await ensureRuntimeProjectContext(prisma, projectContext);
   return project.projectId;
 };
+export const ensureProjectRuntimeId = ensureRuntimeProjectId;
 
 export const isSafeTelegramNumericId = (value: string) => {
   const numericId = Number(value);
@@ -108,6 +113,7 @@ export const isSafeTelegramNumericId = (value: string) => {
   }
   return numericId;
 };
+export const parseProjectTelegramUserId = isSafeTelegramNumericId;
 
 export const backfillProjectUsers = async (bot: Bot, prisma: PrismaClient, projectId: string) => {
   const limit = (() => {
@@ -189,3 +195,4 @@ export const backfillProjectUsers = async (bot: Bot, prisma: PrismaClient, proje
 };
 
 export const backfillTenantUsers = backfillProjectUsers;
+export const syncProjectUsers = backfillProjectUsers;

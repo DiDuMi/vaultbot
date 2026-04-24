@@ -26,14 +26,30 @@ import { startIntervalScheduler } from "../worker/orchestration";
 import {
   backfillProjectUsers,
   backfillTenantUsers,
+  computeProjectNextBroadcastRunAt,
   computeNextBroadcastRunAt,
+  ensureProjectRuntimeId,
   ensureRuntimeProjectId,
   getBroadcastTargetUserIds,
+  getProjectAssetPublisherUserId,
   getLatestProjectAssetPublisherUserId,
+  getProjectScopeId,
   getProjectBroadcastTargetUserIds,
-  resolveProjectScopeId
+  isSafeTelegramNumericId,
+  parseProjectTelegramUserId,
+  resolveProjectScopeId,
+  sendMediaGroupWithRetry,
+  sendProjectMediaGroupWithRetry,
+  syncProjectUsers
 } from "../worker/helpers";
-import { upsertProjectSetting, upsertTenantSetting } from "../worker/storage";
+import {
+  upsertProjectSetting,
+  upsertProjectWorkerProcessHeartbeat,
+  upsertProjectWorkerReplicationHeartbeat,
+  upsertTenantSetting,
+  upsertWorkerProcessHeartbeat,
+  upsertWorkerReplicationHeartbeat
+} from "../worker/storage";
 import { buildAssetActionLine, buildPreviewLinkLine } from "../bot/project/register-core";
 import { createProjectHistoryRenderer } from "../bot/project/history";
 import { buildFootprintKeyboard, buildMyKeyboard, buildRankingKeyboard } from "../bot/project/keyboards";
@@ -96,7 +112,7 @@ import { createProjectContextConfigFromTenant, normalizeProjectContextConfig } f
 import { createDeliveryReplicaSelection, createProjectReplicaSelection } from "../services/use-cases/delivery-replica-selection";
 import { createDeliveryProjectVault, createDeliveryTenantVault } from "../services/use-cases/delivery-project-vault";
 import { createUploadService } from "../services/use-cases/upload";
-import { createReplicateBatch } from "../worker/replication-worker";
+import { createProjectReplicateBatch, createReplicateBatch } from "../worker/replication-worker";
 import { createServer } from "../server";
 import { loadConfig } from "../config";
 import type { Asset as LegacyAsset, Event as LegacyEvent, PermissionRule as LegacyPermissionRule, Project, ProjectAsset, ProjectEvent, ProjectPermissionRule, Tenant } from "../core/domain/models";
@@ -414,16 +430,43 @@ test("worker-helper: runtime project id wraps runtime project context", async ()
   assert.equal(result, "tenant_1");
 });
 
+test("worker-helper: project scope and runtime helpers remain compatibility aliases", () => {
+  assert.equal(ensureProjectRuntimeId, ensureRuntimeProjectId);
+  assert.equal(getProjectScopeId, resolveProjectScopeId);
+});
+
 test("worker-helper: project user backfill remains a compatibility alias", () => {
   assert.equal(backfillProjectUsers, backfillTenantUsers);
+  assert.equal(syncProjectUsers, backfillProjectUsers);
 });
 
 test("worker-helper: project broadcast target ids remain a compatibility alias", () => {
   assert.equal(getProjectBroadcastTargetUserIds, getBroadcastTargetUserIds);
 });
 
+test("worker-helper: additional project aliases remain compatible", () => {
+  assert.equal(getProjectAssetPublisherUserId, getLatestProjectAssetPublisherUserId);
+  assert.equal(parseProjectTelegramUserId, isSafeTelegramNumericId);
+  assert.equal(sendProjectMediaGroupWithRetry, sendMediaGroupWithRetry);
+  assert.equal(computeProjectNextBroadcastRunAt, computeNextBroadcastRunAt);
+});
+
+test("worker-helper: runtime-oriented project aliases remain compatible", () => {
+  assert.equal(getProjectAssetPublisherUserId, getLatestProjectAssetPublisherUserId);
+  assert.equal(sendProjectMediaGroupWithRetry, sendMediaGroupWithRetry);
+});
+
 test("worker-storage: project setting upsert remains a compatibility alias", () => {
   assert.equal(upsertProjectSetting, upsertTenantSetting);
+});
+
+test("worker-storage: project heartbeat upserts remain compatibility aliases", () => {
+  assert.equal(upsertProjectWorkerProcessHeartbeat, upsertWorkerProcessHeartbeat);
+  assert.equal(upsertProjectWorkerReplicationHeartbeat, upsertWorkerReplicationHeartbeat);
+});
+
+test("worker replication: project batch replicator remains a compatibility alias", () => {
+  assert.equal(createProjectReplicateBatch, createReplicateBatch);
 });
 
 test("worker-storage: project setting dual-writes projectId", async () => {

@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { startIntervalScheduler } from "./orchestration";
-import { resolveProjectScopeId } from "./helpers";
+import { getProjectScopeId } from "./helpers";
 
 type QueueLike = {
   add: (
@@ -102,7 +102,7 @@ export const startReplicationScheduler = (deps: {
     });
     const replicationHeartbeatProjectIds = new Set<string>();
     for (const batch of batches) {
-      const batchProjectId = resolveProjectScopeId({ projectId: batch.projectId, tenantId: batch.tenantId });
+      const batchProjectId = getProjectScopeId({ projectId: batch.projectId, tenantId: batch.tenantId });
       const last = replicationEnqueuedAt.get(batch.id) ?? 0;
       if (now - last < 10_000) {
         continue;
@@ -157,7 +157,7 @@ export const startReplicationScheduler = (deps: {
       backfillOffset = 0;
     }
     for (const batch of backfill) {
-      const batchProjectId = resolveProjectScopeId({ projectId: batch.projectId, tenantId: batch.tenantId });
+      const batchProjectId = getProjectScopeId({ projectId: batch.projectId, tenantId: batch.tenantId });
       const last = replicationEnqueuedAt.get(batch.id) ?? 0;
       if (now - last < 10_000) {
         continue;
@@ -215,3 +215,5 @@ export const startReplicationScheduler = (deps: {
 
   return startIntervalScheduler(15000, tick, (error) => deps.logError({ op: "replication_scheduler_tick" }, error));
 };
+
+export const startProjectReplicationScheduler = startReplicationScheduler;

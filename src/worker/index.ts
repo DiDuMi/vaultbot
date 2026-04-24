@@ -8,21 +8,21 @@ import { withTelegramRetry } from "../infra/telegram";
 import { createDeliveryService } from "../services/use-cases";
 import { startBroadcastScheduler } from "./broadcast-scheduler";
 import {
-  backfillProjectUsers,
-  computeNextBroadcastRunAt,
-  ensureRuntimeProjectId,
-  getLatestProjectAssetPublisherUserId,
+  computeProjectNextBroadcastRunAt,
+  ensureProjectRuntimeId,
+  getProjectAssetPublisherUserId,
   getProjectBroadcastTargetUserIds,
   parseNumberWithBounds,
-  resolveProjectScopeId,
-  sendMediaGroupWithRetry,
+  getProjectScopeId,
+  sendProjectMediaGroupWithRetry,
+  syncProjectUsers,
   sleep
 } from "./helpers";
 import { startIntervalScheduler } from "./orchestration";
-import { startReplicationScheduler } from "./replication-scheduler";
-import { createReplicateBatch } from "./replication-worker";
+import { startProjectReplicationScheduler } from "./replication-scheduler";
+import { createProjectReplicateBatch } from "./replication-worker";
 import { createWorkerRoutes } from "./routes";
-import { upsertWorkerProcessHeartbeat, upsertWorkerReplicationHeartbeat } from "./storage";
+import { upsertProjectWorkerProcessHeartbeat, upsertProjectWorkerReplicationHeartbeat } from "./storage";
 import { buildBroadcastKeyboard, escapeHtml, isBlockedError, logWorkerError, stripHtml } from "./strategy";
 
 const start = async () => {
@@ -47,21 +47,21 @@ const start = async () => {
   }
 
   if (process.env.SYNC_USERS === "1") {
-    const projectId = await ensureRuntimeProjectId(prisma, config.projectContext);
-    await backfillProjectUsers(bot, prisma, projectId);
+    const projectId = await ensureProjectRuntimeId(prisma, config.projectContext);
+    await syncProjectUsers(bot, prisma, projectId);
     if (connection) {
       await connection.quit().catch((error) => logWorkerError({ op: "redis_quit_after_sync_users" }, error));
     }
     await prisma.$disconnect().catch((error) => logWorkerError({ op: "prisma_disconnect_after_sync_users" }, error));
     return;
   }
-  const runtimeProjectId = await ensureRuntimeProjectId(prisma, config.projectContext);
+  const runtimeProjectId = await ensureProjectRuntimeId(prisma, config.projectContext);
 
-  const replicateBatch = createReplicateBatch({
+  const replicateBatch = createProjectReplicateBatch({
     bot,
     prisma,
     config,
-    sendMediaGroupWithRetry
+    sendMediaGroupWithRetry: sendProjectMediaGroupWithRetry
   });
 
   const runBroadcast = async (broadcastId: string, runId: string) => {
@@ -70,7 +70,7 @@ const start = async () => {
       if (!broadcast) {
         return;
       }
-      const broadcastScopeId = resolveProjectScopeId({ projectId: broadcast.projectId, tenantId: broadcast.tenantId });
+      const broadcastScopeId = getProjectScopeId({ projectId: broadcast.projectId, tenantId: broadcast.tenantId });
       const keyboard = buildBroadcastKeyboard(broadcast.buttons);
       const targetUserIds = await getProjectBroadcastTargetUserIds(prisma, broadcastScopeId);
       await prisma.broadcastRun.update({ where: { id: runId }, data: { targetCount: targetUserIds.length } });
@@ -148,7 +148,7 @@ const start = async () => {
         return;
       }
       if (latest.repeatEveryMs) {
-        const nextRunAt = computeNextBroadcastRunAt({
+        const nextRunAt = computeProjectNextBroadcastRunAt({
           previousNextRunAt: latest.nextRunAt ?? null,
           repeatEveryMs: latest.repeatEveryMs,
           now: finishedAt
@@ -186,8 +186,8 @@ const start = async () => {
     if (!asset?.shareCode) {
       return;
     }
-    const assetScopeId = resolveProjectScopeId({ projectId: asset.projectId, tenantId: asset.tenantId });
-    const publisherUserId = await getLatestProjectAssetPublisherUserId(prisma, assetScopeId, asset.id);
+    const assetScopeId = getProjectScopeId({ projectId: asset.projectId, tenantId: asset.tenantId });
+    const publisherUserId = await getProjectAssetPublisherUserId(prisma, assetScopeId, asset.id);
     const subs = await deliveryService.listFollowKeywordSubscriptions().catch(() => []);
     const plainTitle = stripHtml(asset.title ?? "");
     const plainDescription = stripHtml(asset.description ?? "");
@@ -344,14 +344,14 @@ const start = async () => {
   startReplicationBackfillAutoPause();
 
   let replicationTimer: NodeJS.Timeout | null = null;
-  replicationTimer = startReplicationScheduler({
+  replicationTimer = startProjectReplicationScheduler({
     prisma,
     runtimeProjectId,
     replicationQueue,
     replicationBackfillQueue,
     replicateBatch,
-    upsertWorkerProcessHeartbeat: (projectId, ts) => upsertWorkerProcessHeartbeat(prisma, projectId, ts),
-    upsertWorkerReplicationHeartbeat: (projectId, ts) => upsertWorkerReplicationHeartbeat(prisma, projectId, ts),
+    upsertWorkerProcessHeartbeat: (projectId, ts) => upsertProjectWorkerProcessHeartbeat(prisma, projectId, ts),
+    upsertWorkerReplicationHeartbeat: (projectId, ts) => upsertProjectWorkerReplicationHeartbeat(prisma, projectId, ts),
     parseNumberWithBounds,
     logError: (meta, error) => logWorkerError(meta, error)
   });

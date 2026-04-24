@@ -21,7 +21,9 @@ export const upsertTenantSetting = upsertProjectSetting;
 export const upsertWorkerProcessHeartbeat = async (prisma: PrismaClient, projectId: string, now: number) => {
   await upsertProjectSetting(prisma, projectId, "worker_heartbeat", String(now));
 };
+export const upsertProjectWorkerProcessHeartbeat = upsertWorkerProcessHeartbeat;
 
 export const upsertWorkerReplicationHeartbeat = async (prisma: PrismaClient, projectId: string, now: number) => {
   await upsertProjectSetting(prisma, projectId, "worker_replication_heartbeat", String(now));
 };
+export const upsertProjectWorkerReplicationHeartbeat = upsertWorkerReplicationHeartbeat;

@@ -417,3 +417,5 @@ export const createReplicateBatch = (deps: {
     }
   };
 };
+
+export const createProjectReplicateBatch = createReplicateBatch;
