@@ -15,7 +15,7 @@ import { createDeliveryProjectPreferences } from "./delivery-project-preferences
 import { createDeliveryProjectSocial } from "./delivery-project-social";
 import { createDeliveryProjectStats } from "./delivery-project-stats";
 import { createProjectReplicaSelection } from "./delivery-project-replica-selection";
-import { createDeliveryStorage } from "./delivery-storage";
+import { createProjectStorage } from "./delivery-storage";
 import { createProjectVaultService } from "./delivery-project-vault";
 
 export type TelegramUserInput = {
@@ -644,7 +644,7 @@ export const createDeliveryService = (
     config
   });
 
-  const { getPreference, upsertPreference, deletePreference, getSetting, upsertSetting, deleteSetting } = createDeliveryStorage(
+  const { getPreference, upsertPreference, deletePreference, getSetting, upsertSetting, deleteSetting } = createProjectStorage(
     prisma,
     getRuntimeProjectId
   );

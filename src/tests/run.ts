@@ -6251,7 +6251,7 @@ test("social: project-oriented runtime id is used for asset likes", async () => 
 test("storage: uses project-oriented runtime id dependency", async () => {
   let runtimeProjectCalls = 0;
   const calls: Array<Record<string, unknown>> = [];
-  const storage = createDeliveryStorage(
+  const storage = createProjectStorage(
     {
       userPreference: {
         findUnique: async (args: Record<string, unknown>) => {
@@ -6283,7 +6283,7 @@ test("storage: uses project-oriented runtime id dependency", async () => {
 test("storage: read path falls back from projectId to tenantId", async () => {
   const preferenceCalls: Array<Record<string, unknown>> = [];
   const settingCalls: Array<Record<string, unknown>> = [];
-  const storage = createDeliveryStorage(
+  const storage = createProjectStorage(
     {
       userPreference: {
         findUnique: async (args: Record<string, unknown>) => {
@@ -6337,7 +6337,7 @@ test("storage: dual-writes projectId for settings and preferences", async () => 
     create: { tenantId: string; projectId: string; key: string; value: string | null };
   }> = [];
 
-  const storage = createDeliveryStorage(
+  const storage = createProjectStorage(
     {
       userPreference: {
         upsert: async (args: {
@@ -6380,7 +6380,7 @@ test("storage: dual-writes projectId for settings and preferences", async () => 
 
 test("preferences: follow keyword subscriptions prefer projectId and fall back to tenantId", async () => {
   const calls: Array<Record<string, unknown>> = [];
-  const preferences = createDeliveryPreferences({
+  const preferences = createProjectPreferences({
     prisma: {
       userPreference: {
         findMany: async (args: Record<string, unknown>) => {
@@ -6428,7 +6428,7 @@ test("preferences: follow keyword subscriptions prefer projectId and fall back t
 
 test("preferences: notify settings read falls back to tenantId preference row", async () => {
   const calls: Array<Record<string, unknown>> = [];
-  const preferences = createDeliveryPreferences({
+  const preferences = createProjectPreferences({
     prisma: {
       userPreference: {
         findFirst: async (args: Record<string, unknown>) => {
@@ -6463,7 +6463,7 @@ test("preferences: notify settings read falls back to tenantId preference row", 
 test("preferences: notification state read falls back to tenantId preference row", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const writes: Array<{ key: string; value: string | null }> = [];
-  const preferences = createDeliveryPreferences({
+  const preferences = createProjectPreferences({
     prisma: {
       userPreference: {
         findFirst: async (args: Record<string, unknown>) => {
