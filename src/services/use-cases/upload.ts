@@ -254,12 +254,83 @@ export const createUploadService = (
       queryByTenant: () => prisma.collection.findFirst({ where: { id: collectionId, tenantId: projectId }, select: { id: true } }),
       shouldFallback: (result) => result === null
     });
+  const findProjectAsset = async <T>(projectId: string, assetId: string, select?: T) =>
+    withProjectTenantFallback({
+      queryByProject: () => prisma.asset.findFirst({ where: { id: assetId, projectId }, ...(select ? { select } : {}) } as never),
+      queryByTenant: () => prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, ...(select ? { select } : {}) } as never),
+      shouldFallback: (result) => result === null
+    });
   const listProjectCollections = async (projectId: string) =>
     withProjectTenantFallback({
       queryByProject: () => prisma.collection.findMany({ where: { projectId }, select: { id: true, title: true } }).catch(() => []),
       queryByTenant: () => prisma.collection.findMany({ where: { tenantId: projectId }, select: { id: true, title: true } }).catch(() => []),
       shouldFallback: (result) => result.length === 0
     });
+  const findPrimaryProjectVaultBinding = async (tx: PrismaClient, projectId: string) =>
+    tx.tenantVaultBinding.findFirst({
+      where: { tenantId: projectId, role: "PRIMARY" },
+      select: { vaultGroupId: true }
+    });
+  const ensureProjectPrimaryVaultGroup = async (tx: PrismaClient, projectId: string) => {
+    const existingPrimary = await findPrimaryProjectVaultBinding(tx, projectId);
+    if (existingPrimary?.vaultGroupId) {
+      return existingPrimary.vaultGroupId;
+    }
+    const vaultGroup = await tx.vaultGroup.upsert({
+      where: {
+        tenantId_chatId: {
+          tenantId: projectId,
+          chatId: BigInt(config.vaultChatId)
+        }
+      },
+      update: {},
+      create: {
+        tenantId: projectId,
+        chatId: BigInt(config.vaultChatId)
+      }
+    });
+    await tx.tenantVaultBinding.upsert({
+      where: {
+        tenantId_vaultGroupId_role: {
+          tenantId: projectId,
+          vaultGroupId: vaultGroup.id,
+          role: "PRIMARY"
+        }
+      },
+      update: {},
+      create: {
+        tenantId: projectId,
+        vaultGroupId: vaultGroup.id,
+        role: "PRIMARY"
+      }
+    });
+    return vaultGroup.id;
+  };
+  const upsertProjectRootTopicThread = async (tx: PrismaClient, projectId: string, vaultGroupId: string) => {
+    if (config.vaultThreadId === undefined) {
+      return;
+    }
+    await tx.tenantTopic.upsert({
+      where: {
+        tenantId_vaultGroupId_collectionId_version: {
+          tenantId: projectId,
+          vaultGroupId,
+          collectionId: "none",
+          version: 1
+        }
+      },
+      update: {
+        messageThreadId: BigInt(config.vaultThreadId)
+      },
+      create: {
+        tenantId: projectId,
+        vaultGroupId,
+        collectionId: "none",
+        messageThreadId: BigInt(config.vaultThreadId),
+        version: 1
+      }
+    });
+  };
 
   const parseAutoCategorizeRules = (raw: string | null) => {
     if (!raw) {
@@ -435,67 +506,8 @@ export const createUploadService = (
         name: projectContext.name
       });
       const projectId = project.projectId;
-
-      const existingPrimary = await tx.tenantVaultBinding.findFirst({
-        where: { tenantId: projectId, role: "PRIMARY" },
-        select: { vaultGroupId: true }
-      });
-      let primaryVaultGroupId = existingPrimary?.vaultGroupId ?? null;
-      if (!primaryVaultGroupId) {
-        const vaultGroup = await tx.vaultGroup.upsert({
-          where: {
-            tenantId_chatId: {
-              tenantId: projectId,
-              chatId: BigInt(config.vaultChatId)
-            }
-          },
-          update: {},
-          create: {
-            tenantId: projectId,
-            chatId: BigInt(config.vaultChatId)
-          }
-        });
-        await tx.tenantVaultBinding.upsert({
-          where: {
-            tenantId_vaultGroupId_role: {
-              tenantId: projectId,
-              vaultGroupId: vaultGroup.id,
-              role: "PRIMARY"
-            }
-          },
-          update: {},
-          create: {
-            tenantId: projectId,
-            vaultGroupId: vaultGroup.id,
-            role: "PRIMARY"
-          }
-        });
-        primaryVaultGroupId = vaultGroup.id;
-      }
-
-      if (config.vaultThreadId !== undefined) {
-        await tx.tenantTopic.upsert({
-          where: {
-            tenantId_vaultGroupId_collectionId_version: {
-              tenantId: projectId,
-              vaultGroupId: primaryVaultGroupId,
-              collectionId: "none",
-              version: 1
-            }
-          },
-          update: {
-            messageThreadId: BigInt(config.vaultThreadId)
-          },
-          create: {
-            tenantId: projectId,
-            vaultGroupId: primaryVaultGroupId,
-            collectionId: "none",
-            messageThreadId: BigInt(config.vaultThreadId),
-            version: 1
-          }
-        });
-      }
-
+      const primaryVaultGroupId = await ensureProjectPrimaryVaultGroup(tx as PrismaClient, projectId);
+      await upsertProjectRootTopicThread(tx as PrismaClient, projectId, primaryVaultGroupId);
       return { projectId, vaultGroupId: primaryVaultGroupId };
     });
   };
@@ -721,9 +733,7 @@ export const createUploadService = (
 
   const updateAssetCollection = async (assetId: string, collectionId: string | null) => {
     const { projectId } = await getProjectAndVault();
-    const asset =
-      (await prisma.asset.findFirst({ where: { id: assetId, projectId } })) ??
-      (await prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId } }));
+    const asset = await findProjectAsset(projectId, assetId);
     if (!asset) {
       throw new Error("asset not found");
     }
