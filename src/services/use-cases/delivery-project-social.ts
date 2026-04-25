@@ -1,1 +1,4 @@
-export { createDeliverySocial as createDeliveryProjectSocial } from "./delivery-social";
+export {
+  createDeliverySocial as createDeliveryProjectSocial,
+  createDeliverySocial as createProjectSocial
+} from "./delivery-social";

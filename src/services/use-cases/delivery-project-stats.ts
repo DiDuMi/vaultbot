@@ -1,1 +1,4 @@
-export { createDeliveryStats as createDeliveryProjectStats } from "./delivery-stats";
+export {
+  createDeliveryStats as createDeliveryProjectStats,
+  createDeliveryStats as createProjectStats
+} from "./delivery-stats";

@@ -87,8 +87,8 @@ import { createDeliveryAdmin, createProjectAdmin } from "../services/use-cases/d
 import { createDeliveryCore } from "../services/use-cases/delivery-core";
 import { createDeliveryPreferences, createProjectPreferences } from "../services/use-cases/delivery-preferences";
 import { createDeliveryProjectPreferences } from "../services/use-cases/delivery-project-preferences";
-import { createDeliveryProjectSocial } from "../services/use-cases/delivery-project-social";
-import { createDeliveryProjectStats } from "../services/use-cases/delivery-project-stats";
+import { createDeliveryProjectSocial, createProjectSocial as createProjectSocialService } from "../services/use-cases/delivery-project-social";
+import { createDeliveryProjectStats, createProjectStats as createProjectStatsService } from "../services/use-cases/delivery-project-stats";
 import { createDeliveryStorage, createProjectStorage } from "../services/use-cases/delivery-storage";
 import { createDeliverySocial } from "../services/use-cases/delivery-social";
 import { createDeliveryStats } from "../services/use-cases/delivery-stats";
@@ -712,12 +712,39 @@ test("preferences: project factory remains a compatibility alias", () => {
   assert.equal(createProjectStorage, createDeliveryStorage);
 });
 
+test("storage: project-first method aliases remain compatible", async () => {
+  const storage = createProjectStorage(
+    {
+      userPreference: {
+        findUnique: async () => ({ value: "pref_v1" }),
+        upsert: async () => ({}),
+        delete: async () => ({})
+      },
+      tenantSetting: {
+        findUnique: async () => ({ value: "setting_v1" }),
+        upsert: async () => ({}),
+        delete: async () => ({})
+      }
+    } as never,
+    async () => "tenant_1"
+  );
+
+  assert.equal(storage.getProjectPreference, storage.getPreference);
+  assert.equal(storage.upsertProjectPreference, storage.upsertPreference);
+  assert.equal(storage.deleteProjectPreference, storage.deletePreference);
+  assert.equal(storage.getProjectSetting, storage.getSetting);
+  assert.equal(storage.upsertProjectSetting, storage.upsertSetting);
+  assert.equal(storage.deleteProjectSetting, storage.deleteSetting);
+});
+
 test("social: project factory remains a compatibility alias", () => {
   assert.equal(createDeliveryProjectSocial, createDeliverySocial);
+  assert.equal(createProjectSocialService, createDeliverySocial);
 });
 
 test("stats: project factory remains a compatibility alias", () => {
   assert.equal(createDeliveryProjectStats, createDeliveryStats);
+  assert.equal(createProjectStatsService, createDeliveryStats);
 });
 
 test("bot project wrapper: high-level exports are independent project wrappers", async () => {
@@ -3324,7 +3351,7 @@ test("delivery-core: single owner mode forces min replicas to 1", async () => {
           upsert: async () => ({ id: "tenant_1" })
         }
       } as never,
-      config: { tenantCode: "demo", tenantName: "demo" }
+      config: { code: "demo", name: "demo" }
     });
 
     const result = await core.getProjectMinReplicas();
@@ -3384,7 +3411,7 @@ test("delivery-core: exposes project-first search mode and min replica aliases",
         }
       }
     } as never,
-    config: { tenantCode: "demo", tenantName: "Demo" }
+    config: { code: "demo", name: "Demo" }
   });
 
   assert.equal(await core.getProjectSearchMode(), "PUBLIC");
@@ -3430,7 +3457,7 @@ test("delivery-core: getProjectMinReplicas falls back from projectId to tenantId
         }
       }
     } as never,
-    config: { tenantCode: "demo", tenantName: "Demo" }
+    config: { code: "demo", name: "Demo" }
   });
 
   assert.equal(await core.getProjectMinReplicas(), 2);
@@ -3485,7 +3512,7 @@ test("delivery-core: bootstrap settings and tracking dual-write projectId", asyn
         }
       }
     } as never,
-    config: { tenantCode: "demo", tenantName: "Demo" }
+    config: { code: "demo", name: "Demo" }
   });
 
   process.env.TENANT_BOOTSTRAP_PROTECT_CONTENT_ENABLED = "1";
@@ -3546,7 +3573,7 @@ test("delivery-core: bootstrap settings prefer projectId and fall back to tenant
         }
       }
     } as never,
-    config: { tenantCode: "demo", tenantName: "Demo" }
+    config: { code: "demo", name: "Demo" }
   });
 
   process.env.TENANT_BOOTSTRAP_PROTECT_CONTENT_ENABLED = "1";
@@ -3582,7 +3609,7 @@ test("delivery-core: ensureInitialOwner prefers projectId batches and falls back
         }
       }
     } as never,
-    config: { tenantCode: "demo", tenantName: "demo" }
+    config: { code: "demo", name: "demo" }
   });
 
   const result = await core.isTenantAdmin("owner_1");
@@ -3633,7 +3660,7 @@ test("delivery-core: single owner mode only grants manage rights to owner", asyn
           findFirst: async () => null
         }
       } as never,
-      config: { tenantCode: "demo", tenantName: "demo" }
+      config: { code: "demo", name: "demo" }
     });
 
     const result = await core.isTenantAdmin("admin_1");
@@ -3654,7 +3681,7 @@ test("delivery-core: exposes project-oriented manage alias", async () => {
         findFirst: async () => ({ role: "OWNER" })
       }
     } as never,
-    config: { tenantCode: "demo", tenantName: "demo" }
+    config: { code: "demo", name: "demo" }
   });
 
   assert.equal(await core.canManageProject("owner_1"), true);

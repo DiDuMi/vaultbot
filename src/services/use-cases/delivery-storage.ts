@@ -66,7 +66,27 @@ export const createDeliveryStorage = (prisma: PrismaClient, getRuntimeProjectId:
       .catch((error) => logError({ component: "delivery_storage", op: "delete_setting", projectId, key }, error));
   };
 
-  return { getPreference, upsertPreference, deletePreference, getSetting, upsertSetting, deleteSetting };
+  const getProjectPreference = getPreference;
+  const upsertProjectPreference = upsertPreference;
+  const deleteProjectPreference = deletePreference;
+  const getProjectSetting = getSetting;
+  const upsertProjectSetting = upsertSetting;
+  const deleteProjectSetting = deleteSetting;
+
+  return {
+    getPreference,
+    upsertPreference,
+    deletePreference,
+    getSetting,
+    upsertSetting,
+    deleteSetting,
+    getProjectPreference,
+    upsertProjectPreference,
+    deleteProjectPreference,
+    getProjectSetting,
+    upsertProjectSetting,
+    deleteProjectSetting
+  };
 };
 
 export const createProjectStorage = createDeliveryStorage;

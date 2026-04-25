@@ -35,7 +35,7 @@ export const registerDeliveryModuleTests = (test: TestFn) => {
   test("delivery-core: 本地时间工具按预期工作", () => {
     const core = createDeliveryCore({
       prisma: {} as never,
-      config: { tenantCode: "t1", tenantName: "T1" }
+      config: { code: "t1", name: "T1" }
     });
     const d = new Date(2026, 2, 18, 15, 22, 10);
     assert.equal(core.formatLocalDate(d), "2026-03-18");

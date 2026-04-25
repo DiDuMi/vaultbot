@@ -11,9 +11,9 @@ import {
   createProjectAssetAccess,
   createProjectUserProfileSummary
 } from "./delivery-project-factories";
-import { createDeliveryProjectPreferences } from "./delivery-project-preferences";
-import { createDeliveryProjectSocial } from "./delivery-project-social";
-import { createDeliveryProjectStats } from "./delivery-project-stats";
+import { createProjectPreferences } from "./delivery-preferences";
+import { createProjectSocial } from "./delivery-project-social";
+import { createProjectStats } from "./delivery-project-stats";
 import { createProjectReplicaSelection } from "./delivery-project-replica-selection";
 import { createProjectStorage } from "./delivery-storage";
 import { createProjectVaultService } from "./delivery-project-vault";
@@ -644,7 +644,14 @@ export const createDeliveryService = (
     config
   });
 
-  const { getPreference, upsertPreference, deletePreference, getSetting, upsertSetting, deleteSetting } = createProjectStorage(
+  const {
+    getProjectPreference,
+    upsertProjectPreference,
+    deleteProjectPreference,
+    getProjectSetting,
+    upsertProjectSetting,
+    deleteProjectSetting
+  } = createProjectStorage(
     prisma,
     getRuntimeProjectId
   );
@@ -701,13 +708,13 @@ export const createDeliveryService = (
     getUserNotifySettings,
     setUserNotifySettings,
     checkAndRecordUserNotification
-  } = createDeliveryProjectPreferences({
+  } = createProjectPreferences({
     prisma,
     preferenceKeys,
     getRuntimeProjectId,
-    getPreference,
-    upsertPreference,
-    deletePreference,
+    getPreference: getProjectPreference,
+    upsertPreference: upsertProjectPreference,
+    deletePreference: deleteProjectPreference,
     startOfLocalDay,
     formatLocalDate
   });
@@ -743,9 +750,9 @@ export const createDeliveryService = (
     settingKeys,
     getRuntimeProjectId,
     canManageProject,
-    getSetting,
-    upsertSetting,
-    deleteSetting
+    getSetting: getProjectSetting,
+    upsertSetting: upsertProjectSetting,
+    deleteSetting: deleteProjectSetting
   });
 
   const { selectReplicas } = createProjectReplicaSelection({
@@ -753,7 +760,7 @@ export const createDeliveryService = (
     getRuntimeProjectId,
     isProjectMemberSafe,
     getProjectMinReplicas,
-    getSetting
+    getSetting: getProjectSetting
   });
 
   const {
@@ -788,7 +795,7 @@ export const createDeliveryService = (
     getProjectLikeRanking,
     getProjectVisitRanking,
     getProjectCommentRanking
-  } = createDeliveryProjectStats({
+  } = createProjectStats({
     prisma,
     getRuntimeProjectId,
     isProjectMemberSafe,
@@ -811,7 +818,7 @@ export const createDeliveryService = (
     hasAssetLiked,
     toggleAssetLike,
     addAssetComment
-  } = createDeliveryProjectSocial({
+  } = createProjectSocial({
     prisma,
     getRuntimeProjectId,
     isProjectMemberSafe,
