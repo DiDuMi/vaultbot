@@ -242,10 +242,8 @@ export const createDeliveryCore = (deps: {
     getRuntimeProjectId,
     getProjectScopeId,
     getProjectRuntimeScopeId,
-    getTenantId,
     ensureInitialOwner,
     isProjectAdmin,
-    isTenantAdmin,
     canManageProject,
     getProjectSearchMode,
     setProjectSearchMode,
@@ -253,6 +251,8 @@ export const createDeliveryCore = (deps: {
     setProjectMinReplicas,
     resolveShareCode,
     trackOpen,
-    trackVisit
+    trackVisit,
+    getTenantId,
+    isTenantAdmin
   };
 };

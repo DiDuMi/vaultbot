@@ -8,10 +8,44 @@ export const createProjectDiscovery = (deps: {
   isProjectMemberSafe: (userId: string) => Promise<boolean>;
   startOfLocalDay: (date: Date) => Date;
 }) => {
+  const withProjectTenantFallback = async <T>(input: {
+    queryByProject: () => Promise<T>;
+    queryByTenant: () => Promise<T>;
+    shouldFallback: (result: T) => boolean;
+  }) => {
+    const projectResult = await input.queryByProject();
+    if (!input.shouldFallback(projectResult)) {
+      return projectResult;
+    }
+    return input.queryByTenant();
+  };
+
   const buildPublicAssetVisibilityWhere = (isProjectViewer: boolean) =>
     isProjectViewer ? {} : { visibility: { not: "RESTRICTED" as const } };
   const recycledVisibilityKey = (assetId: string) => `recycled_visibility:${assetId}`;
   const stripHtml = (value: string) => value.replace(/<[^>]*>/g, " ");
+  const findOwnedCommittedBatch = async (projectId: string, userId: string, assetId: string, extra: Record<string, unknown>) =>
+    withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.uploadBatch.findFirst({
+          where: { projectId, userId, assetId, status: "COMMITTED" },
+          orderBy: { createdAt: "desc" },
+          ...extra
+        } as never),
+      queryByTenant: () =>
+        deps.prisma.uploadBatch.findFirst({
+          where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
+          orderBy: { createdAt: "desc" },
+          ...extra
+        } as never),
+      shouldFallback: (current) => current === null
+    }) as Promise<any>;
+  const findProjectAsset = async <T>(projectId: string, assetId: string, select: T) =>
+    withProjectTenantFallback({
+      queryByProject: () => deps.prisma.asset.findFirst({ where: { id: assetId, projectId }, select } as never),
+      queryByTenant: () => deps.prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select } as never),
+      shouldFallback: (current) => current === null
+    });
   const normalizeTagName = (raw: string) => {
     const withoutHash = raw.trim().replace(/^#+/, "");
     if (!withoutHash) {
@@ -153,10 +187,11 @@ export const createProjectDiscovery = (deps: {
         ? { tenantId: projectId, ...baseWhere }
         : { tenantId: projectId, collectionId, ...baseWhere };
 
-    let result = await queryAssets(projectWhere);
-    if (result.total === 0) {
-      result = await queryAssets(fallbackWhere);
-    }
+    const result = await withProjectTenantFallback({
+      queryByProject: () => queryAssets(projectWhere),
+      queryByTenant: () => queryAssets(fallbackWhere),
+      shouldFallback: (current) => current.total === 0
+    });
     const { total, assets } = result;
     await deps.prisma.event
       .create({
@@ -191,19 +226,23 @@ export const createProjectDiscovery = (deps: {
     }
 
     // Safe fallback: only resolve the tag if it's actually referenced by this project.
-    const link =
-      (await deps.prisma.assetTag
-        .findFirst({
-          where: { tenantId: projectId, tagId, asset: { projectId } },
-          select: { tag: { select: { id: true, name: true } } }
-        })
-        .catch(() => null)) ??
-      (await deps.prisma.assetTag
-        .findFirst({
-          where: { tenantId: projectId, tagId, asset: { tenantId: projectId } },
-          select: { tag: { select: { id: true, name: true } } }
-        })
-        .catch(() => null));
+    const link = await withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.assetTag
+          .findFirst({
+            where: { tenantId: projectId, tagId, asset: { projectId } },
+            select: { tag: { select: { id: true, name: true } } }
+          })
+          .catch(() => null),
+      queryByTenant: () =>
+        deps.prisma.assetTag
+          .findFirst({
+            where: { tenantId: projectId, tagId, asset: { tenantId: projectId } },
+            select: { tag: { select: { id: true, name: true } } }
+          })
+          .catch(() => null),
+      shouldFallback: (current) => current === null
+    });
 
     const tag = link?.tag ?? null;
     return tag ? { tagId: tag.id, name: tag.name } : null;
@@ -223,19 +262,23 @@ export const createProjectDiscovery = (deps: {
       return { tagId: directTag.id, name: directTag.name };
     }
 
-    const link =
-      (await deps.prisma.assetTag
-        .findFirst({
-          where: { tenantId: projectId, tag: { name: normalized }, asset: { projectId } },
-          select: { tag: { select: { id: true, name: true } } }
-        })
-        .catch(() => null)) ??
-      (await deps.prisma.assetTag
-        .findFirst({
-          where: { tenantId: projectId, tag: { name: normalized }, asset: { tenantId: projectId } },
-          select: { tag: { select: { id: true, name: true } } }
-        })
-        .catch(() => null));
+    const link = await withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.assetTag
+          .findFirst({
+            where: { tenantId: projectId, tag: { name: normalized }, asset: { projectId } },
+            select: { tag: { select: { id: true, name: true } } }
+          })
+          .catch(() => null),
+      queryByTenant: () =>
+        deps.prisma.assetTag
+          .findFirst({
+            where: { tenantId: projectId, tag: { name: normalized }, asset: { tenantId: projectId } },
+            select: { tag: { select: { id: true, name: true } } }
+          })
+          .catch(() => null),
+      shouldFallback: (current) => current === null
+    });
 
     const resolved = link?.tag ?? null;
     return resolved ? { tagId: resolved.id, name: resolved.name } : null;
@@ -377,10 +420,11 @@ export const createProjectDiscovery = (deps: {
     const projectWhere = { projectId, ...baseWhere };
     const fallbackWhere = { tenantId: projectId, ...baseWhere };
 
-    let result = await queryAssets(projectWhere);
-    if (result.total === 0) {
-      result = await queryAssets(fallbackWhere);
-    }
+    const result = await withProjectTenantFallback({
+      queryByProject: () => queryAssets(projectWhere),
+      queryByTenant: () => queryAssets(fallbackWhere),
+      shouldFallback: (current) => current.total === 0
+    });
 
     const { total, assets } = result;
     await deps.prisma.event
@@ -404,17 +448,7 @@ export const createProjectDiscovery = (deps: {
 
   const getUserAssetMeta = async (userId: string, assetId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const batch =
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { projectId, userId, assetId, status: "COMMITTED" },
-        orderBy: { createdAt: "desc" },
-        include: { asset: true }
-      })) ??
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
-        orderBy: { createdAt: "desc" },
-        include: { asset: true }
-      }));
+    const batch = await findOwnedCommittedBatch(projectId, userId, assetId, { include: { asset: true } });
     if (!batch?.asset) {
       return null;
     }
@@ -431,21 +465,11 @@ export const createProjectDiscovery = (deps: {
 
   const setUserAssetSearchable = async (userId: string, assetId: string, searchable: boolean) => {
     const projectId = await deps.getRuntimeProjectId();
-    const ownerBatch =
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { projectId, userId, assetId, status: "COMMITTED" },
-        select: { id: true }
-      })) ??
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
-        select: { id: true }
-      }));
+    const ownerBatch = await findOwnedCommittedBatch(projectId, userId, assetId, { select: { id: true } });
     if (!ownerBatch) {
       return { ok: false, message: "🔒 无权限或内容不存在。" };
     }
-    const existing =
-      (await deps.prisma.asset.findFirst({ where: { id: assetId, projectId }, select: { id: true, searchable: true } })) ??
-      (await deps.prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select: { id: true, searchable: true } }));
+    const existing = await findProjectAsset(projectId, assetId, { id: true, searchable: true });
     if (!existing) {
       return { ok: false, message: "⚠️ 内容不存在或已删除。" };
     }
@@ -458,21 +482,11 @@ export const createProjectDiscovery = (deps: {
 
   const deleteUserAsset = async (userId: string, assetId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const ownerBatch =
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { projectId, userId, assetId, status: "COMMITTED" },
-        select: { id: true }
-      })) ??
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
-        select: { id: true }
-      }));
+    const ownerBatch = await findOwnedCommittedBatch(projectId, userId, assetId, { select: { id: true } });
     if (!ownerBatch) {
       return { ok: false, message: "🔒 无权限或内容不存在。" };
     }
-    const existing =
-      (await deps.prisma.asset.findFirst({ where: { id: assetId, projectId }, select: { id: true } })) ??
-      (await deps.prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select: { id: true } }));
+    const existing = await findProjectAsset(projectId, assetId, { id: true });
     if (!existing) {
       return { ok: true, message: "✅ 内容不存在或已删除。" };
     }
@@ -499,27 +513,11 @@ export const createProjectDiscovery = (deps: {
 
   const recycleUserAsset = async (userId: string, assetId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const ownerBatch =
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { projectId, userId, assetId, status: "COMMITTED" },
-        select: { id: true }
-      })) ??
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
-        select: { id: true }
-      }));
+    const ownerBatch = await findOwnedCommittedBatch(projectId, userId, assetId, { select: { id: true } });
     if (!ownerBatch) {
       return { ok: false, message: "🔒 无权限或内容不存在。" };
     }
-    const existing =
-      (await deps.prisma.asset.findFirst({
-        where: { id: assetId, projectId },
-        select: { id: true, searchable: true, visibility: true }
-      })) ??
-      (await deps.prisma.asset.findFirst({
-        where: { id: assetId, tenantId: projectId },
-        select: { id: true, searchable: true, visibility: true }
-      }));
+    const existing = await findProjectAsset(projectId, assetId, { id: true, searchable: true, visibility: true });
     if (!existing) {
       return { ok: true, message: "✅ 内容不存在或已删除。" };
     }
@@ -539,27 +537,11 @@ export const createProjectDiscovery = (deps: {
 
   const restoreUserAsset = async (userId: string, assetId: string) => {
     const projectId = await deps.getRuntimeProjectId();
-    const ownerBatch =
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { projectId, userId, assetId, status: "COMMITTED" },
-        select: { id: true }
-      })) ??
-      (await deps.prisma.uploadBatch.findFirst({
-        where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
-        select: { id: true }
-      }));
+    const ownerBatch = await findOwnedCommittedBatch(projectId, userId, assetId, { select: { id: true } });
     if (!ownerBatch) {
       return { ok: false, message: "🔒 无权限或内容不存在。" };
     }
-    const existing =
-      (await deps.prisma.asset.findFirst({
-        where: { id: assetId, projectId },
-        select: { id: true, searchable: true, visibility: true }
-      })) ??
-      (await deps.prisma.asset.findFirst({
-        where: { id: assetId, tenantId: projectId },
-        select: { id: true, searchable: true, visibility: true }
-      }));
+    const existing = await findProjectAsset(projectId, assetId, { id: true, searchable: true, visibility: true });
     if (!existing) {
       return { ok: false, message: "⚠️ 内容不存在或已删除。" };
     }
@@ -623,39 +605,40 @@ export const createProjectDiscovery = (deps: {
         }
       })
     ]);
-    const [total, assets] =
-      projectTotal > 0 || projectAssets.length > 0
-        ? [projectTotal, projectAssets]
-        : await (async () => {
-            const fallbackWhere = {
+    const [total, assets] = await withProjectTenantFallback({
+      queryByProject: async () => [projectTotal, projectAssets] as const,
+      queryByTenant: async () => {
+        const fallbackWhere = {
+          tenantId: projectId,
+          searchable: false,
+          visibility: "RESTRICTED" as const,
+          uploadBatches: {
+            some: {
               tenantId: projectId,
-              searchable: false,
-              visibility: "RESTRICTED" as const,
-              uploadBatches: {
-                some: {
-                  tenantId: projectId,
-                  userId,
-                  status: "COMMITTED" as const
-                }
-              }
-            };
-            return Promise.all([
-              deps.prisma.asset.count({ where: fallbackWhere }),
-              deps.prisma.asset.findMany({
-                where: fallbackWhere,
-                orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-                take: safeSize,
-                skip: (safePage - 1) * safeSize,
-                select: {
-                  id: true,
-                  title: true,
-                  description: true,
-                  shareCode: true,
-                  updatedAt: true
-                }
-              })
-            ]);
-          })();
+              userId,
+              status: "COMMITTED" as const
+            }
+          }
+        };
+        return Promise.all([
+          deps.prisma.asset.count({ where: fallbackWhere }),
+          deps.prisma.asset.findMany({
+            where: fallbackWhere,
+            orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+            take: safeSize,
+            skip: (safePage - 1) * safeSize,
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              shareCode: true,
+              updatedAt: true
+            }
+          })
+        ]) as Promise<readonly [number, typeof projectAssets]>;
+      },
+      shouldFallback: ([projectTotalValue, projectAssetRows]) => projectTotalValue === 0 && projectAssetRows.length === 0
+    });
     return {
       total,
       items: assets.map((asset) => ({
@@ -739,28 +722,29 @@ export const createProjectDiscovery = (deps: {
         include: { asset: true, items: { select: { id: true } } }
       })
     ]);
-    const [total, batches] =
-      projectTotal > 0 || projectBatches.length > 0
-        ? [projectTotal, projectBatches]
-        : await (async () => {
-            const fallbackWhere = await buildBatchListWhere({
-              userId,
-              collectionId: options?.collectionId,
-              date: options?.date,
-              viewerUserId: userId,
-              projectScopeKey: "tenantId"
-            });
-            return Promise.all([
-              deps.prisma.uploadBatch.count({ where: fallbackWhere }),
-              deps.prisma.uploadBatch.findMany({
-                where: fallbackWhere,
-                orderBy: { createdAt: "desc" },
-                take: safeSize,
-                skip: (safePage - 1) * safeSize,
-                include: { asset: true, items: { select: { id: true } } }
-              })
-            ]);
-          })();
+    const [total, batches] = await withProjectTenantFallback({
+      queryByProject: async () => [projectTotal, projectBatches] as const,
+      queryByTenant: async () => {
+        const fallbackWhere = await buildBatchListWhere({
+          userId,
+          collectionId: options?.collectionId,
+          date: options?.date,
+          viewerUserId: userId,
+          projectScopeKey: "tenantId"
+        });
+        return Promise.all([
+          deps.prisma.uploadBatch.count({ where: fallbackWhere }),
+          deps.prisma.uploadBatch.findMany({
+            where: fallbackWhere,
+            orderBy: { createdAt: "desc" },
+            take: safeSize,
+            skip: (safePage - 1) * safeSize,
+            include: { asset: true, items: { select: { id: true } } }
+          })
+        ]) as Promise<readonly [number, typeof projectBatches]>;
+      },
+      shouldFallback: ([projectTotalValue, projectBatchRows]) => projectTotalValue === 0 && projectBatchRows.length === 0
+    });
     return {
       total,
       items: batches.map((batch) => ({
@@ -798,27 +782,28 @@ export const createProjectDiscovery = (deps: {
         include: { asset: true, items: { select: { id: true } } }
       })
     ]);
-    const [total, batches] =
-      projectTotal > 0 || projectBatches.length > 0
-        ? [projectTotal, projectBatches]
-        : await (async () => {
-            const fallbackWhere = await buildBatchListWhere({
-              collectionId: options?.collectionId,
-              date: options?.date,
-              viewerUserId,
-              projectScopeKey: "tenantId"
-            });
-            return Promise.all([
-              deps.prisma.uploadBatch.count({ where: fallbackWhere }),
-              deps.prisma.uploadBatch.findMany({
-                where: fallbackWhere,
-                orderBy: { createdAt: "desc" },
-                take: safeSize,
-                skip: (safePage - 1) * safeSize,
-                include: { asset: true, items: { select: { id: true } } }
-              })
-            ]);
-          })();
+    const [total, batches] = await withProjectTenantFallback({
+      queryByProject: async () => [projectTotal, projectBatches] as const,
+      queryByTenant: async () => {
+        const fallbackWhere = await buildBatchListWhere({
+          collectionId: options?.collectionId,
+          date: options?.date,
+          viewerUserId,
+          projectScopeKey: "tenantId"
+        });
+        return Promise.all([
+          deps.prisma.uploadBatch.count({ where: fallbackWhere }),
+          deps.prisma.uploadBatch.findMany({
+            where: fallbackWhere,
+            orderBy: { createdAt: "desc" },
+            take: safeSize,
+            skip: (safePage - 1) * safeSize,
+            include: { asset: true, items: { select: { id: true } } }
+          })
+        ]) as Promise<readonly [number, typeof projectBatches]>;
+      },
+      shouldFallback: ([projectTotalValue, projectBatchRows]) => projectTotalValue === 0 && projectBatchRows.length === 0
+    });
     return {
       total,
       items: batches.map((batch) => ({
@@ -864,41 +849,44 @@ export const createProjectDiscovery = (deps: {
     const projectWhere = buildWhere("projectId");
     const fallbackWhere = buildWhere("tenantId");
 
-    let result = await queryHistory(projectWhere);
-    if (result.total === 0) {
-      result = await queryHistory(fallbackWhere);
-    }
+    const result = await withProjectTenantFallback({
+      queryByProject: () => queryHistory(projectWhere),
+      queryByTenant: () => queryHistory(fallbackWhere),
+      shouldFallback: (current) => current.total === 0
+    });
 
     const { total, grouped } = result;
     const assetIds = grouped.map((g) => g.assetId).filter((id): id is string => typeof id === "string" && id.length > 0);
     if (assetIds.length === 0) {
       return { total, items: [] };
     }
-    const assets = await deps.prisma.asset
-      .findMany({
-        where: { id: { in: assetIds }, projectId },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          shareCode: true,
-          uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
-        }
-      })
-      .then((rows) => (rows.length > 0 ? rows : null))
-      .catch(() => null);
-    const finalAssets =
-      assets ??
-      (await deps.prisma.asset.findMany({
-        where: { id: { in: assetIds }, tenantId: projectId },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          shareCode: true,
-          uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
-        }
-      }));
+    const finalAssets = await withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.asset
+          .findMany({
+            where: { id: { in: assetIds }, projectId },
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              shareCode: true,
+              uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
+            }
+          })
+          .catch(() => []),
+      queryByTenant: () =>
+        deps.prisma.asset.findMany({
+          where: { id: { in: assetIds }, tenantId: projectId },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            shareCode: true,
+            uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
+          }
+        }),
+      shouldFallback: (current) => current.length === 0
+    });
     const assetMap = new Map(finalAssets.map((asset) => [asset.id, asset]));
     const items = grouped
       .map((g) => {
@@ -966,10 +954,11 @@ export const createProjectDiscovery = (deps: {
     const projectWhere = buildLikeWhere("projectId");
     const fallbackWhere = buildLikeWhere("tenantId");
 
-    let result = await queryLikes(projectWhere);
-    if (result.total === 0) {
-      result = await queryLikes(fallbackWhere);
-    }
+    const result = await withProjectTenantFallback({
+      queryByProject: () => queryLikes(projectWhere),
+      queryByTenant: () => queryLikes(fallbackWhere),
+      shouldFallback: (current) => current.total === 0
+    });
 
     const { total, likes } = result;
     return {

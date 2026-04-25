@@ -3587,7 +3587,7 @@ test("delivery-core: bootstrap settings prefer projectId and fall back to tenant
   }
 });
 
-test("delivery-core: ensureInitialOwner prefers projectId batches and falls back to tenantId", async () => {
+test("delivery-core: project owner bootstrap prefers projectId batches and falls back to tenantId", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const core = createDeliveryCore({
     prisma: {
@@ -3612,13 +3612,13 @@ test("delivery-core: ensureInitialOwner prefers projectId batches and falls back
     config: { code: "demo", name: "demo" }
   });
 
-  const result = await core.isTenantAdmin("owner_1");
+  const result = await core.isProjectAdmin("owner_1");
   assert.equal(result, true);
   assert.ok(calls.some((c) => (c as any).kind === "batch" && (c as any).where?.projectId === "tenant_1"));
   assert.ok(calls.some((c) => (c as any).kind === "batch" && (c as any).where?.tenantId === "tenant_1"));
 });
 
-test("delivery-core: exposes runtime project context wrappers", async () => {
+test("delivery-core: exposes project-first runtime wrappers", async () => {
   const core = createDeliveryCore({
     prisma: {
       tenant: {
@@ -3640,10 +3640,27 @@ test("delivery-core: exposes runtime project context wrappers", async () => {
   });
   assert.equal(await core.getRuntimeProjectId(), "tenant_1");
   assert.equal(await core.getProjectRuntimeScopeId(), "tenant_1");
+});
+
+test("delivery-core: tenant runtime alias remains compatible", async () => {
+  const core = createDeliveryCore({
+    prisma: {
+      tenant: {
+        findUnique: async ({ where }: { where: { code?: string } }) =>
+          where.code === "demo-project" ? { id: "tenant_1", code: "demo-project", name: "Demo Project" } : null,
+        update: async () => ({})
+      },
+      tenantSetting: {
+        findMany: async () => []
+      }
+    } as never,
+    config: { code: "demo-project", name: "Demo Project" }
+  });
+
   assert.equal(await core.getTenantId(), "tenant_1");
 });
 
-test("delivery-core: single owner mode only grants manage rights to owner", async () => {
+test("delivery-core: single owner mode only grants project manage rights to owner", async () => {
   const previous = process.env.SINGLE_OWNER_MODE;
   process.env.SINGLE_OWNER_MODE = "1";
   try {
@@ -3663,14 +3680,14 @@ test("delivery-core: single owner mode only grants manage rights to owner", asyn
       config: { code: "demo", name: "demo" }
     });
 
-    const result = await core.isTenantAdmin("admin_1");
+    const result = await core.isProjectAdmin("admin_1");
     assert.equal(result, false);
   } finally {
     process.env.SINGLE_OWNER_MODE = previous;
   }
 });
 
-test("delivery-core: exposes project-oriented manage alias", async () => {
+test("delivery-core: tenant manage alias remains compatible", async () => {
   const core = createDeliveryCore({
     prisma: {
       tenant: {
@@ -4490,10 +4507,12 @@ test("discovery: deleteUserAsset prefers projectId and falls back to tenantId", 
   assert.equal(result.ok, true);
   assert.deepEqual(batchCalls, [
     {
+      orderBy: { createdAt: "desc" },
       where: { projectId: "tenant_1", userId: "user_1", assetId: "asset_1", status: "COMMITTED" },
       select: { id: true }
     },
     {
+      orderBy: { createdAt: "desc" },
       where: { tenantId: "tenant_1", userId: "user_1", assetId: "asset_1", status: "COMMITTED" },
       select: { id: true }
     }
@@ -4594,10 +4613,12 @@ test("discovery: restoreUserAsset prefers projectId and falls back to tenantId",
   assert.equal(result.ok, true);
   assert.deepEqual(batchCalls, [
     {
+      orderBy: { createdAt: "desc" },
       where: { projectId: "tenant_1", userId: "user_1", assetId: "asset_1", status: "COMMITTED" },
       select: { id: true }
     },
     {
+      orderBy: { createdAt: "desc" },
       where: { tenantId: "tenant_1", userId: "user_1", assetId: "asset_1", status: "COMMITTED" },
       select: { id: true }
     }
@@ -4722,6 +4743,7 @@ test("discovery: setUserAssetSearchable prefers projectId and falls back to tena
 
   assert.deepEqual(batchCalls, [
     {
+      orderBy: { createdAt: "desc" },
       where: { projectId: "tenant_1", userId: "user_1", assetId: "asset_1", status: "COMMITTED" },
       select: { id: true }
     }
