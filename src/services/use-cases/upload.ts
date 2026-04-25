@@ -224,6 +224,17 @@ export const createUploadService = (
     autoCategorizeRules: "auto_categorize_rules"
   } as const;
   const projectContext = normalizeProjectContextConfig(config.projectContext);
+  const withProjectTenantFallback = async <T>(input: {
+    queryByProject: () => Promise<T>;
+    queryByTenant: () => Promise<T>;
+    shouldFallback: (result: T) => boolean;
+  }) => {
+    const projectResult = await input.queryByProject();
+    if (!input.shouldFallback(projectResult)) {
+      return projectResult;
+    }
+    return input.queryByTenant();
+  };
 
   const getProjectSetting = async (projectId: string, key: string) => {
     const row =
@@ -237,6 +248,18 @@ export const createUploadService = (
       }));
     return row?.value ?? null;
   };
+  const findProjectCollection = async (projectId: string, collectionId: string) =>
+    withProjectTenantFallback({
+      queryByProject: () => prisma.collection.findFirst({ where: { id: collectionId, projectId }, select: { id: true } }),
+      queryByTenant: () => prisma.collection.findFirst({ where: { id: collectionId, tenantId: projectId }, select: { id: true } }),
+      shouldFallback: (result) => result === null
+    });
+  const listProjectCollections = async (projectId: string) =>
+    withProjectTenantFallback({
+      queryByProject: () => prisma.collection.findMany({ where: { projectId }, select: { id: true, title: true } }).catch(() => []),
+      queryByTenant: () => prisma.collection.findMany({ where: { tenantId: projectId }, select: { id: true, title: true } }).catch(() => []),
+      shouldFallback: (result) => result.length === 0
+    });
 
   const parseAutoCategorizeRules = (raw: string | null) => {
     if (!raw) {
@@ -496,10 +519,7 @@ export const createUploadService = (
         ? undefined
         : requestedCollectionId === null
           ? null
-          : (await prisma.collection.findFirst({
-              where: { id: requestedCollectionId, tenantId: projectId },
-              select: { id: true }
-            }))
+          : (await findProjectCollection(projectId, requestedCollectionId))
               ? requestedCollectionId
               : null;
     const created = await prisma.$transaction(async (tx) => {
@@ -552,7 +572,7 @@ export const createUploadService = (
         if (enabled) {
           const [rulesRaw, collections] = await Promise.all([
             getProjectSetting(assetProjectId, settingKeys.autoCategorizeRules).catch(() => null),
-            prisma.collection.findMany({ where: { tenantId: assetProjectId }, select: { id: true, title: true } }).catch(() => [])
+            listProjectCollections(assetProjectId)
           ]);
           const rules = parseAutoCategorizeRules(rulesRaw);
           const title = asset.title ?? "";
@@ -666,16 +686,9 @@ export const createUploadService = (
     if (enabled && asset.collectionId === null) {
       const [rulesRaw, projectCollections] = await Promise.all([
         getProjectSetting(assetProjectId, settingKeys.autoCategorizeRules).catch(() => null),
-        prisma.collection
-          .findMany({ where: { projectId: assetProjectId }, select: { id: true, title: true } })
-          .catch(() => [])
+        listProjectCollections(assetProjectId)
       ]);
-      const collections =
-        projectCollections.length > 0
-          ? projectCollections
-          : await prisma.collection
-              .findMany({ where: { tenantId: assetProjectId }, select: { id: true, title: true } })
-              .catch(() => []);
+      const collections = projectCollections;
       const rules = parseAutoCategorizeRules(rulesRaw);
       const plainTitle = stripHtml(input.title);
       const text = normalizeText(input.title, input.description);
@@ -718,15 +731,7 @@ export const createUploadService = (
       await prisma.asset.update({ where: { id: assetId }, data: { collectionId: null } });
       return { collectionId: null };
     }
-    const exists =
-      (await prisma.collection.findFirst({
-        where: { id: collectionId, projectId },
-        select: { id: true }
-      })) ??
-      (await prisma.collection.findFirst({
-        where: { id: collectionId, tenantId: projectId },
-        select: { id: true }
-      }));
+    const exists = await findProjectCollection(projectId, collectionId);
     const nextId = exists ? collectionId : null;
     await prisma.asset.update({ where: { id: assetId }, data: { collectionId: nextId } });
     return { collectionId: nextId };
