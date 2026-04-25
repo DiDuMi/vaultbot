@@ -46,6 +46,42 @@ export const createProjectDiscovery = (deps: {
       queryByTenant: () => deps.prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select } as never),
       shouldFallback: (current) => current === null
     });
+  const listProjectHistoryAssets = async (projectId: string, assetIds: string[]) =>
+    withProjectTenantFallback({
+      queryByProject: () =>
+        deps.prisma.asset
+          .findMany({
+            where: { id: { in: assetIds }, projectId },
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              shareCode: true,
+              uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
+            }
+          } as never)
+          .catch(() => []),
+      queryByTenant: () =>
+        deps.prisma.asset.findMany({
+          where: { id: { in: assetIds }, tenantId: projectId },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            shareCode: true,
+            uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
+          }
+        } as never),
+      shouldFallback: (current) => current.length === 0
+    }) as unknown as Promise<
+      Array<{
+        id: string;
+        title: string;
+        description: string | null;
+        shareCode: string | null;
+        uploadBatches: Array<{ userId: string }>;
+      }>
+    >;
   const normalizeTagName = (raw: string) => {
     const withoutHash = raw.trim().replace(/^#+/, "");
     if (!withoutHash) {
@@ -860,33 +896,7 @@ export const createProjectDiscovery = (deps: {
     if (assetIds.length === 0) {
       return { total, items: [] };
     }
-    const finalAssets = await withProjectTenantFallback({
-      queryByProject: () =>
-        deps.prisma.asset
-          .findMany({
-            where: { id: { in: assetIds }, projectId },
-            select: {
-              id: true,
-              title: true,
-              description: true,
-              shareCode: true,
-              uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
-            }
-          })
-          .catch(() => []),
-      queryByTenant: () =>
-        deps.prisma.asset.findMany({
-          where: { id: { in: assetIds }, tenantId: projectId },
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            shareCode: true,
-            uploadBatches: { orderBy: { createdAt: "desc" }, take: 1, select: { userId: true } }
-          }
-        }),
-      shouldFallback: (current) => current.length === 0
-    });
+    const finalAssets = await listProjectHistoryAssets(projectId, assetIds);
     const assetMap = new Map(finalAssets.map((asset) => [asset.id, asset]));
     const items = grouped
       .map((g) => {
