@@ -859,7 +859,7 @@ export const createProjectDiscovery = (deps: {
     const safeSize = normalizePageSize(pageSize);
     const since = options?.since;
 
-    const buildWhere = (projectScopeKey: "projectId" | "tenantId") => ({
+    const buildHistoryWhere = (projectScopeKey: "projectId" | "tenantId") => ({
       [projectScopeKey]: projectId,
       userId,
       type: "OPEN" as const,
@@ -882,12 +882,12 @@ export const createProjectDiscovery = (deps: {
       return { total: distinctAssets.length, grouped };
     };
 
-    const projectWhere = buildWhere("projectId");
-    const fallbackWhere = buildWhere("tenantId");
+    const queryProjectHistory = () => queryHistory(buildHistoryWhere("projectId"));
+    const queryTenantHistory = () => queryHistory(buildHistoryWhere("tenantId"));
 
     const result = await withProjectTenantFallback({
-      queryByProject: () => queryHistory(projectWhere),
-      queryByTenant: () => queryHistory(fallbackWhere),
+      queryByProject: queryProjectHistory,
+      queryByTenant: queryTenantHistory,
       shouldFallback: (current) => current.total === 0
     });
 
@@ -961,12 +961,12 @@ export const createProjectDiscovery = (deps: {
       return { total, likes };
     };
 
-    const projectWhere = buildLikeWhere("projectId");
-    const fallbackWhere = buildLikeWhere("tenantId");
+    const queryProjectLikes = () => queryLikes(buildLikeWhere("projectId"));
+    const queryTenantLikes = () => queryLikes(buildLikeWhere("tenantId"));
 
     const result = await withProjectTenantFallback({
-      queryByProject: () => queryLikes(projectWhere),
-      queryByTenant: () => queryLikes(fallbackWhere),
+      queryByProject: queryProjectLikes,
+      queryByTenant: queryTenantLikes,
       shouldFallback: (current) => current.total === 0
     });
 
