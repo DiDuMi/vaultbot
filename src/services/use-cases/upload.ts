@@ -475,6 +475,26 @@ export const createUploadService = (
     }
     return null;
   };
+  const resolveAutoCategorizedCollectionId = async (input: {
+    projectId: string;
+    title: string;
+    description: string;
+  }) => {
+    const enabledRaw = await getProjectSetting(input.projectId, settingKeys.autoCategorizeEnabled).catch(() => null);
+    const enabledValue = enabledRaw?.trim().toLowerCase();
+    const enabled = enabledValue === "1" || enabledValue === "true" || enabledValue === "yes" || enabledValue === "on";
+    if (!enabled) {
+      return null;
+    }
+    const [rulesRaw, collections] = await Promise.all([
+      getProjectSetting(input.projectId, settingKeys.autoCategorizeRules).catch(() => null),
+      listProjectCollections(input.projectId)
+    ]);
+    const rules = parseAutoCategorizeRules(rulesRaw);
+    const plainTitle = stripHtml(input.title);
+    const text = normalizeText(input.title, input.description);
+    return selectCollectionIdByText(plainTitle, text, collections, rules);
+  };
 
   const createUniqueShareCode = async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -577,28 +597,17 @@ export const createUploadService = (
         .catch(() => null);
       if (asset && asset.collectionId === null) {
         const assetProjectId = asset.projectId ?? asset.tenantId;
-        const enabledRaw = await getProjectSetting(assetProjectId, settingKeys.autoCategorizeEnabled).catch(() => null);
-        const enabledValue = enabledRaw?.trim().toLowerCase();
-        const enabled =
-          enabledValue === "1" || enabledValue === "true" || enabledValue === "yes" || enabledValue === "on";
-        if (enabled) {
-          const [rulesRaw, collections] = await Promise.all([
-            getProjectSetting(assetProjectId, settingKeys.autoCategorizeRules).catch(() => null),
-            listProjectCollections(assetProjectId)
-          ]);
-          const rules = parseAutoCategorizeRules(rulesRaw);
-          const title = asset.title ?? "";
-          const description = asset.description ?? "";
-          const plainTitle = stripHtml(title);
-          const text = normalizeText(title, description);
-          const picked = selectCollectionIdByText(plainTitle, text, collections, rules);
-          if (picked) {
-            await prisma.asset
-              .update({ where: { id: created.assetId }, data: { collectionId: picked } })
-              .catch((error) =>
-                logError({ component: "upload_service", op: "auto_categorize_set_collection", assetId: created.assetId }, error)
-              );
-          }
+        const picked = await resolveAutoCategorizedCollectionId({
+          projectId: assetProjectId,
+          title: asset.title ?? "",
+          description: asset.description ?? ""
+        });
+        if (picked) {
+          await prisma.asset
+            .update({ where: { id: created.assetId }, data: { collectionId: picked } })
+            .catch((error) =>
+              logError({ component: "upload_service", op: "auto_categorize_set_collection", assetId: created.assetId }, error)
+            );
         }
       }
     }
@@ -692,19 +701,12 @@ export const createUploadService = (
     await syncAssetTags(assetId, assetProjectId, input.title, input.description).catch((error) =>
       logError({ component: "upload_service", op: "sync_asset_tags", assetId, projectId: assetProjectId }, error)
     );
-    const enabledRaw = await getProjectSetting(assetProjectId, settingKeys.autoCategorizeEnabled).catch(() => null);
-    const enabledValue = enabledRaw?.trim().toLowerCase();
-    const enabled = enabledValue === "1" || enabledValue === "true" || enabledValue === "yes" || enabledValue === "on";
-    if (enabled && asset.collectionId === null) {
-      const [rulesRaw, projectCollections] = await Promise.all([
-        getProjectSetting(assetProjectId, settingKeys.autoCategorizeRules).catch(() => null),
-        listProjectCollections(assetProjectId)
-      ]);
-      const collections = projectCollections;
-      const rules = parseAutoCategorizeRules(rulesRaw);
-      const plainTitle = stripHtml(input.title);
-      const text = normalizeText(input.title, input.description);
-      const picked = selectCollectionIdByText(plainTitle, text, collections, rules);
+    if (asset.collectionId === null) {
+      const picked = await resolveAutoCategorizedCollectionId({
+        projectId: assetProjectId,
+        title: input.title,
+        description: input.description
+      });
       if (picked) {
         await prisma.asset
           .update({ where: { id: assetId }, data: { collectionId: picked } })
