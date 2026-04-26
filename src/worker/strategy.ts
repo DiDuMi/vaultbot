@@ -14,7 +14,6 @@ export const logWorkerError = (
     op: string;
     scope?: string;
     projectId?: string;
-    tenantId?: string;
     batchId?: string;
     broadcastId?: string;
     runId?: string;

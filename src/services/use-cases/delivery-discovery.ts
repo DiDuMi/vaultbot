@@ -23,7 +23,7 @@ import {
   setProjectUserAssetSearchable
 } from "./delivery-project-assets";
 
-export { withProjectTenantFallback } from "./project-fallback";
+export { withProjectFallback } from "./project-fallback";
 
 export const createProjectDiscovery = (deps: {
   prisma: PrismaClient;

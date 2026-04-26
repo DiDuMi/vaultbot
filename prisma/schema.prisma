@@ -108,12 +108,15 @@ model Tenant {
 model TenantMember {
   id        String           @id @default(cuid())
   tenantId  String
+  projectId String?
   tgUserId  String
   role      TenantMemberRole
   createdAt DateTime         @default(now())
   tenant    Tenant           @relation(fields: [tenantId], references: [id])
 
   @@unique([tenantId, tgUserId])
+  @@unique([projectId, tgUserId])
+  @@index([projectId])
 }
 
 model TenantUser {
@@ -142,6 +145,7 @@ model TenantUser {
 model VaultGroup {
   id        String               @id @default(cuid())
   tenantId  String
+  projectId String?
   chatId    BigInt
   status    VaultGroupStatus     @default(ACTIVE)
   createdAt DateTime             @default(now())
@@ -151,11 +155,14 @@ model VaultGroup {
   replicas  AssetReplica[]
 
   @@unique([tenantId, chatId])
+  @@unique([projectId, chatId])
+  @@index([projectId])
 }
 
 model TenantVaultBinding {
   id           String           @id @default(cuid())
   tenantId     String
+  projectId    String?
   vaultGroupId String
   role         VaultBindingRole
   createdAt    DateTime         @default(now())
@@ -163,11 +170,14 @@ model TenantVaultBinding {
   vaultGroup   VaultGroup       @relation(fields: [vaultGroupId], references: [id])
 
   @@unique([tenantId, vaultGroupId, role])
+  @@unique([projectId, vaultGroupId, role])
+  @@index([projectId])
 }
 
 model TenantTopic {
   id              String     @id @default(cuid())
   tenantId        String
+  projectId       String?
   vaultGroupId    String
   collectionId    String     @default("none")
   messageThreadId BigInt?
@@ -178,6 +188,8 @@ model TenantTopic {
   vaultGroup      VaultGroup @relation(fields: [vaultGroupId], references: [id])
 
   @@unique([tenantId, vaultGroupId, collectionId, version])
+  @@unique([projectId, vaultGroupId, collectionId, version])
+  @@index([projectId])
 }
 
 model Asset {
@@ -209,6 +221,7 @@ model Asset {
 model Tag {
   id        String     @id @default(cuid())
   tenantId  String
+  projectId String?
   name      String
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
@@ -216,12 +229,15 @@ model Tag {
   assets    AssetTag[]
 
   @@unique([tenantId, name])
+  @@unique([projectId, name])
   @@index([tenantId])
+  @@index([projectId])
 }
 
 model AssetTag {
   id        String   @id @default(cuid())
   tenantId  String
+  projectId String?
   assetId   String
   tagId     String
   createdAt DateTime @default(now())
@@ -231,6 +247,8 @@ model AssetTag {
   @@unique([assetId, tagId])
   @@index([tenantId, tagId, createdAt])
   @@index([tenantId, assetId, createdAt])
+  @@index([projectId, tagId, createdAt])
+  @@index([projectId, assetId, createdAt])
 }
 
 model AssetReplica {
@@ -273,6 +291,7 @@ model Collection {
 model PermissionRule {
   id           String      @id @default(cuid())
   tenantId     String
+  projectId    String?
   collectionId String?
   assetId      String?
   allowRoles   String[]
@@ -283,6 +302,8 @@ model PermissionRule {
   tenant       Tenant      @relation(fields: [tenantId], references: [id])
   collection   Collection? @relation(fields: [collectionId], references: [id])
   asset        Asset?      @relation(fields: [assetId], references: [id])
+
+  @@index([projectId])
 }
 
 model Event {
@@ -408,6 +429,7 @@ model BroadcastRun {
 model AssetComment {
   id               String             @id @default(cuid())
   tenantId         String
+  projectId        String?
   assetId          String
   authorUserId     String
   authorName       String?
@@ -422,11 +444,14 @@ model AssetComment {
 
   @@index([tenantId, assetId, createdAt])
   @@index([tenantId, authorUserId, createdAt])
+  @@index([projectId, assetId, createdAt])
+  @@index([projectId, authorUserId, createdAt])
 }
 
 model AssetCommentLike {
   id        String       @id @default(cuid())
   tenantId  String
+  projectId String?
   commentId String
   userId    String
   createdAt DateTime     @default(now())
@@ -434,13 +459,17 @@ model AssetCommentLike {
   comment   AssetComment @relation(fields: [commentId], references: [id])
 
   @@unique([tenantId, commentId, userId])
+  @@unique([projectId, commentId, userId])
   @@index([tenantId, commentId, createdAt])
   @@index([tenantId, userId, createdAt])
+  @@index([projectId, commentId, createdAt])
+  @@index([projectId, userId, createdAt])
 }
 
 model AssetLike {
   id        String   @id @default(cuid())
   tenantId  String
+  projectId String?
   assetId   String
   userId    String
   createdAt DateTime @default(now())
@@ -448,6 +477,9 @@ model AssetLike {
   asset     Asset    @relation(fields: [assetId], references: [id])
 
   @@unique([tenantId, assetId, userId])
+  @@unique([projectId, assetId, userId])
   @@index([tenantId, assetId, createdAt])
   @@index([tenantId, userId, createdAt])
+  @@index([projectId, assetId, createdAt])
+  @@index([projectId, userId, createdAt])
 }

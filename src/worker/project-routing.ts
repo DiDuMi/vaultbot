@@ -14,13 +14,13 @@ export const ensureProjectPrimaryVaultBinding = async (
 ) => {
   const createdGroup = await prisma.vaultGroup.upsert({
     where: { tenantId_chatId: { tenantId: projectId, chatId: configuredChatId } },
-    update: {},
-    create: { tenantId: projectId, chatId: configuredChatId }
+    update: { projectId },
+    create: { tenantId: projectId, projectId, chatId: configuredChatId }
   });
   await prisma.tenantVaultBinding.upsert({
     where: { tenantId_vaultGroupId_role: { tenantId: projectId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
-    update: {},
-    create: { tenantId: projectId, vaultGroupId: createdGroup.id, role: "PRIMARY" }
+    update: { projectId },
+    create: { tenantId: projectId, projectId, vaultGroupId: createdGroup.id, role: "PRIMARY" }
   });
   return prisma.tenantVaultBinding.findUnique({
     where: { tenantId_vaultGroupId_role: { tenantId: projectId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
@@ -49,9 +49,10 @@ export const upsertProjectTopicThreadId = (
         version: 1
       }
     },
-    update: { messageThreadId: BigInt(input.threadId) },
+    update: { projectId: input.projectId, messageThreadId: BigInt(input.threadId) },
     create: {
       tenantId: input.projectId,
+      projectId: input.projectId,
       vaultGroupId: input.vaultGroupId,
       collectionId: input.collectionId,
       messageThreadId: BigInt(input.threadId),

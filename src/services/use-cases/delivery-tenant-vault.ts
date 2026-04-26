@@ -115,8 +115,8 @@ export const createDeliveryProjectVault = (deps: {
     }
     await deps.prisma.tenantMember.upsert({
       where: { tenantId_tgUserId: { tenantId: projectId, tgUserId } },
-      update: { role: "ADMIN" },
-      create: { tenantId: projectId, tgUserId, role: "ADMIN" }
+      update: { projectId, role: "ADMIN" },
+      create: { tenantId: projectId, projectId, tgUserId, role: "ADMIN" }
     });
     return { ok: true, message: `✅ 已添加管理员：<code>${tgUserId}</code>` };
   };
@@ -183,8 +183,8 @@ export const createDeliveryProjectVault = (deps: {
     const projectId = await deps.getRuntimeProjectId();
     const vaultGroup = await deps.prisma.vaultGroup.upsert({
       where: { tenantId_chatId: { tenantId: projectId, chatId: BigInt(normalizedChatId) } },
-      update: {},
-      create: { tenantId: projectId, chatId: BigInt(normalizedChatId) }
+      update: { projectId },
+      create: { tenantId: projectId, projectId, chatId: BigInt(normalizedChatId) }
     });
     const alreadyPrimary = await deps.prisma.tenantVaultBinding.findFirst({
       where: { tenantId: projectId, vaultGroupId: vaultGroup.id, role: "PRIMARY" },
@@ -195,8 +195,8 @@ export const createDeliveryProjectVault = (deps: {
     }
     await deps.prisma.tenantVaultBinding.upsert({
       where: { tenantId_vaultGroupId_role: { tenantId: projectId, vaultGroupId: vaultGroup.id, role: "BACKUP" } },
-      update: {},
-      create: { tenantId: projectId, vaultGroupId: vaultGroup.id, role: "BACKUP" }
+      update: { projectId },
+      create: { tenantId: projectId, projectId, vaultGroupId: vaultGroup.id, role: "BACKUP" }
     });
     return { ok: true, message: "✅ 已添加备份存储群。" };
   };
@@ -232,8 +232,8 @@ export const createDeliveryProjectVault = (deps: {
       await tx.tenantVaultBinding.deleteMany({ where: { tenantId: projectId, vaultGroupId, role: { in: ["BACKUP", "COLD"] } } });
       await tx.tenantVaultBinding.upsert({
         where: { tenantId_vaultGroupId_role: { tenantId: projectId, vaultGroupId, role: "PRIMARY" } },
-        update: {},
-        create: { tenantId: projectId, vaultGroupId, role: "PRIMARY" }
+        update: { projectId },
+        create: { tenantId: projectId, projectId, vaultGroupId, role: "PRIMARY" }
       });
     });
     return { ok: true, message: "✅ 已切换主存储群。" };
@@ -444,8 +444,8 @@ export const createDeliveryProjectVault = (deps: {
     }
     await deps.prisma.tenantTopic.upsert({
       where: { tenantId_vaultGroupId_collectionId_version: { tenantId: projectId, vaultGroupId: binding.vaultGroupId, collectionId: topicCollectionId, version: 1 } },
-      update: { messageThreadId: BigInt(threadId) },
-      create: { tenantId: projectId, vaultGroupId: binding.vaultGroupId, collectionId: topicCollectionId, messageThreadId: BigInt(threadId), version: 1 }
+      update: { projectId, messageThreadId: BigInt(threadId) },
+      create: { tenantId: projectId, projectId, vaultGroupId: binding.vaultGroupId, collectionId: topicCollectionId, messageThreadId: BigInt(threadId), version: 1 }
     });
   };
 
@@ -458,9 +458,10 @@ export const createDeliveryProjectVault = (deps: {
     }
     await deps.prisma.tenantTopic.upsert({
       where: { tenantId_vaultGroupId_collectionId_version: { tenantId: projectId, vaultGroupId: binding.vaultGroupId, collectionId: topicCollectionId, version: 1 } },
-      update: { indexMessageId: messageId === null ? null : BigInt(messageId) },
+      update: { projectId, indexMessageId: messageId === null ? null : BigInt(messageId) },
       create: {
         tenantId: projectId,
+        projectId,
         vaultGroupId: binding.vaultGroupId,
         collectionId: topicCollectionId,
         indexMessageId: messageId === null ? null : BigInt(messageId),

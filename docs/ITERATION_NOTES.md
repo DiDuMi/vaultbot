@@ -2539,3 +2539,185 @@
 
 - Execute the empty `prod` shell deletion sequence in production with a fresh backup.
 - After it passes, continue Phase B project-first cleanup in worker/discovery/ops paths.
+
+## 2026-04-27 - Phase B project-first ops cleanup
+
+### Goal
+
+- Continue compatible Phase B cleanup in the ops path.
+- Keep `/ops/tenant-check` and legacy precheck entrypoints working, but make the primary implementation project-first.
+
+### Changes
+
+- Updated `src/server.ts` so `/ops/tenant-check` now reuses `getProjectDiagnostics` and converts the result to the legacy tenant-shaped response at the route boundary.
+- Removed the server dependency injection path for `getTenantDiagnostics`; tests now only inject project diagnostics.
+- Updated `src/scripts/project-precheck.ts` to prefer `EXPECTED_PROJECT_CODE` and fall back to legacy `EXPECTED_TENANT_CODE`.
+- Cleaned the project precheck output to use project-first labels.
+- Added `withProjectFallback` as the project-first fallback primitive and kept `withProjectTenantFallback` as a compatibility alias.
+- Updated discovery project-scope and project-tag modules to use `withProjectFallback` / `queryByFallback` naming.
+- Narrowed worker error log metadata typing by removing the unused `tenantId` field from `logWorkerError`.
+- Updated `docs/DETENANT_EXECUTION_MATRIX.md` to mark ops diagnostics as mostly complete, with `/ops/tenant-check` explicitly treated as a compatibility route.
+
+### Compatibility Kept
+
+- `/ops/tenant-check` still returns `currentTenantCode` and `tenants` for old callers.
+- `src/scripts/tenant-precheck.ts` still imports the project precheck compatibility implementation.
+- Legacy `EXPECTED_TENANT_CODE` remains a fallback.
+- Existing callers of `withProjectTenantFallback` remain supported through the compatibility alias.
+
+### Verified
+
+- `npm run build`
+- `npm run test`
+- Current result: `215/215 passed`
+
+### Remaining Issues
+
+- Broader docs still contain historical tenant wording.
+- Worker/discovery cleanup can continue in later narrow rounds without schema cleanup.
+
+## 2026-04-27 - Schema cleanup readiness gate
+
+### Goal
+
+- Accept that the next step is readiness assessment, not immediate `Tenant*` / `tenantId` deletion.
+- Add a concrete audit path for deciding when destructive schema cleanup can be considered.
+
+### Changes
+
+- Added `scripts/schema-cleanup-readiness-audit.sql`.
+  - Checks active `Tenant` rows.
+  - Checks existing `projectId` columns for nulls and mismatches.
+  - Lists current `tenantId` footprint across business tables.
+  - Checks dangling `tenantId` and `projectId` references.
+  - Checks recent 24h project dual-write consistency.
+- Added `docs/SCHEMA_CLEANUP_READINESS.md`.
+  - Defines data, code, and migration gates.
+  - Lists current blockers.
+  - Documents production execution commands for the audit script.
+  - Explicitly forbids destructive cleanup at this stage.
+- Linked the readiness doc from `docs/SCHEMA_CLEANUP_DESIGN.md`.
+- Updated `docs/DETENANT_EXECUTION_MATRIX.md` so schema cleanup is marked as "准备阶段" rather than executable cleanup.
+
+### Compatibility Kept
+
+- No schema changes.
+- No data changes.
+- No removal of `Tenant*`, `tenantId`, or compatibility routes.
+
+### Next Suggested Step
+
+- Run the readiness audit against production and paste the output into `docs/SCHEMA_CLEANUP_INVENTORY.md` or a dated production readiness record.
+
+### Production Audit Follow-up
+
+- Synced `scripts/schema-cleanup-readiness-audit.sql` to production.
+- Ran the read-only audit against `vaultbot-postgres-1`.
+- Saved production output to `/root/vaultbot/backups/schema_cleanup_readiness_20260427_042215.txt`.
+- Added `docs/SCHEMA_CLEANUP_PROD_READINESS_20260427.md`.
+- Production data gates are green:
+  - one `Tenant`: `vault`
+  - existing `projectId` columns have `0` null rows
+  - existing `projectId` columns have `0` tenant mismatch rows
+  - dangling `tenantId` and `projectId` references are `0`
+  - recent 24h project dual-write checks are `0`
+- Destructive cleanup remains blocked because compatibility tables still carry real state:
+  - `TenantMember=2`
+  - `TenantSetting=10`
+  - `TenantTopic=2`
+  - `TenantUser=3356`
+  - `TenantVaultBinding=2`
+  - `VaultGroup=2`
+
+## 2026-04-27 - Phase C additive projectId migration and code deploy applied to production
+
+### Goal
+
+- Stop waiting on observation-only status and advance the schema toward project-first cleanup.
+- Add `projectId` compatibility fields to the remaining tenant-scoped tables without deleting old fields.
+- Deploy matching app/worker code so new writes dual-write `tenantId/projectId`.
+
+### Local Changes
+
+- Added migration `prisma/migrations/20260427090000_add_project_id_phase_c_compat/migration.sql`.
+- Updated `prisma/schema.prisma` with nullable `projectId` fields and indexes/unique constraints for:
+  - `TenantMember`
+  - `VaultGroup`
+  - `TenantVaultBinding`
+  - `TenantTopic`
+  - `Tag`
+  - `AssetTag`
+  - `PermissionRule`
+  - `AssetComment`
+  - `AssetCommentLike`
+  - `AssetLike`
+- Updated writes to dual-write `projectId` in:
+  - tag sync/backfill
+  - social comment/like writes
+  - project manager writes
+  - vault group / binding / topic writes
+  - worker project routing writes
+- Updated readiness audit to cover the new Phase C tables.
+
+### Production Changes
+
+- Synced migration and updated readiness audit to `/root/vaultbot`.
+- Created backup:
+  - `/root/vaultbot/backups/phase_c_project_id_pre_20260427_050603.dump`
+- Applied the additive migration via psql.
+- Recorded the migration in `_prisma_migrations` because production host does not have `npx` available:
+  - `20260427090000_add_project_id_phase_c_compat`
+  - checksum `26d8add152ec0f7acde68a9429a956a9cca84010ab0732eda5867cfe530fb964`
+- Saved post-migration audit:
+  - `/root/vaultbot/backups/schema_cleanup_readiness_after_phase_c_20260427_050603.txt`
+- Added deployment record:
+  - `docs/PHASE_C_PROJECT_ID_DEPLOY_20260427.md`
+- Deployed matching source files to production and rebuilt:
+  - `docker compose up -d --build app worker`
+  - image `vaultbot:latest f0fd2133370e`
+- Confirmed `/health/ready`:
+  - `database = true`
+  - `redis = true`
+- Saved post-code-deploy audit:
+  - `/root/vaultbot/backups/schema_cleanup_readiness_after_code_deploy_20260427_073145.txt`
+
+### Production Result
+
+- All 18 audited tenant-scoped tables now have `projectId` populated.
+- Post-migration audit showed:
+  - `project_id_null_rows = 0`
+  - `project_tenant_mismatch_rows = 0`
+  - dangling `tenantId` references = `0`
+  - dangling `projectId` references = `0`
+  - recent 24h project dual-write checks = `0`
+- `/ops/project-check` remained healthy:
+  - `currentProjectCode = vault`
+  - `matched = true`
+  - `assets = 952`
+  - `events = 133329`
+  - `users = 3358`
+  - `batches = 952`
+- A short rebuild-window drift was found from the old running code:
+  - `Tag.projectId is null = 5`
+  - `AssetTag.projectId is null = 12`
+- Backfilled those rows with `projectId = tenantId`.
+- Final post-code-deploy readiness audit showed:
+  - all 18 audited tables `project_id_null_rows = 0`
+  - all 18 audited tables `project_tenant_mismatch_rows = 0`
+  - dangling `tenantId` references = `0`
+  - dangling `projectId` references = `0`
+  - recent 24h project dual-write checks = `0`
+
+### Verified Locally
+
+- `npx prisma validate`
+- `npm run prisma:generate`
+- `npm run build`
+- `npm run test`
+- Current result: `215/215 passed`
+
+### Remaining Work
+
+- Commit/review the local Phase B/C cleanup changes.
+- Monitor deployed dual-write paths briefly with the readiness audit.
+- Plan destructive `Tenant*` / `tenantId` deletion as Phase D, not as an inline follow-up to Phase C.

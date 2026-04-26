@@ -283,9 +283,10 @@ export const createUploadService = (
           chatId: BigInt(config.vaultChatId)
         }
       },
-      update: {},
+      update: { projectId },
       create: {
         tenantId: projectId,
+        projectId,
         chatId: BigInt(config.vaultChatId)
       }
     });
@@ -297,9 +298,10 @@ export const createUploadService = (
           role: "PRIMARY"
         }
       },
-      update: {},
+      update: { projectId },
       create: {
         tenantId: projectId,
+        projectId,
         vaultGroupId: vaultGroup.id,
         role: "PRIMARY"
       }
@@ -320,10 +322,12 @@ export const createUploadService = (
         }
       },
       update: {
+        projectId,
         messageThreadId: BigInt(config.vaultThreadId)
       },
       create: {
         tenantId: projectId,
+        projectId,
         vaultGroupId,
         collectionId: "none",
         messageThreadId: BigInt(config.vaultThreadId),
@@ -411,13 +415,13 @@ export const createUploadService = (
       for (const name of tags) {
         const tag = await tx.tag.upsert({
           where: { tenantId_name: { tenantId: projectId, name } },
-          create: { tenantId: projectId, name },
-          update: {}
+          create: { tenantId: projectId, projectId, name },
+          update: { projectId }
         });
         tagIds.push(tag.id);
       }
       await tx.assetTag.createMany({
-        data: tagIds.map((tagId) => ({ tenantId: projectId, assetId, tagId })),
+        data: tagIds.map((tagId) => ({ tenantId: projectId, projectId, assetId, tagId })),
         skipDuplicates: true
       });
     });

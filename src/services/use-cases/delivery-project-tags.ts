@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeLimit, normalizePage, normalizePageSize } from "./delivery-strategy";
-import { withProjectTenantFallback } from "./project-fallback";
+import { withProjectFallback } from "./project-fallback";
 
 type ProjectTagResult = { tagId: string; name: string } | null;
 type ProjectTopTag = { tagId: string; name: string; count: number };
@@ -50,13 +50,17 @@ export const extractHashtags = (title: string, description: string | null) => {
 };
 
 export const findProjectTagById = async (prisma: PrismaClient, projectId: string, tagId: string): Promise<ProjectTagResult> => {
-  const directTag = await prisma.tag.findFirst({ where: { id: tagId, tenantId: projectId }, select: { id: true, name: true } });
+  const directTag =
+    (await prisma.tag
+      .findFirst({ where: { id: tagId, projectId }, select: { id: true, name: true } } as never)
+      .catch(() => null)) ??
+    (await prisma.tag.findFirst({ where: { id: tagId, tenantId: projectId }, select: { id: true, name: true } }));
   if (directTag) {
     return { tagId: directTag.id, name: directTag.name };
   }
 
   // Safe fallback: only resolve the tag if it's actually referenced by this project.
-  const link = await withProjectTenantFallback({
+  const link = await withProjectFallback({
     queryByProject: () =>
       prisma.assetTag
         .findFirst({
@@ -64,7 +68,7 @@ export const findProjectTagById = async (prisma: PrismaClient, projectId: string
           select: { tag: { select: { id: true, name: true } } }
         })
         .catch(() => null),
-    queryByTenant: () =>
+    queryByFallback: () =>
       prisma.assetTag
         .findFirst({
           where: { tenantId: projectId, tagId, asset: { tenantId: projectId } },
@@ -83,15 +87,22 @@ export const findProjectTagByName = async (prisma: PrismaClient, projectId: stri
   if (!normalized) {
     return null;
   }
-  const directTag = await prisma.tag.findUnique({
-    where: { tenantId_name: { tenantId: projectId, name: normalized } },
-    select: { id: true, name: true }
-  });
+  const directTag =
+    (await prisma.tag
+      .findUnique({
+        where: { projectId_name: { projectId, name: normalized } },
+        select: { id: true, name: true }
+      } as never)
+      .catch(() => null)) ??
+    (await prisma.tag.findUnique({
+      where: { tenantId_name: { tenantId: projectId, name: normalized } },
+      select: { id: true, name: true }
+    }));
   if (directTag) {
     return { tagId: directTag.id, name: directTag.name };
   }
 
-  const link = await withProjectTenantFallback({
+  const link = await withProjectFallback({
     queryByProject: () =>
       prisma.assetTag
         .findFirst({
@@ -99,7 +110,7 @@ export const findProjectTagByName = async (prisma: PrismaClient, projectId: stri
           select: { tag: { select: { id: true, name: true } } }
         })
         .catch(() => null),
-    queryByTenant: () =>
+    queryByFallback: () =>
       prisma.assetTag
         .findFirst({
           where: { tenantId: projectId, tag: { name: normalized }, asset: { tenantId: projectId } },
@@ -122,7 +133,11 @@ const hydrateProjectTagGroups = async (
   if (tagIds.length === 0) {
     return [];
   }
-  const tags = await prisma.tag.findMany({ where: { id: { in: tagIds }, tenantId: projectId }, select: { id: true, name: true } });
+  const tags =
+    (await prisma.tag
+      .findMany({ where: { id: { in: tagIds }, projectId }, select: { id: true, name: true } } as never)
+      .catch(() => [])) ??
+    (await prisma.tag.findMany({ where: { id: { in: tagIds }, tenantId: projectId }, select: { id: true, name: true } }));
   const nameById = new Map(tags.map((t) => [t.id, t.name]));
   return grouped
     .map((g) => {
@@ -233,9 +248,9 @@ export const listProjectAssetsByTagId = async (input: {
     return { total, assets };
   };
 
-  const result = await withProjectTenantFallback({
+  const result = await withProjectFallback({
     queryByProject: () => queryAssets({ projectId, ...baseWhere }),
-    queryByTenant: () => queryAssets({ tenantId: projectId, ...baseWhere }),
+    queryByFallback: () => queryAssets({ tenantId: projectId, ...baseWhere }),
     shouldFallback: (current) => current.total === 0
   });
 
@@ -260,7 +275,7 @@ export const backfillProjectTagsIfEmpty = async (prisma: PrismaClient, projectId
     return;
   }
   const existingCount =
-    typeof prisma.assetTag?.count === "function" ? await prisma.assetTag.count({ where: { tenantId: projectId } }).catch(() => 0) : 0;
+    typeof prisma.assetTag?.count === "function" ? await prisma.assetTag.count({ where: { projectId } } as never).catch(() => 0) : 0;
   if (existingCount > 0) {
     return;
   }
@@ -291,13 +306,13 @@ export const backfillProjectTagsIfEmpty = async (prisma: PrismaClient, projectId
       for (const name of tags) {
         const tag = await tx.tag.upsert({
           where: { tenantId_name: { tenantId: projectId, name } },
-          create: { tenantId: projectId, name },
-          update: {}
+          create: { tenantId: projectId, projectId, name },
+          update: { projectId }
         });
         tagIds.push(tag.id);
       }
       await tx.assetTag.createMany({
-        data: tagIds.map((tagId) => ({ tenantId: projectId, assetId: asset.id, tagId })),
+        data: tagIds.map((tagId) => ({ tenantId: projectId, projectId, assetId: asset.id, tagId })),
         skipDuplicates: true
       });
     }

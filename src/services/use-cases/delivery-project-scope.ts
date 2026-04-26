@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizePage, normalizePageSize } from "./delivery-strategy";
-import { withProjectTenantFallback } from "./project-fallback";
+import { withProjectFallback } from "./project-fallback";
 
 type ProjectRecycledAssetItem = {
   assetId: string;
@@ -52,14 +52,14 @@ export const findOwnedProjectCommittedBatch = async (
   assetId: string,
   extra: Record<string, unknown>
 ) =>
-  withProjectTenantFallback({
+  withProjectFallback({
     queryByProject: () =>
       prisma.uploadBatch.findFirst({
         where: { projectId, userId, assetId, status: "COMMITTED" },
         orderBy: { createdAt: "desc" },
         ...extra
       } as never),
-    queryByTenant: () =>
+    queryByFallback: () =>
       prisma.uploadBatch.findFirst({
         where: { tenantId: projectId, userId, assetId, status: "COMMITTED" },
         orderBy: { createdAt: "desc" },
@@ -74,14 +74,14 @@ export const findProjectAssetById = async <T>(
   assetId: string,
   select: T
 ) =>
-  withProjectTenantFallback({
+  withProjectFallback({
     queryByProject: () => prisma.asset.findFirst({ where: { id: assetId, projectId }, select } as never),
-    queryByTenant: () => prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select } as never),
+    queryByFallback: () => prisma.asset.findFirst({ where: { id: assetId, tenantId: projectId }, select } as never),
     shouldFallback: (current) => current === null
   });
 
 export const listProjectHistoryAssetsByIds = async (prisma: PrismaClient, projectId: string, assetIds: string[]) =>
-  withProjectTenantFallback({
+  withProjectFallback({
     queryByProject: () =>
       prisma.asset
         .findMany({
@@ -95,7 +95,7 @@ export const listProjectHistoryAssetsByIds = async (prisma: PrismaClient, projec
           }
         } as never)
         .catch(() => []),
-    queryByTenant: () =>
+    queryByFallback: () =>
       prisma.asset.findMany({
         where: { id: { in: assetIds }, tenantId: projectId },
         select: {
@@ -159,9 +159,9 @@ export const listProjectRecycledAssets = async (input: {
     return { total, assets };
   };
 
-  const result = await withProjectTenantFallback({
+  const result = await withProjectFallback({
     queryByProject: () => queryAssets(buildWhere("projectId")),
-    queryByTenant: () => queryAssets(buildWhere("tenantId")),
+    queryByFallback: () => queryAssets(buildWhere("tenantId")),
     shouldFallback: (current) => current.total === 0 && current.assets.length === 0
   });
 
@@ -224,9 +224,9 @@ export const listProjectCommittedBatches = async (input: {
     return { total, batches };
   };
 
-  const result = await withProjectTenantFallback({
+  const result = await withProjectFallback({
     queryByProject: () => queryBatches(buildWhere("projectId")),
-    queryByTenant: () => queryBatches(buildWhere("tenantId")),
+    queryByFallback: () => queryBatches(buildWhere("tenantId")),
     shouldFallback: (current) => current.total === 0 && current.batches.length === 0
   });
 
@@ -278,9 +278,9 @@ export const listProjectOpenHistory = async (input: {
     return { total: distinctAssets.length, grouped };
   };
 
-  const result = await withProjectTenantFallback({
+  const result = await withProjectFallback({
     queryByProject: () => queryHistory(buildWhere("projectId")),
-    queryByTenant: () => queryHistory(buildWhere("tenantId")),
+    queryByFallback: () => queryHistory(buildWhere("tenantId")),
     shouldFallback: (current) => current.total === 0
   });
 
@@ -358,9 +358,9 @@ export const listProjectLikedAssets = async (input: {
     return { total, likes };
   };
 
-  const result = await withProjectTenantFallback({
+  const result = await withProjectFallback({
     queryByProject: () => queryLikes(buildWhere("projectId")),
-    queryByTenant: () => queryLikes(buildWhere("tenantId")),
+    queryByFallback: () => queryLikes(buildWhere("tenantId")),
     shouldFallback: (current) => current.total === 0
   });
 
@@ -428,9 +428,9 @@ export const searchProjectAssets = async (input: {
       ? { tenantId: projectId, ...baseWhere }
       : { tenantId: projectId, collectionId, ...baseWhere };
 
-  const result = await withProjectTenantFallback({
+  const result = await withProjectFallback({
     queryByProject: () => queryAssets(projectWhere),
-    queryByTenant: () => queryAssets(fallbackWhere),
+    queryByFallback: () => queryAssets(fallbackWhere),
     shouldFallback: (current) => current.total === 0
   });
 

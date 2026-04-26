@@ -579,9 +579,10 @@ test("replication-worker: project helpers wrap tenant storage compatibility", as
             version: 1
           }
         },
-        update: { messageThreadId: BigInt(123) },
+        update: { projectId: "project_1", messageThreadId: BigInt(123) },
         create: {
           tenantId: "project_1",
+          projectId: "project_1",
           vaultGroupId: "vg_1",
           collectionId: "none",
           messageThreadId: BigInt(123),
@@ -1329,11 +1330,6 @@ test("server: project-check uses project diagnostics wording", async () => {
         currentProjectCode: "demo-project",
         matched: true,
         projects: []
-      }),
-      getTenantDiagnostics: async () => ({
-        currentTenantCode: "demo-project",
-        matched: true,
-        tenants: []
       })
     }
   );
@@ -1382,11 +1378,6 @@ test("server: tenant-check remains a compatibility route", async () => {
         currentProjectCode: "demo-project",
         matched: true,
         projects: []
-      }),
-      getTenantDiagnostics: async () => ({
-        currentTenantCode: "demo-project",
-        matched: true,
-        tenants: []
       })
     }
   );
@@ -1446,11 +1437,6 @@ test("server: OPS_PROJECT_CHECK rate-limit envs override legacy tenant envs", as
         currentProjectCode: "demo-project",
         matched: true,
         projects: []
-      }),
-      getTenantDiagnostics: async () => ({
-        currentTenantCode: "demo-project",
-        matched: true,
-        tenants: []
       })
     }
   );
@@ -2906,7 +2892,7 @@ test("tenant-vault: project manager aliases reuse tenant admin writes", async ()
         upsert: async ({
           create
         }: {
-          create: { tenantId: string; tgUserId: string; role: string };
+          create: { tenantId: string; projectId?: string; tgUserId: string; role: string };
         }) => {
           upsertCalls.push(create);
           return {};
@@ -2924,7 +2910,7 @@ test("tenant-vault: project manager aliases reuse tenant admin writes", async ()
 
   const addResult = await tenantVault.addProjectManager("owner_1", "admin_2");
   assert.equal(addResult.ok, true);
-  assert.deepEqual(upsertCalls.at(-1), { tenantId: "tenant_1", tgUserId: "admin_2", role: "ADMIN" });
+  assert.deepEqual(upsertCalls.at(-1), { tenantId: "tenant_1", projectId: "tenant_1", tgUserId: "admin_2", role: "ADMIN" });
 
   const removeResult = await tenantVault.removeProjectManager("owner_1", "admin_1");
   assert.equal(removeResult.ok, true);
@@ -5584,7 +5570,10 @@ test("discovery: getTagById falls back via assetTag link when direct tag lookup 
   const result = await discovery.getTagById("tag_1");
   assert.deepEqual(result, { tagId: "tag_1", name: "教程" });
 
-  assert.deepEqual(tagFindFirstCalls, [{ where: { id: "tag_1", tenantId: "tenant_1" }, select: { id: true, name: true } }]);
+  assert.deepEqual(tagFindFirstCalls, [
+    { where: { id: "tag_1", projectId: "tenant_1" }, select: { id: true, name: true } },
+    { where: { id: "tag_1", tenantId: "tenant_1" }, select: { id: true, name: true } }
+  ]);
   assert.equal(assetTagFindFirstCalls.length, 2);
   assert.equal((assetTagFindFirstCalls[0] as any)?.where?.asset?.projectId, "tenant_1");
   assert.equal((assetTagFindFirstCalls[1] as any)?.where?.asset?.tenantId, "tenant_1");
@@ -5617,7 +5606,10 @@ test("discovery: getTagByName falls back via assetTag link when direct tag looku
   const result = await discovery.getTagByName("#教程");
   assert.deepEqual(result, { tagId: "tag_1", name: "教程" });
 
-  assert.deepEqual(tagFindUniqueCalls, [{ where: { tenantId_name: { tenantId: "tenant_1", name: "教程" } }, select: { id: true, name: true } }]);
+  assert.deepEqual(tagFindUniqueCalls, [
+    { where: { projectId_name: { projectId: "tenant_1", name: "教程" } }, select: { id: true, name: true } },
+    { where: { tenantId_name: { tenantId: "tenant_1", name: "教程" } }, select: { id: true, name: true } }
+  ]);
   assert.equal(assetTagFindFirstCalls.length, 1);
   assert.equal((assetTagFindFirstCalls[0] as any)?.where?.asset?.projectId, "tenant_1");
   assert.equal((assetTagFindFirstCalls[0] as any)?.where?.tag?.name, "教程");

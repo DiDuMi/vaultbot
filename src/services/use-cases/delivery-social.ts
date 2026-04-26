@@ -355,7 +355,7 @@ export const createDeliverySocial = (deps: {
       return { ok: true, message: "✅ 已取消收藏。", liked: false, count, assetId: context.assetId };
     }
     await deps.prisma.assetCommentLike.create({
-      data: { tenantId: projectId, commentId, userId }
+      data: { tenantId: projectId, projectId, commentId, userId }
     });
     const count = await countProjectCommentLikes(projectId, commentId);
     return { ok: true, message: "⭐️ 已收藏。", liked: true, count, assetId: context.assetId };
@@ -395,7 +395,7 @@ export const createDeliverySocial = (deps: {
       const count = await countProjectAssetLikes(projectId, assetId);
       return { ok: true, message: "✅ 已取消收藏。", liked: false, count };
     }
-    await deps.prisma.assetLike.create({ data: { tenantId: projectId, assetId, userId } });
+    await deps.prisma.assetLike.create({ data: { tenantId: projectId, projectId, assetId, userId } });
     const count = await countProjectAssetLikes(projectId, assetId);
     return { ok: true, message: "⭐️ 已收藏。", liked: true, count };
   };
@@ -441,6 +441,7 @@ export const createDeliverySocial = (deps: {
     const comment = await deps.prisma.assetComment.create({
       data: {
         tenantId: projectId,
+        projectId,
         assetId,
         authorUserId: userId,
         authorName,

@@ -4,7 +4,8 @@ import type { Bot } from "grammy";
 import type { Config } from "./config";
 import { logError } from "./infra/logging";
 import { prisma } from "./infra/persistence";
-import { getProjectDiagnostics, getTenantDiagnostics } from "./infra/persistence/tenant-guard";
+import { getProjectDiagnostics } from "./infra/persistence/tenant-guard";
+import type { ProjectDiagnostics } from "./infra/persistence/tenant-guard";
 import { createRedisConnection } from "./infra/queue";
 
 const withTimeout = async <T>(promise: Promise<T>, ms: number) => {
@@ -53,18 +54,22 @@ const getClientIp = (headers: Record<string, unknown>, ip: string, trustProxy: b
   return ip;
 };
 
+const toTenantDiagnostics = (diagnostics: ProjectDiagnostics) => ({
+  currentTenantCode: diagnostics.currentProjectCode,
+  matched: diagnostics.matched,
+  tenants: diagnostics.projects
+});
+
 export const createServer = (
   bot: Bot,
   config: Config,
   enableWebhook: boolean,
   deps?: {
     prisma?: typeof prisma;
-    getTenantDiagnostics?: typeof getTenantDiagnostics;
     getProjectDiagnostics?: typeof getProjectDiagnostics;
   }
 ) => {
   const prismaClient = deps?.prisma ?? prisma;
-  const loadTenantDiagnostics = deps?.getTenantDiagnostics ?? getTenantDiagnostics;
   const loadProjectDiagnostics = deps?.getProjectDiagnostics ?? getProjectDiagnostics;
   const trustProxy = process.env.TRUST_PROXY === "1";
   const app = Fastify({ logger: { redact: ["req.headers", "res.headers"] }, trustProxy });
@@ -205,7 +210,7 @@ export const createServer = (
   app.get("/ops/tenant-check", async (request, reply) =>
     runOpsCheck(request, reply, {
       op: "tenant_check",
-      loader: () => loadTenantDiagnostics(prismaClient, config.projectContext.code)
+      loader: async () => toTenantDiagnostics(await loadProjectDiagnostics(prismaClient, config.projectContext.code))
     })
   );
 

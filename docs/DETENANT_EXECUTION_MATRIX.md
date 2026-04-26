@@ -162,14 +162,14 @@
 
 #### P1-3 诊断与运维接口收口
 
-- 状态：进行中
+- 状态：大部分完成
 - 优先级：高
 - 主要文件：
   - `src/server.ts`
   - `src/scripts/tenant-precheck.ts`
   - `docs/PRODUCTION_DEPLOY_SOP.md`
 - 当前缺口：
-  - 兼容入口 `/ops/tenant-check` 仍在，需要明确降级为兼容说明
+  - 兼容入口 `/ops/tenant-check` 仍在，但服务端已改为复用 project diagnostics 后转换旧响应形状
   - 其余文档（执行矩阵/任务卡等）仍有部分旧 tenant 视角
 - 验收标准：
   - 保留兼容能力，但新增 project-oriented 诊断入口
@@ -207,13 +207,16 @@
 
 #### P3-1 Schema 物理清理
 
-- 状态：未开始
+- 状态：准备阶段
 - 优先级：暂缓
 - 主要文件：
   - `prisma/schema.prisma`
   - `prisma/migrations/*`
+  - `scripts/schema-cleanup-readiness-audit.sql`
+  - `docs/SCHEMA_CLEANUP_READINESS.md`
 - 当前缺口：
-  - 还没有进入可安全清理的阶段
+  - 已有只读 readiness 审计入口，但还没有生产审计结果与迁移演练结果
+  - 还没有进入可安全执行破坏性清理的阶段
 - 禁止事项：
   - 当前阶段不要删除 `Tenant*`
   - 不要删除业务表中的 `tenantId`

@@ -130,7 +130,7 @@ export const createDeliveryCore = (deps: {
       return false;
     }
     try {
-      await deps.prisma.tenantMember.create({ data: { tenantId: projectId, tgUserId: userId, role: "OWNER" } });
+      await deps.prisma.tenantMember.create({ data: { tenantId: projectId, projectId, tgUserId: userId, role: "OWNER" } });
     } catch {
       return true;
     }

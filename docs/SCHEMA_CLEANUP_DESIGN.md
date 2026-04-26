@@ -16,6 +16,7 @@
 - `docs/DETENANT_EXECUTION_MATRIX.md`
 - `docs/SINGLE_OWNER_STATUS.md`
 - `docs/ITERATION_NOTES.md`
+- `docs/SCHEMA_CLEANUP_READINESS.md`
 
 当前日期基线：`2026-04-21`
 
@@ -194,6 +195,7 @@
 建议在后续单独产出一份盘点报告，例如：
 
 - `docs/SCHEMA_CLEANUP_INVENTORY.md`
+- `docs/SCHEMA_CLEANUP_READINESS.md`
 
 建议至少包含：
 
