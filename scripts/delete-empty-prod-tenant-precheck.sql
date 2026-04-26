@@ -27,6 +27,14 @@ select 'Asset', count(*)
 from "Asset"
 where "tenantId" = (select id from "Tenant" where code = 'prod')
 union all
+select 'Collection', count(*)
+from "Collection"
+where "tenantId" = (select id from "Tenant" where code = 'prod')
+union all
+select 'PermissionRule', count(*)
+from "PermissionRule"
+where "tenantId" = (select id from "Tenant" where code = 'prod')
+union all
 select 'UploadBatch', count(*)
 from "UploadBatch"
 where "tenantId" = (select id from "Tenant" where code = 'prod')
@@ -74,6 +82,10 @@ union all
 select 'TenantTopic', count(*)
 from "TenantTopic"
 where "tenantId" = (select id from "Tenant" where code = 'prod')
+union all
+select 'Broadcast', count(*)
+from "Broadcast"
+where "tenantId" = (select id from "Tenant" where code = 'prod')
 order by table_name;
 
 -- `prod` should also no longer be referenced as projectId.
@@ -83,6 +95,10 @@ where "projectId" = (select id from "Tenant" where code = 'prod')
 union all
 select 'UploadBatch.projectId', count(*)
 from "UploadBatch"
+where "projectId" = (select id from "Tenant" where code = 'prod')
+union all
+select 'Collection.projectId', count(*)
+from "Collection"
 where "projectId" = (select id from "Tenant" where code = 'prod')
 union all
 select 'Event.projectId', count(*)

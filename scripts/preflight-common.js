@@ -15,9 +15,9 @@ const readEnvWithLegacyFallback = (primaryName, legacyName) => {
 
 const createProjectPreflightContext = () => {
   const projectCode = readEnvWithLegacyFallback("PROJECT_CODE", "TENANT_CODE");
-  const expectedProjectCode = (process.env.EXPECTED_TENANT_CODE || "").trim();
-  const allowMismatch = process.env.ALLOW_TENANT_CODE_MISMATCH === "1";
-  const requireExisting = process.env.REQUIRE_EXISTING_TENANT === "1";
+  const expectedProjectCode = readEnvWithLegacyFallback("EXPECTED_PROJECT_CODE", "EXPECTED_TENANT_CODE");
+  const allowMismatch = readEnvWithLegacyFallback("ALLOW_PROJECT_CODE_MISMATCH", "ALLOW_TENANT_CODE_MISMATCH") === "1";
+  const requireExisting = readEnvWithLegacyFallback("REQUIRE_EXISTING_PROJECT", "REQUIRE_EXISTING_TENANT") === "1";
 
   return {
     projectCode,
@@ -81,7 +81,7 @@ const runProjectPreflight = async () => {
 
     const summary = tenants.map((row) => row.code).filter(Boolean).join(", ");
     console.error(`Project code mismatch: current=${projectCode}, existing database codes=${summary}`);
-    console.error("You can set ALLOW_TENANT_CODE_MISMATCH=1 to allow creating a new project context");
+    console.error("You can set ALLOW_PROJECT_CODE_MISMATCH=1 to allow creating a new project context");
     process.exit(1);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

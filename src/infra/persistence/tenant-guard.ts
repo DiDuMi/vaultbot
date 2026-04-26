@@ -37,6 +37,24 @@ export type RuntimeProjectContext = {
   name: string;
 };
 
+const readEnvWithLegacyFallback = (primaryName: string, legacyName: string) => {
+  const primary = process.env[primaryName];
+  if (primary !== undefined && primary.trim() !== "") {
+    return primary.trim();
+  }
+  const legacy = process.env[legacyName];
+  if (legacy !== undefined && legacy.trim() !== "") {
+    return legacy.trim();
+  }
+  return "";
+};
+
+const isProjectCodeMismatchAllowed = () =>
+  readEnvWithLegacyFallback("ALLOW_PROJECT_CODE_MISMATCH", "ALLOW_TENANT_CODE_MISMATCH") === "1";
+
+const isExistingProjectRequired = () =>
+  readEnvWithLegacyFallback("REQUIRE_EXISTING_PROJECT", "REQUIRE_EXISTING_TENANT") === "1";
+
 const listScopedDiagnostics = async (prisma: PrismaClient, scopedCode: string) => {
   const rows = await prisma.tenant.findMany({
     orderBy: { createdAt: "asc" },
@@ -98,13 +116,13 @@ export const getProjectDiagnostics = async (prisma: PrismaClient, projectCode: s
 export const assertProjectCodeConsistency = async (
   prisma: PrismaClient,
   projectCode: string,
-  allowMismatch = process.env.ALLOW_TENANT_CODE_MISMATCH === "1"
+  allowMismatch = isProjectCodeMismatchAllowed()
 ) => {
-  const expectedTenantCode = (process.env.EXPECTED_TENANT_CODE || "").trim();
-  if (expectedTenantCode && expectedTenantCode !== projectCode) {
-    throw new Error(`PROJECT_CODE 校验失败：当前=${projectCode}，期望=${expectedTenantCode}`);
+  const expectedProjectCode = readEnvWithLegacyFallback("EXPECTED_PROJECT_CODE", "EXPECTED_TENANT_CODE");
+  if (expectedProjectCode && expectedProjectCode !== projectCode) {
+    throw new Error(`PROJECT_CODE 校验失败：当前=${projectCode}，期望=${expectedProjectCode}`);
   }
-  const requireExisting = process.env.REQUIRE_EXISTING_TENANT === "1";
+  const requireExisting = isExistingProjectRequired();
   const existing = await prisma.tenant.findUnique({
     where: { code: projectCode },
     select: { id: true }
@@ -129,7 +147,7 @@ export const assertProjectCodeConsistency = async (
   const codes = tenants.map((row) => row.code).filter(Boolean);
   const summary = codes.join(", ");
   throw new Error(
-    `PROJECT_CODE 不匹配：当前=${projectCode}，数据库已有项目=${summary}。已阻止启动，避免写入新项目导致统计归零。若确认需要新建项目，请设置 ALLOW_TENANT_CODE_MISMATCH=1。`
+    `PROJECT_CODE 不匹配：当前=${projectCode}，数据库已有项目=${summary}。已阻止启动，避免写入新项目导致统计归零。若确认需要新建项目，请设置 ALLOW_PROJECT_CODE_MISMATCH=1。`
   );
 };
 
@@ -138,7 +156,7 @@ export const assertTenantCodeConsistency = assertProjectCodeConsistency;
 export const assertProjectContextConsistency = async (
   prisma: PrismaClient,
   projectContext: { code: string; name: string },
-  allowMismatch = process.env.ALLOW_TENANT_CODE_MISMATCH === "1"
+  allowMismatch = isProjectCodeMismatchAllowed()
 ) => assertProjectCodeConsistency(prisma, projectContext.code, allowMismatch);
 
 const isSingleOwnerBootstrapAllowed = () => {

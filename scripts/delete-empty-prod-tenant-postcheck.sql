@@ -28,6 +28,11 @@ from "UploadBatch"
 where "projectId" is not null
   and "projectId" not in (select id from "Tenant")
 union all
+select 'Collection.projectId', count(*)
+from "Collection"
+where "projectId" is not null
+  and "projectId" not in (select id from "Tenant")
+union all
 select 'Event.projectId', count(*)
 from "Event"
 where "projectId" is not null

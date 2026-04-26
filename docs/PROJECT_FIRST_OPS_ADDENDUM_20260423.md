@@ -14,10 +14,12 @@ It should be read as the latest override for production operations.
 
 - `PROJECT_CODE` is the primary production identifier.
 - `PROJECT_NAME` is the primary production display name.
+- `EXPECTED_PROJECT_CODE`, `REQUIRE_EXISTING_PROJECT`, and `ALLOW_PROJECT_CODE_MISMATCH` are the preferred drift-protection variables.
 - `TENANT_CODE` and `TENANT_NAME` now exist only as legacy fallback inputs.
+- `EXPECTED_TENANT_CODE`, `REQUIRE_EXISTING_TENANT`, and `ALLOW_TENANT_CODE_MISMATCH` now exist only as legacy fallback inputs.
 - After the production merge:
   - `vault` is the only active business project
-  - `prod` remains only as an empty shell `Tenant` row
+  - `prod` may remain only as an empty shell `Tenant` row until the delete-empty-prod-shell step is executed
 
 ## Operational Entry Points
 
@@ -40,6 +42,9 @@ Interpretation:
 - all new operational guidance should say:
   - prefer `PROJECT_CODE`
   - prefer `PROJECT_NAME`
+  - prefer `EXPECTED_PROJECT_CODE`
+  - prefer `REQUIRE_EXISTING_PROJECT`
+  - prefer `ALLOW_PROJECT_CODE_MISMATCH`
   - fall back to legacy `TENANT_*` only when needed
 
 ## Impact On Existing Docs

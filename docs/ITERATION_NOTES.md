@@ -2449,3 +2449,93 @@
 
 - Complete the `24h` observation record first.
 - In parallel, prepare the post-merge Phase B execution checklist and project-first ops/script cleanup.
+
+## 2026-04-26 - Post-observation empty prod shell cleanup prepared
+
+### Goal
+
+- Move forward after production observation passed.
+- Keep the next step narrow: delete only the empty `prod` shell when production precheck confirms it is still empty.
+- Continue project-first ops cleanup without removing tenant schema compatibility.
+
+### Changes
+
+- Strengthened the empty `prod` shell deletion scripts:
+  - `scripts/delete-empty-prod-tenant-precheck.sql`
+  - `scripts/delete-empty-prod-tenant.sql`
+  - `scripts/delete-empty-prod-tenant-postcheck.sql`
+- Added missing checks for:
+  - `Collection`
+  - `PermissionRule`
+  - `Broadcast.tenantId`
+  - `Collection.projectId`
+- Updated `docs/PROD_TO_VAULT_MERGE_RUNBOOK.md` with the production sequence for deleting the empty `prod` shell.
+- Added project-first drift-protection env names:
+  - `EXPECTED_PROJECT_CODE`
+  - `REQUIRE_EXISTING_PROJECT`
+  - `ALLOW_PROJECT_CODE_MISMATCH`
+- Kept legacy fallback env names working:
+  - `EXPECTED_TENANT_CODE`
+  - `REQUIRE_EXISTING_TENANT`
+  - `ALLOW_TENANT_CODE_MISMATCH`
+- Updated `.env.example`, `README.md`, and `docs/PROJECT_FIRST_OPS_ADDENDUM_20260423.md`.
+- Narrowed replication scheduler batch scans to the runtime project:
+  - `src/worker/replication-scheduler.ts`
+  - active `projectId = runtimeProjectId` rows are preferred
+  - legacy `projectId is null and tenantId = runtimeProjectId` rows remain readable
+- Wrapped replication worker storage-routing calls behind project-named helpers:
+  - `listProjectVaultBindings`
+  - `ensureProjectPrimaryVaultBinding`
+  - `findProjectTopic`
+  - `upsertProjectTopicThreadId`
+  - these helpers still use existing `TenantVaultBinding` / `TenantTopic` storage internally
+- Wrapped replication worker setting reads behind project-named helpers:
+  - `getProjectSettingValue`
+  - `getProjectMinReplicasSetting`
+  - these helpers prefer `projectId_key` and fall back to `tenantId_key`
+- Moved worker project routing helpers into `src/worker/project-routing.ts` so `replication-worker.ts` stays focused on replication flow.
+- Moved worker project audience/user helpers into `src/worker/project-audience.ts` while keeping compatibility re-exports from `src/worker/helpers.ts`.
+- Updated `src/worker/index.ts` and worker tests to import project audience helpers directly from `src/worker/project-audience.ts`.
+- Renamed worker audience tests from generic `worker-helper` wording to `worker project-audience` wording.
+- Extracted `withProjectTenantFallback` into `src/services/use-cases/project-fallback.ts` so future service cleanup can reuse a single project-first fallback primitive without depending on discovery.
+- Extracted discovery project-scope helpers into `src/services/use-cases/delivery-project-scope.ts`:
+  - `findOwnedProjectCommittedBatch`
+  - `findProjectAssetById`
+  - `listProjectHistoryAssetsByIds`
+  - `listProjectRecycledAssets`
+  - `listProjectCommittedBatches`
+  - `listProjectOpenHistory`
+  - `listProjectLikedAssets`
+  - `searchProjectAssets`
+- Extracted command-style asset helpers into `src/services/use-cases/delivery-project-assets.ts`:
+  - `getProjectUserAssetMeta`
+  - `setProjectUserAssetSearchable`
+  - `deleteProjectUserAsset`
+  - `recycleProjectUserAsset`
+  - `restoreProjectUserAsset`
+- Extracted discovery tag helpers into `src/services/use-cases/delivery-project-tags.ts`:
+  - `normalizeTagName`
+  - `extractHashtags`
+  - `findProjectTagById`
+  - `findProjectTagByName`
+  - `listProjectTopTags`
+  - `listProjectAssetsByTagId`
+  - `backfillProjectTagsIfEmpty`
+- Kept `delivery-discovery.ts` as the public discovery facade while delegating tag lookup, top-tag aggregation, tag asset listing, and project/tenant fallback details to `delivery-project-tags.ts`.
+
+### Verified
+
+- `npm run build`
+- `npm run test`
+- Current result: `215/215 passed`
+
+### Remaining Issues
+
+- Production execution still needs to run the delete-empty-prod precheck/delete/postcheck sequence.
+- `Tenant*` models and `tenantId` columns remain compatibility structures.
+- Schema cleanup is still blocked until after the empty shell deletion is verified and a separate destructive cleanup decision is made.
+
+### Next Suggested Step
+
+- Execute the empty `prod` shell deletion sequence in production with a fresh backup.
+- After it passes, continue Phase B project-first cleanup in worker/discovery/ops paths.

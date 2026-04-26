@@ -10,6 +10,14 @@ type QueueLike = {
   ) => Promise<unknown>;
 };
 
+export const buildRuntimeProjectBatchWhere = (
+  runtimeProjectId: string,
+  extra: Record<string, unknown> = {}
+) => ({
+  ...extra,
+  OR: [{ projectId: runtimeProjectId }, { projectId: null, tenantId: runtimeProjectId }]
+});
+
 export const startReplicationScheduler = (deps: {
   prisma: PrismaClient;
   runtimeProjectId: string;
@@ -95,7 +103,10 @@ export const startReplicationScheduler = (deps: {
       deps.logError({ op: "heartbeat_process_upsert", projectId: deps.runtimeProjectId }, error)
     );
     const batches = await deps.prisma.uploadBatch.findMany({
-      where: { status: "COMMITTED", items: { some: { status: { in: ["PENDING", "FAILED"] } } } },
+      where: buildRuntimeProjectBatchWhere(deps.runtimeProjectId, {
+        status: "COMMITTED",
+        items: { some: { status: { in: ["PENDING", "FAILED"] } } }
+      }),
       take: 10,
       orderBy: { createdAt: "desc" },
       select: { id: true, tenantId: true, projectId: true }
@@ -146,7 +157,7 @@ export const startReplicationScheduler = (deps: {
     }
 
     const backfill = await deps.prisma.uploadBatch.findMany({
-      where: { status: "COMMITTED" },
+      where: buildRuntimeProjectBatchWhere(deps.runtimeProjectId, { status: "COMMITTED" }),
       orderBy: { createdAt: "desc" },
       take: replicationBackfillTake,
       skip: backfillOffset,

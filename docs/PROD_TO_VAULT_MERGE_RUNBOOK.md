@@ -116,6 +116,33 @@ Only consider deleting the empty `prod` tenant shell after:
 - no new writes target `prod`
 - runtime checks still resolve to `vault`
 
+## Delete The Empty Prod Shell
+
+Run this only after the post-merge observation windows pass.
+
+This step deletes only the empty `Tenant` row with `code = 'prod'`. It does not remove `Tenant*` models, `tenantId` columns, or any compatibility paths.
+
+Recommended production sequence:
+
+1. create a fresh backup
+2. stop or pause write-heavy entrypoints if possible
+3. run `scripts/delete-empty-prod-tenant-precheck.sql`
+4. run `scripts/delete-empty-prod-tenant.sql`
+5. run `scripts/delete-empty-prod-tenant-postcheck.sql`
+6. resume traffic
+7. run `/ops/project-check` and the observation audit once more
+
+Commands:
+
+```bash
+docker exec -i vaultbot-postgres-1 psql -U vaultbot -d vaultbot -f - < /root/vaultbot/scripts/delete-empty-prod-tenant-precheck.sql
+docker exec -i vaultbot-postgres-1 psql -U vaultbot -d vaultbot -f - < /root/vaultbot/scripts/delete-empty-prod-tenant.sql
+docker exec -i vaultbot-postgres-1 psql -U vaultbot -d vaultbot -f - < /root/vaultbot/scripts/delete-empty-prod-tenant-postcheck.sql
+docker exec -i vaultbot-postgres-1 psql -U vaultbot -d vaultbot -f - < /root/vaultbot/scripts/project-observation-audit.sql
+```
+
+Do not proceed if precheck shows any non-zero `prod` rows in business-bearing tables or any `projectId` references to `prod`.
+
 ## Current Backup Reference
 
 Fresh production backup created during preparation:

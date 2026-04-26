@@ -31,6 +31,8 @@ begin
     coalesce((select count(*) from "TenantMember" where "tenantId" = prod_id), 0) +
     coalesce((select count(*) from "TenantUser" where "tenantId" = prod_id), 0) +
     coalesce((select count(*) from "Asset" where "tenantId" = prod_id), 0) +
+    coalesce((select count(*) from "Collection" where "tenantId" = prod_id), 0) +
+    coalesce((select count(*) from "PermissionRule" where "tenantId" = prod_id), 0) +
     coalesce((select count(*) from "UploadBatch" where "tenantId" = prod_id), 0) +
     coalesce((select count(*) from "Event" where "tenantId" = prod_id), 0) +
     coalesce((select count(*) from "Tag" where "tenantId" = prod_id), 0) +
@@ -42,7 +44,8 @@ begin
     coalesce((select count(*) from "AssetLike" where "tenantId" = prod_id), 0) +
     coalesce((select count(*) from "VaultGroup" where "tenantId" = prod_id), 0) +
     coalesce((select count(*) from "TenantVaultBinding" where "tenantId" = prod_id), 0) +
-    coalesce((select count(*) from "TenantTopic" where "tenantId" = prod_id), 0)
+    coalesce((select count(*) from "TenantTopic" where "tenantId" = prod_id), 0) +
+    coalesce((select count(*) from "Broadcast" where "tenantId" = prod_id), 0)
   into remaining_business_rows;
 
   if remaining_business_rows <> 0 then
@@ -52,6 +55,7 @@ begin
   select
     coalesce((select count(*) from "Asset" where "projectId" = prod_id), 0) +
     coalesce((select count(*) from "UploadBatch" where "projectId" = prod_id), 0) +
+    coalesce((select count(*) from "Collection" where "projectId" = prod_id), 0) +
     coalesce((select count(*) from "Event" where "projectId" = prod_id), 0) +
     coalesce((select count(*) from "TenantUser" where "projectId" = prod_id), 0) +
     coalesce((select count(*) from "UserPreference" where "projectId" = prod_id), 0) +

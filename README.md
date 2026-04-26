@@ -114,6 +114,8 @@ chmod +x scripts/deploy-docker.sh
 Project-first notes:
 - `scripts/deploy-docker.sh` now prefers `scripts/preflight-project.js`
 - `scripts/preflight-project.js` reads `PROJECT_CODE` first and falls back to legacy `TENANT_CODE`
+- `EXPECTED_PROJECT_CODE`, `REQUIRE_EXISTING_PROJECT`, and `ALLOW_PROJECT_CODE_MISMATCH` are the preferred drift-protection variables
+- legacy `EXPECTED_TENANT_CODE`, `REQUIRE_EXISTING_TENANT`, and `ALLOW_TENANT_CODE_MISMATCH` remain as fallbacks
 - `scripts/preflight-tenant.js` remains as a compatibility entrypoint and uses the same project-first logic
 - `scripts/rebuild-tags.js` also reads `PROJECT_CODE` first and falls back to legacy `TENANT_CODE`
 - production drift checks should now be understood as `PROJECT_CODE` checks, with legacy `TENANT_CODE` compatibility only

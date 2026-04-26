@@ -2,6 +2,13 @@ import type { PrismaClient } from "@prisma/client";
 import type { Bot } from "grammy";
 import { copyToVault, withTelegramRetry } from "../infra/telegram";
 import { isSingleOwnerModeEnabled } from "../infra/runtime-mode";
+import {
+  ensureProjectPrimaryVaultBinding,
+  findProjectTopic,
+  getProjectMinReplicasSetting,
+  listProjectVaultBindings,
+  upsertProjectTopicThreadId
+} from "./project-routing";
 import { logWorkerError } from "./strategy";
 
 export const createReplicateBatch = (deps: {
@@ -34,27 +41,10 @@ export const createReplicateBatch = (deps: {
     const collectionId = rawCollectionId ?? "none";
     const collectionTitle = asset?.collection?.title ?? (rawCollectionId ? "\u5206\u7c7b" : "\u672a\u5206\u7c7b");
 
-    const bindings = await deps.prisma.tenantVaultBinding.findMany({
-      where: { tenantId: projectScopeId, role: { in: ["PRIMARY", "BACKUP"] } },
-      include: { vaultGroup: true },
-      orderBy: [{ role: "asc" }, { createdAt: "asc" }]
-    });
+    const bindings = await listProjectVaultBindings(deps.prisma, projectScopeId);
     if (bindings.length === 0) {
       const configuredChatId = BigInt(deps.config.vaultChatId);
-      const createdGroup = await deps.prisma.vaultGroup.upsert({
-        where: { tenantId_chatId: { tenantId: projectScopeId, chatId: configuredChatId } },
-        update: {},
-        create: { tenantId: projectScopeId, chatId: configuredChatId }
-      });
-      await deps.prisma.tenantVaultBinding.upsert({
-        where: { tenantId_vaultGroupId_role: { tenantId: projectScopeId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
-        update: {},
-        create: { tenantId: projectScopeId, vaultGroupId: createdGroup.id, role: "PRIMARY" }
-      });
-      const createdBinding = await deps.prisma.tenantVaultBinding.findUnique({
-        where: { tenantId_vaultGroupId_role: { tenantId: projectScopeId, vaultGroupId: createdGroup.id, role: "PRIMARY" } },
-        include: { vaultGroup: true }
-      });
+      const createdBinding = await ensureProjectPrimaryVaultBinding(deps.prisma, projectScopeId, configuredChatId);
       if (createdBinding) {
         bindings.push(createdBinding);
       }
@@ -78,21 +68,7 @@ export const createReplicateBatch = (deps: {
       ? [{ binding: required, required: true }, ...optional.map((b) => ({ binding: b, required: false }))]
       : [{ binding: required, required: true }];
 
-    const rawMinReplicas =
-      (await deps.prisma.tenantSetting
-        .findUnique({
-          where: { projectId_key: { projectId: projectScopeId, key: "min_replicas" } },
-          select: { value: true }
-        })
-        .then((row) => row?.value ?? null)
-        .catch(() => null)) ??
-      (await deps.prisma.tenantSetting
-        .findUnique({
-          where: { tenantId_key: { tenantId: projectScopeId, key: "min_replicas" } },
-          select: { value: true }
-        })
-        .then((row) => row?.value ?? null)
-        .catch(() => null));
+    const rawMinReplicas = await getProjectMinReplicasSetting(deps.prisma, projectScopeId);
     const parsedMin = rawMinReplicas ? Number(rawMinReplicas) : 1;
     const minReplicas = isSingleOwnerModeEnabled()
       ? 1
@@ -121,9 +97,7 @@ export const createReplicateBatch = (deps: {
 
     const ensureThreadId = async (vaultGroupId: string, vaultChatId: string, isForum: boolean) => {
       if (isForum) {
-        const topic = await deps.prisma.tenantTopic.findFirst({
-          where: { tenantId: projectScopeId, vaultGroupId, collectionId, version: 1 }
-        });
+        const topic = await findProjectTopic(deps.prisma, { projectId: projectScopeId, vaultGroupId, collectionId });
         const existingThreadId = topic?.messageThreadId ? Number(topic.messageThreadId) : null;
         if (existingThreadId) {
           return existingThreadId;
@@ -137,25 +111,7 @@ export const createReplicateBatch = (deps: {
         ).catch(() => null);
         const createdThreadId = created?.message_thread_id;
         if (typeof createdThreadId === "number") {
-          await deps.prisma.tenantTopic
-            .upsert({
-              where: {
-                tenantId_vaultGroupId_collectionId_version: {
-                  tenantId: projectScopeId,
-                  vaultGroupId,
-                  collectionId,
-                  version: 1
-                }
-              },
-              update: { messageThreadId: BigInt(createdThreadId) },
-              create: {
-                tenantId: projectScopeId,
-                vaultGroupId,
-                collectionId,
-                messageThreadId: BigInt(createdThreadId),
-                version: 1
-              }
-            })
+          await upsertProjectTopicThreadId(deps.prisma, { projectId: projectScopeId, vaultGroupId, collectionId, threadId: createdThreadId })
             .catch((error) =>
               logWorkerError(
                 { op: "project_topic_upsert", projectId: projectScopeId, scope: `vaultGroupId:${vaultGroupId}:collectionId:${collectionId}:v1` },
@@ -167,23 +123,11 @@ export const createReplicateBatch = (deps: {
         return undefined;
       }
       if (deps.config.vaultThreadId !== undefined) {
-        await deps.prisma.tenantTopic.upsert({
-          where: {
-            tenantId_vaultGroupId_collectionId_version: {
-              tenantId: projectScopeId,
-              vaultGroupId,
-              collectionId: "none",
-              version: 1
-            }
-          },
-          update: { messageThreadId: BigInt(deps.config.vaultThreadId) },
-          create: {
-            tenantId: projectScopeId,
-            vaultGroupId,
-            collectionId: "none",
-            messageThreadId: BigInt(deps.config.vaultThreadId),
-            version: 1
-          }
+        await upsertProjectTopicThreadId(deps.prisma, {
+          projectId: projectScopeId,
+          vaultGroupId,
+          collectionId: "none",
+          threadId: deps.config.vaultThreadId
         });
         return deps.config.vaultThreadId;
       }

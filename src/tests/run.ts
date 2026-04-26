@@ -24,24 +24,26 @@ import { registerDeliveryModuleTests } from "./use-cases/delivery-modules";
 import { createWorkerRoutes } from "../worker/routes";
 import { startIntervalScheduler } from "../worker/orchestration";
 import {
-  backfillProjectUsers,
   backfillTenantUsers,
   computeProjectNextBroadcastRunAt,
   computeNextBroadcastRunAt,
   ensureProjectRuntimeId,
   ensureRuntimeProjectId,
   getBroadcastTargetUserIds,
-  getProjectAssetPublisherUserId,
+  sendMediaGroupWithRetry,
+  sendProjectMediaGroupWithRetry
+} from "../worker/helpers";
+import {
+  backfillProjectUsers,
   getLatestProjectAssetPublisherUserId,
-  getProjectScopeId,
+  getProjectAssetPublisherUserId,
   getProjectBroadcastTargetUserIds,
+  getProjectScopeId,
   isSafeTelegramNumericId,
   parseProjectTelegramUserId,
   resolveProjectScopeId,
-  sendMediaGroupWithRetry,
-  sendProjectMediaGroupWithRetry,
   syncProjectUsers
-} from "../worker/helpers";
+} from "../worker/project-audience";
 import {
   upsertProjectSetting,
   upsertProjectWorkerProcessHeartbeat,
@@ -83,6 +85,9 @@ import {
 } from "../bot/project/composition";
 import { createProjectTagRenderers } from "../bot/project/tags";
 import { createDeliveryDiscovery, createProjectDiscovery } from "../services/use-cases/delivery-discovery";
+import { findProjectAssetById } from "../services/use-cases/delivery-project-scope";
+import { extractHashtags, findProjectTagByName, normalizeTagName } from "../services/use-cases/delivery-project-tags";
+import { withProjectTenantFallback } from "../services/use-cases/project-fallback";
 import { createDeliveryAdmin, createProjectAdmin } from "../services/use-cases/delivery-admin";
 import { createDeliveryCore } from "../services/use-cases/delivery-core";
 import { createDeliveryPreferences, createProjectPreferences } from "../services/use-cases/delivery-preferences";
@@ -113,6 +118,13 @@ import { createDeliveryReplicaSelection, createProjectReplicaSelection } from ".
 import { createDeliveryProjectVault, createDeliveryTenantVault } from "../services/use-cases/delivery-project-vault";
 import { createUploadService } from "../services/use-cases/upload";
 import { createProjectReplicateBatch, createReplicateBatch } from "../worker/replication-worker";
+import {
+  findProjectTopic,
+  getProjectMinReplicasSetting,
+  listProjectVaultBindings,
+  upsertProjectTopicThreadId
+} from "../worker/project-routing";
+import { buildRuntimeProjectBatchWhere } from "../worker/replication-scheduler";
 import { createServer } from "../server";
 import { loadConfig } from "../config";
 import type { Asset as LegacyAsset, Event as LegacyEvent, PermissionRule as LegacyPermissionRule, Project, ProjectAsset, ProjectEvent, ProjectPermissionRule, Tenant } from "../core/domain/models";
@@ -376,6 +388,28 @@ test("tenant-guard: project context consistency reuses tenant guard checks", asy
   }
 });
 
+test("tenant-guard: project-first expected code env overrides legacy expected code", async () => {
+  const previousProjectExpected = process.env.EXPECTED_PROJECT_CODE;
+  const previousTenantExpected = process.env.EXPECTED_TENANT_CODE;
+  process.env.EXPECTED_PROJECT_CODE = "demo-project";
+  process.env.EXPECTED_TENANT_CODE = "legacy-project";
+  try {
+    await assert.doesNotReject(() =>
+      assertProjectCodeConsistency(
+        {
+          tenant: {
+            findUnique: async () => ({ id: "tenant_1" })
+          }
+        } as never,
+        "demo-project"
+      )
+    );
+  } finally {
+    process.env.EXPECTED_PROJECT_CODE = previousProjectExpected;
+    process.env.EXPECTED_TENANT_CODE = previousTenantExpected;
+  }
+});
+
 test("tenant-guard: project code consistency uses project-first wording", async () => {
   const previousExpected = process.env.EXPECTED_TENANT_CODE;
   process.env.EXPECTED_TENANT_CODE = "expected-project";
@@ -430,21 +464,21 @@ test("worker-helper: runtime project id wraps runtime project context", async ()
   assert.equal(result, "tenant_1");
 });
 
-test("worker-helper: project scope and runtime helpers remain compatibility aliases", () => {
+test("worker project-audience: project scope helper remains a compatibility alias", () => {
   assert.equal(ensureProjectRuntimeId, ensureRuntimeProjectId);
   assert.equal(getProjectScopeId, resolveProjectScopeId);
 });
 
-test("worker-helper: project user backfill remains a compatibility alias", () => {
+test("worker project-audience: project user backfill remains a compatibility alias", () => {
   assert.equal(backfillProjectUsers, backfillTenantUsers);
   assert.equal(syncProjectUsers, backfillProjectUsers);
 });
 
-test("worker-helper: project broadcast target ids remain a compatibility alias", () => {
+test("worker project-audience: broadcast target ids remain a compatibility alias", () => {
   assert.equal(getProjectBroadcastTargetUserIds, getBroadcastTargetUserIds);
 });
 
-test("worker-helper: additional project aliases remain compatible", () => {
+test("worker project-audience: additional project aliases remain compatible", () => {
   assert.equal(getProjectAssetPublisherUserId, getLatestProjectAssetPublisherUserId);
   assert.equal(parseProjectTelegramUserId, isSafeTelegramNumericId);
   assert.equal(sendProjectMediaGroupWithRetry, sendMediaGroupWithRetry);
@@ -467,6 +501,122 @@ test("worker-storage: project heartbeat upserts remain compatibility aliases", (
 
 test("worker replication: project batch replicator remains a compatibility alias", () => {
   assert.equal(createProjectReplicateBatch, createReplicateBatch);
+});
+
+test("worker replication scheduler: runtime project batch scope keeps tenant fallback", () => {
+  assert.deepEqual(
+    buildRuntimeProjectBatchWhere("project_1", {
+      status: "COMMITTED",
+      items: { some: { status: { in: ["PENDING", "FAILED"] } } }
+    }),
+    {
+      status: "COMMITTED",
+      items: { some: { status: { in: ["PENDING", "FAILED"] } } },
+      OR: [{ projectId: "project_1" }, { projectId: null, tenantId: "project_1" }]
+    }
+  );
+});
+
+test("replication-worker: project helpers wrap tenant storage compatibility", async () => {
+  const calls: Array<{ op: string; args: unknown }> = [];
+  await listProjectVaultBindings(
+    {
+      tenantVaultBinding: {
+        findMany: async (args: unknown) => {
+          calls.push({ op: "binding.findMany", args });
+          return [];
+        }
+      }
+    } as never,
+    "project_1"
+  );
+  await findProjectTopic(
+    {
+      tenantTopic: {
+        findFirst: async (args: unknown) => {
+          calls.push({ op: "topic.findFirst", args });
+          return null;
+        }
+      }
+    } as never,
+    { projectId: "project_1", vaultGroupId: "vg_1", collectionId: "none" }
+  );
+  await upsertProjectTopicThreadId(
+    {
+      tenantTopic: {
+        upsert: async (args: unknown) => {
+          calls.push({ op: "topic.upsert", args });
+          return {};
+        }
+      }
+    } as never,
+    { projectId: "project_1", vaultGroupId: "vg_1", collectionId: "none", threadId: 123 }
+  );
+
+  assert.deepEqual(calls, [
+    {
+      op: "binding.findMany",
+      args: {
+        where: { tenantId: "project_1", role: { in: ["PRIMARY", "BACKUP"] } },
+        include: { vaultGroup: true },
+        orderBy: [{ role: "asc" }, { createdAt: "asc" }]
+      }
+    },
+    {
+      op: "topic.findFirst",
+      args: {
+        where: { tenantId: "project_1", vaultGroupId: "vg_1", collectionId: "none", version: 1 }
+      }
+    },
+    {
+      op: "topic.upsert",
+      args: {
+        where: {
+          tenantId_vaultGroupId_collectionId_version: {
+            tenantId: "project_1",
+            vaultGroupId: "vg_1",
+            collectionId: "none",
+            version: 1
+          }
+        },
+        update: { messageThreadId: BigInt(123) },
+        create: {
+          tenantId: "project_1",
+          vaultGroupId: "vg_1",
+          collectionId: "none",
+          messageThreadId: BigInt(123),
+          version: 1
+        }
+      }
+    }
+  ]);
+});
+
+test("replication-worker: project min replicas setting prefers projectId and falls back to tenantId", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const value = await getProjectMinReplicasSetting(
+    {
+      tenantSetting: {
+        findUnique: async (args: Record<string, unknown>) => {
+          calls.push(args);
+          return calls.length === 1 ? null : { value: "2" };
+        }
+      }
+    } as never,
+    "project_1"
+  );
+
+  assert.equal(value, "2");
+  assert.deepEqual(calls, [
+    {
+      where: { projectId_key: { projectId: "project_1", key: "min_replicas" } },
+      select: { value: true }
+    },
+    {
+      where: { tenantId_key: { tenantId: "project_1", key: "min_replicas" } },
+      select: { value: true }
+    }
+  ]);
 });
 
 test("worker-storage: project setting dual-writes projectId", async () => {
@@ -503,7 +653,7 @@ test("worker-storage: project setting dual-writes projectId", async () => {
   ]);
 });
 
-test("worker-helper: broadcast target ids prefer projectId and fall back to tenantId", async () => {
+test("worker project-audience: broadcast target ids prefer projectId and fall back to tenantId", async () => {
   const eventWheres: Array<Record<string, unknown>> = [];
   const userWheres: Array<Record<string, unknown>> = [];
 
@@ -533,7 +683,7 @@ test("worker-helper: broadcast target ids prefer projectId and fall back to tena
   assert.deepEqual(userWheres, [{ projectId: "tenant_1" }, { tenantId: "tenant_1" }]);
 });
 
-test("worker-helper: backfill users dual-writes projectId", async () => {
+test("worker project-audience: backfill users dual-writes projectId", async () => {
   const upsertCalls: Array<{
     where: { tenantId_tgUserId: { tenantId: string; tgUserId: string } };
     update: { projectId: string; username: string | null; firstName: string | null; lastName: string | null; lastSeenAt: Date };
@@ -607,7 +757,7 @@ test("worker-helper: backfill users dual-writes projectId", async () => {
   assert.equal(upsertCalls[0]?.where.tenantId_tgUserId.tgUserId, "1001");
 });
 
-test("worker-helper: latest asset publisher prefers projectId", async () => {
+test("worker project-audience: latest asset publisher prefers projectId", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const userId = await getLatestProjectAssetPublisherUserId(
     {
@@ -632,7 +782,7 @@ test("worker-helper: latest asset publisher prefers projectId", async () => {
   ]);
 });
 
-test("worker-helper: latest asset publisher falls back to tenantId", async () => {
+test("worker project-audience: latest asset publisher falls back to tenantId", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const userId = await getLatestProjectAssetPublisherUserId(
     {
@@ -662,7 +812,7 @@ test("worker-helper: latest asset publisher falls back to tenantId", async () =>
   ]);
 });
 
-test("worker-helper: resolveProjectScopeId prefers projectId and falls back to tenantId", () => {
+test("worker project-audience: resolveProjectScopeId prefers projectId and falls back to tenantId", () => {
   assert.equal(resolveProjectScopeId({ projectId: "project_1", tenantId: "tenant_1" }), "project_1");
   assert.equal(resolveProjectScopeId({ projectId: "", tenantId: "tenant_1" }), "tenant_1");
   assert.equal(resolveProjectScopeId({ projectId: null, tenantId: "tenant_1" }), "tenant_1");
@@ -735,6 +885,95 @@ test("storage: project-first method aliases remain compatible", async () => {
   assert.equal(storage.getProjectSetting, storage.getSetting);
   assert.equal(storage.upsertProjectSetting, storage.upsertSetting);
   assert.equal(storage.deleteProjectSetting, storage.deleteSetting);
+});
+
+test("discovery: project-tenant fallback keeps project result when accepted", async () => {
+  const calls: string[] = [];
+  const result = await withProjectTenantFallback({
+    queryByProject: async () => {
+      calls.push("project");
+      return ["project-result"];
+    },
+    queryByTenant: async () => {
+      calls.push("tenant");
+      return ["tenant-result"];
+    },
+    shouldFallback: (items) => items.length === 0
+  });
+
+  assert.deepEqual(result, ["project-result"]);
+  assert.deepEqual(calls, ["project"]);
+});
+
+test("discovery: project-tenant fallback queries tenant when project result is empty", async () => {
+  const calls: string[] = [];
+  const result = await withProjectTenantFallback({
+    queryByProject: async () => {
+      calls.push("project");
+      return [] as string[];
+    },
+    queryByTenant: async () => {
+      calls.push("tenant");
+      return ["tenant-result"];
+    },
+    shouldFallback: (items) => items.length === 0
+  });
+
+  assert.deepEqual(result, ["tenant-result"]);
+  assert.deepEqual(calls, ["project", "tenant"]);
+});
+
+test("discovery project scope: findProjectAssetById falls back to tenant scope", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const result = await findProjectAssetById(
+    {
+      asset: {
+        findFirst: async (args: Record<string, unknown>) => {
+          calls.push(args);
+          return calls.length === 1 ? null : { id: "asset_1" };
+        }
+      }
+    } as never,
+    "project_1",
+    "asset_1",
+    { id: true }
+  );
+
+  assert.deepEqual(result, { id: "asset_1" });
+  assert.deepEqual(calls, [
+    { where: { id: "asset_1", projectId: "project_1" }, select: { id: true } },
+    { where: { id: "asset_1", tenantId: "project_1" }, select: { id: true } }
+  ]);
+});
+
+test("discovery project tags: normalizes and extracts hashtags", () => {
+  assert.equal(normalizeTagName("##教程"), "教程");
+  assert.equal(normalizeTagName("   "), null);
+  assert.deepEqual(extractHashtags("<b>#教程</b> #实战 #教程", "描述 #Node_JS"), ["教程", "实战", "node_js"]);
+});
+
+test("discovery project tags: findProjectTagByName uses project scope before tenant fallback", async () => {
+  const assetTagFindFirstCalls: Array<Record<string, unknown>> = [];
+  const result = await findProjectTagByName(
+    {
+      tag: {
+        findUnique: async () => null
+      },
+      assetTag: {
+        findFirst: async (args: Record<string, unknown>) => {
+          assetTagFindFirstCalls.push(args);
+          return assetTagFindFirstCalls.length === 1 ? null : { tag: { id: "tag_1", name: "教程" } };
+        }
+      }
+    } as never,
+    "project_1",
+    "#教程"
+  );
+
+  assert.deepEqual(result, { tagId: "tag_1", name: "教程" });
+  assert.equal(assetTagFindFirstCalls.length, 2);
+  assert.equal((assetTagFindFirstCalls[0] as any)?.where?.asset?.projectId, "project_1");
+  assert.equal((assetTagFindFirstCalls[1] as any)?.where?.asset?.tenantId, "project_1");
 });
 
 test("social: project factory remains a compatibility alias", () => {

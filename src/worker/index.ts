@@ -10,14 +10,16 @@ import { startBroadcastScheduler } from "./broadcast-scheduler";
 import {
   computeProjectNextBroadcastRunAt,
   ensureProjectRuntimeId,
-  getProjectAssetPublisherUserId,
-  getProjectBroadcastTargetUserIds,
   parseNumberWithBounds,
-  getProjectScopeId,
   sendProjectMediaGroupWithRetry,
-  syncProjectUsers,
   sleep
 } from "./helpers";
+import {
+  getProjectAssetPublisherUserId,
+  getProjectBroadcastTargetUserIds,
+  getProjectScopeId,
+  syncProjectUsers
+} from "./project-audience";
 import { startIntervalScheduler } from "./orchestration";
 import { startProjectReplicationScheduler } from "./replication-scheduler";
 import { createProjectReplicateBatch } from "./replication-worker";
